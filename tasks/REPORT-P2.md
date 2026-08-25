@@ -9,4 +9,4 @@
 验收 4：真实只读数据 47996 indexed 88；lumina.sessionCount 71；三个误分组名均 0；mic-sync 3、rc-projects 1；health version p2 / dataVersion 4 / watch fs.watch。
 验收 5：无库 CLI：6d329823…=`manual/not-orca-worktree` 且 command 含 `/Users/bb00/workspace`，3c952b07…=`resumed`；在线 02998b64… 连跑 5 次均 `switched`；stderr 均有 JSON plan，`database is locked` 0 次，未执行定位命令。
 验收 6：两次提交后核验 `git status --porcelain` 为空；未 push、未触碰 pm2、真实 `~/.claude` 只读且未读写 `~/.orcatab`。
-实现 commit：`PENDING`
+实现 commit：`8fb84d663e10cfe8fa8e861332062e990580f7ed`
