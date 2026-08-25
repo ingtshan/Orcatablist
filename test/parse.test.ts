@@ -77,3 +77,21 @@ describe("cleanPromptForDisplay", () => {
     expect(cleanPromptForDisplay("普通 <b>课堂</b>\n问题")).toBe("普通 课堂 问题");
   });
 });
+
+import { taskNotificationUser, slashCommandUser, legacyNoOriginUser } from "./fixtures/lines";
+
+test("skips harness-injected task-notification user turns", () => {
+  expect(parseLine(taskNotificationUser).kind).toBe("skip");
+});
+
+test("keeps slash-command human input as a prompt", () => {
+  const event = parseLine(slashCommandUser);
+  expect(event.kind).toBe("prompt");
+  expect(event.text).toContain("codex-delegate");
+});
+
+test("treats a user turn without origin as human (backward compat)", () => {
+  const event = parseLine(legacyNoOriginUser);
+  expect(event.kind).toBe("prompt");
+  expect(event.text).toContain("老版本");
+});

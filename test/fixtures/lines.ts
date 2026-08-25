@@ -12,3 +12,29 @@ export const REAL_SAMPLE_LINES = [
   AI_TITLE_LINE, LAST_PROMPT_LINE, USER_PROMPT_LINE, META_USER_LINE, TOOL_RESULT_USER_LINE,
   ASSISTANT_TEXT_LINE, ASSISTANT_TOOL_LINE, ATTACHMENT_LINE, SYSTEM_LINE,
 ];
+
+export const taskNotificationUser = JSON.stringify({
+  type: "user",
+  message: { role: "user", content: "<task-notification>\n<task-id>abc</task-id> done" },
+  isMeta: false,
+  promptSource: "system",
+  origin: { kind: "task-notification" },
+  timestamp: "2026-08-25T10:00:00.000Z",
+  cwd: "/Users/bb00/workspace/hermes",
+  sessionId: "00000000-0000-4000-8000-000000000000",
+});
+export const slashCommandUser = JSON.stringify({
+  type: "user",
+  message: { role: "user", content: "<command-name>codex-delegate</command-name>" },
+  origin: { kind: "human" },
+  timestamp: "2026-08-25T10:01:00.000Z",
+  cwd: "/Users/bb00/workspace/hermes",
+  sessionId: "00000000-0000-4000-8000-000000000000",
+});
+export const legacyNoOriginUser = JSON.stringify({
+  type: "user",
+  message: { role: "user", content: "老版本没有 origin 字段" },
+  timestamp: "2026-08-25T10:02:00.000Z",
+  cwd: "/Users/bb00/workspace/hermes",
+  sessionId: "00000000-0000-4000-8000-000000000000",
+});

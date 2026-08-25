@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { DISPLAY_TITLE_MAX_CHARS, ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
 import type { ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
 
-const SCHEMA_VERSION = "3"; // bump whenever parse/derivation rules change so stale caches rebuild
+const SCHEMA_VERSION = "4"; // bump whenever parse/derivation rules change so stale caches rebuild
 const SEARCH_ROWS_MULTIPLIER = 3;
 const MAX_HITS_PER_SESSION = 3;
 const LIKE_CONTEXT_CHARS = 40;

@@ -63,6 +63,11 @@ export function parseLine(line: string): ParsedEvent {
 
   if (record.type === "user") {
     if (record.isMeta === true) return { kind: "skip" };
+    // Only genuine human input counts as a prompt. Harness-injected turns
+    // (task notifications, etc.) carry origin.kind !== "human"; older Claude Code
+    // versions omit origin entirely, so a missing origin is treated as human.
+    const origin = asRecord(record.origin);
+    if (origin !== null && origin.kind !== undefined && origin.kind !== "human") return { kind: "skip" };
     const text = firstUserText(asRecord(record.message));
     return text === null ? { kind: "skip" } : { kind: "prompt", text, ts: timestamp(record), ...meta };
   }
