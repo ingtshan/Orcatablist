@@ -16,6 +16,7 @@
 - 所有子进程用 argv 数组 spawn，禁止拼接 shell 字符串；服务只监听 `127.0.0.1`。
 
 ## Code style
+- `src/` 下禁止顶层 `await`（函数体内可以）；进程入口固定为 `src/main.ts`。原因：pm2 7 用 `ProcessContainerForkBun.js` 以 `require()` 加载 Bun 脚本，顶层 `await` 会直接失败，`import.meta.main` 守卫也不会触发。
 - 小模块（≤ 300 行），纯函数优先，早返回，无深层嵌套；不可变数据（返回新对象，不原地修改）。
 - 无魔法数字：阈值/端口/超时用命名常量。
 - 错误显式处理并带上下文；不吞异常。
