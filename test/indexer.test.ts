@@ -51,6 +51,7 @@ describe("incremental indexer", () => {
 
     const first = await indexer.indexAll();
     expect(first).toMatchObject({ files: 1, changed: 1 });
+    expect(db.getDataVersion()).toBe(1);
     expect(db.getStoredSession(SID)).toMatchObject({
       title: "Orca tab linking",
       firstPrompt: "orca 是否有链接可以打开对应的 tab，比如 uri_tab(claude, sessionId)",
@@ -59,6 +60,7 @@ describe("incremental indexer", () => {
     });
     expect(db.countSessionFts(SID)).toBe(2);
     expect((await indexer.indexAll()).changed).toBe(0);
+    expect(db.getDataVersion()).toBe(1);
 
     const appended = `${prompt("第二个问题", "2026-08-25T09:00:00.000Z")}\n${assistant("第二个回答", "2026-08-25T09:00:01.000Z")}\n`;
     appendFileSync(path, appended);
@@ -105,5 +107,33 @@ describe("incremental indexer", () => {
     const indexer = createIndexer({ claudeDir: root, db });
     await expect(indexer.indexAll()).rejects.toThrow("failed to read Claude projects directory");
     db.close();
+  });
+
+  test("fs.watch indexes an appended prompt within 1.5 seconds", async () => {
+    const root = temporaryDirectory();
+    const projectDir = join(root, "projects", "watch");
+    mkdirSync(projectDir, { recursive: true });
+    const path = join(projectDir, `${SID}.jsonl`);
+    writeFileSync(path, `${prompt("watch 初始", "2026-08-25T08:00:00.000Z")}\n`);
+    const db = new OrcaDatabase(join(root, "index.db"));
+    const indexer = createIndexer({
+      claudeDir: root, db,
+      resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
+    });
+    await indexer.indexAll();
+    const watcher = indexer.startWatcher();
+    expect(watcher.mode).toBe("fs.watch");
+    const startedAt = Date.now();
+    appendFileSync(path, `${prompt("watch 新增", "2026-08-25T08:01:00.000Z")}\n`);
+    try {
+      while (db.getStoredSession(SID)!.promptCount < 2 && Date.now() - startedAt < 3_000) {
+        await Bun.sleep(50);
+      }
+      expect(db.getStoredSession(SID)!.promptCount).toBe(2);
+      expect(Date.now() - startedAt).toBeLessThanOrEqual(1_500);
+    } finally {
+      watcher.close();
+      db.close();
+    }
   });
 });

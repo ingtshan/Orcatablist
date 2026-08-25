@@ -1,4 +1,5 @@
-import { basename, isAbsolute } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { ORCATAB_ORCA_BIN } from "./config";
 import type { OrcaDatabase, ProjectRecord } from "./db";
 
@@ -73,6 +74,31 @@ export function mergeOrcaWorkspaceProjects(db: OrcaDatabase): number {
     const target = projects.find((candidate) => !candidate.key.startsWith("orca-workspaces:") && candidate.name === project.name);
     if (target) { db.rewriteProjectKey(project.key, target.key); merged += 1; }
   }
+  if (merged > 0) db.bumpDataVersion();
+  return merged;
+}
+
+function isRepositoryProject(project: ProjectRecord): boolean {
+  return project.root !== "" && existsSync(project.root)
+    && (project.key !== project.root || existsSync(join(project.root, ".git")));
+}
+
+export function mergeDeletedWorktreeProjects(db: OrcaDatabase): number {
+  const projects = db.listProjectRecords();
+  let merged = 0;
+  for (const project of projects) {
+    if (!project.root || project.key !== project.root || existsSync(project.root)) continue;
+    const parent = dirname(project.root);
+    const name = basename(project.root);
+    const target = projects
+      .filter((candidate) => candidate.key !== project.key && isRepositoryProject(candidate))
+      .filter((candidate) => dirname(candidate.root) === parent && name.startsWith(`${basename(candidate.root)}-`))
+      .sort((a, b) => basename(b.root).length - basename(a.root).length)[0];
+    if (!target) continue;
+    db.rewriteProjectKey(project.key, target.key);
+    merged += 1;
+  }
+  if (merged > 0) db.bumpDataVersion();
   return merged;
 }
 
@@ -91,9 +117,9 @@ export async function refreshProjectMetadata(db: OrcaDatabase, orcaBin = ORCATAB
       if (!repo) continue;
       const name = typeof repo.displayName === "string" && repo.displayName ? repo.displayName : project.name;
       const color = typeof repo.badgeColor === "string" ? repo.badgeColor : null;
-      db.updateProjectMetadata(project.key, name, color);
-      updated += 1;
+      if (db.updateProjectMetadata(project.key, name, color)) updated += 1;
     }
+    if (updated > 0) db.bumpDataVersion();
     return updated;
   } catch {
     return 0;

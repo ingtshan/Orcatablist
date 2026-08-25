@@ -15,7 +15,9 @@ export const ORCATAB_DATA_DIR = process.env.ORCATAB_DATA_DIR ?? join(homedir(), 
 export const ORCATAB_ORCA_BIN = process.env.ORCATAB_ORCA_BIN ?? "orca";
 export const ORCATAB_HOST = "127.0.0.1";
 
-export const RESCAN_INTERVAL_MS = 10_000;
+export const RESCAN_INTERVAL_MS = 60_000;
+export const FALLBACK_RESCAN_INTERVAL_MS = 10_000;
+export const WATCH_DEBOUNCE_MS = 500;
 export const LIVE_CACHE_MS = 3_000;
 export const FTS_TEXT_MAX_CHARS = 8_000;
 export const FIRST_PROMPT_MAX_CHARS = 200;

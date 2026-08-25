@@ -31,6 +31,13 @@ function firstUserText(message: JsonRecord | null): string | null {
 }
 
 export function cleanPromptForDisplay(text: string): string {
+  const commandName = /<command-name>([^<]+)<\/command-name>/.exec(text)?.[1];
+  if (commandName !== undefined) {
+    const name = commandName.replace(/\s+/g, " ").trim();
+    const commandArgs = /<command-args>([^<]*)<\/command-args>/.exec(text)?.[1]
+      ?.replace(/\s+/g, " ").trim();
+    return `${name}${commandArgs ? ` ${commandArgs}` : ""}`.slice(0, FIRST_PROMPT_MAX_CHARS);
+  }
   return text
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")

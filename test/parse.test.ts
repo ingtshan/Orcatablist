@@ -62,4 +62,18 @@ describe("cleanPromptForDisplay", () => {
     expect(cleanPromptForDisplay(" <system>secret</system>  课堂\n\t树 ")).toBe("secret 课堂 树");
     expect(cleanPromptForDisplay("x".repeat(250))).toHaveLength(200);
   });
+
+  test("uses command-name without an empty command-args block", () => {
+    expect(cleanPromptForDisplay("<command-message>ignored</command-message><command-name>review</command-name><command-args></command-args>"))
+      .toBe("review");
+  });
+
+  test("combines command-name with non-empty command args", () => {
+    expect(cleanPromptForDisplay("<command-name>mattpocock-skills:review</command-name><command-args>  src/db.ts  </command-args><command-message>ignore me</command-message>"))
+      .toBe("mattpocock-skills:review src/db.ts");
+  });
+
+  test("leaves ordinary prompt cleanup unchanged", () => {
+    expect(cleanPromptForDisplay("普通 <b>课堂</b>\n问题")).toBe("普通 课堂 问题");
+  });
 });

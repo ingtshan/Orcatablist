@@ -36,21 +36,29 @@ function removeDatabaseFiles(path: string): void {
   }
 }
 
+function configureWritableDatabase(database: Database): void {
+  database.exec("PRAGMA busy_timeout = 5000;");
+  database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+}
+
 function openDatabase(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   let database = new Database(path, { create: true });
-  database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+  configureWritableDatabase(database);
   database.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);");
-  const row = database.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null;
-  if (row !== null && row.value !== SCHEMA_VERSION && path !== ":memory:") {
+  let row = database.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null;
+  if (row !== null && row.value !== SCHEMA_VERSION) {
     database.close();
-    removeDatabaseFiles(path);
+    if (path !== ":memory:") removeDatabaseFiles(path);
     database = new Database(path, { create: true });
-    database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+    configureWritableDatabase(database);
     database.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);");
+    row = null;
   }
   database.exec(SCHEMA_SQL);
-  database.query("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)").run(SCHEMA_VERSION);
+  if (row === null) {
+    database.query("INSERT INTO meta(key, value) VALUES ('schema_version', ?)").run(SCHEMA_VERSION);
+  }
   return database;
 }
 
@@ -95,7 +103,10 @@ function likeSnippet(text: string, query: string): string {
 export class OrcaDatabase {
   readonly raw: Database;
 
-  constructor(path = join(ORCATAB_DATA_DIR, "index.db")) { this.raw = openDatabase(path); }
+  constructor(path = join(ORCATAB_DATA_DIR, "index.db"), options: { readonly?: boolean } = {}) {
+    this.raw = options.readonly ? new Database(path, { readonly: true }) : openDatabase(path);
+    if (options.readonly) this.raw.exec("PRAGMA busy_timeout = 5000;");
+  }
   close(): void { this.raw.close(); }
   transaction<T>(work: () => T): T { return this.raw.transaction(work)(); }
 
@@ -105,6 +116,15 @@ export class OrcaDatabase {
   }
   setMeta(key: string, value: string): void {
     this.raw.query("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)").run(key, value);
+  }
+  getDataVersion(): number {
+    const parsed = Number.parseInt(this.getMeta("data_version") ?? "0", 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  bumpDataVersion(): number {
+    this.raw.query(`INSERT INTO meta(key, value) VALUES ('data_version', '1')
+      ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(meta.value AS INTEGER) + 1 AS TEXT)`).run();
+    return this.getDataVersion();
   }
   countSessions(): number {
     return Number((this.raw.query("SELECT COUNT(*) AS count FROM sessions").get() as { count: number }).count);
@@ -141,14 +161,16 @@ export class OrcaDatabase {
   }
   upsertProject(project: ProjectRecord): void {
     this.raw.query(`INSERT INTO projects(key, name, root, color) VALUES (?, ?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET name=excluded.name, root=excluded.root,
-      color=COALESCE(excluded.color, projects.color)`).run(project.key, project.name, project.root, project.color);
+      ON CONFLICT(key) DO UPDATE SET root = CASE WHEN projects.root = '' THEN excluded.root ELSE projects.root END`)
+      .run(project.key, project.name, project.root, project.color);
   }
   listProjectRecords(): ProjectRecord[] {
     return this.raw.query("SELECT key, name, root, color FROM projects").all() as ProjectRecord[];
   }
-  updateProjectMetadata(key: string, name: string, color: string | null): void {
-    this.raw.query("UPDATE projects SET name = ?, color = ? WHERE key = ?").run(name, color, key);
+  updateProjectMetadata(key: string, name: string, color: string | null): boolean {
+    const result = this.raw.query(`UPDATE projects SET name = ?, color = ? WHERE key = ?
+      AND (name IS NOT ? OR color IS NOT ?)`).run(name, color, key, name, color);
+    return result.changes > 0;
   }
   rewriteProjectKey(from: string, to: string): void {
     this.transaction(() => {
@@ -218,3 +240,6 @@ export function listProjects(): ProjectRow[] { return getDefaultDatabase().listP
 export function listSessions(options: { projectKey?: string; limit: number }): SessionRow[] { return getDefaultDatabase().listSessions(options); }
 export function search(q: string, limit: number): SearchResult[] { return getDefaultDatabase().search(q, limit); }
 export function getSession(sid: string): SessionRow | null { return getDefaultDatabase().getSession(sid); }
+export function openDatabaseReadOnly(path: string): OrcaDatabase | null {
+  return existsSync(path) ? new OrcaDatabase(path, { readonly: true }) : null;
+}

@@ -36,6 +36,8 @@
     .mode-switch { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
     .mode-switch button { padding: 7px 13px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
     .mode-switch button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 5px var(--shadow); font-weight: 650; }
+    .top-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+    #index-status { color: var(--muted); font-size: 12px; white-space: nowrap; }
     .layout { display: grid; grid-template-columns: 245px minmax(0, 1fr); width: min(1420px, 100%); margin: 0 auto; }
     .sidebar { position: sticky; top: 68px; align-self: start; height: calc(100vh - 68px); padding: 24px 16px; border-right: 1px solid var(--line); }
     .sidebar h2 { margin: 0 10px 12px; color: var(--muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
@@ -80,7 +82,7 @@
       .topbar { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
       .brand { min-width: auto; }
       .search-wrap { order: 3; min-width: 100%; }
-      .mode-switch { margin-left: auto; }
+      .top-actions { margin-left: auto; }
       .layout { display: block; }
       .sidebar { display: none; }
       main { padding-top: 18px; }
@@ -105,9 +107,12 @@
   <header class="topbar">
     <div class="brand"><span class="brand-mark">O</span><span>OrcaTab</span></div>
     <div class="search-wrap"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
-    <div class="mode-switch" aria-label="会话范围">
-      <button id="all-mode" type="button" aria-pressed="true">全部</button>
-      <button id="live-mode" type="button" aria-pressed="false">在线</button>
+    <div class="top-actions">
+      <span id="index-status">索引更新时间未知</span>
+      <div class="mode-switch" aria-label="会话范围">
+        <button id="all-mode" type="button" aria-pressed="true">全部</button>
+        <button id="live-mode" type="button" aria-pressed="false">在线</button>
+      </div>
     </div>
   </header>
   <div class="layout">
@@ -123,13 +128,17 @@
       const POLL_MS = 5000;
       const SEARCH_DEBOUNCE_MS = 200;
       const RESULT_RESET_MS = 2000;
-      const state = { projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0, activeRow: -1 };
+      const state = {
+        projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0,
+        activeRow: -1, projectEtag: "", sessionEtag: "",
+      };
       const searchInput = document.querySelector("#search");
       const content = document.querySelector("#content");
       const projectList = document.querySelector("#project-list");
       const mobileProject = document.querySelector("#mobile-project");
       const allMode = document.querySelector("#all-mode");
       const liveMode = document.querySelector("#live-mode");
+      const indexStatus = document.querySelector("#index-status");
       const toast = document.querySelector("#toast");
       let searchTimer = 0;
       let toastTimer = 0;
@@ -139,6 +148,15 @@
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
         return body;
+      }
+
+      async function conditionalApi(path, etag) {
+        const headers = etag ? { "If-None-Match": etag } : {};
+        const response = await fetch(path, { headers });
+        if (response.status === 304) return { unchanged: true, etag };
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        return { unchanged: false, etag: response.headers.get("ETag") || "", body };
       }
 
       function showToast(message) {
@@ -216,6 +234,7 @@
             setTimeout(() => { button.textContent = original; }, RESULT_RESET_MS);
           } else if (result.action === "resumed") {
             button.textContent = "已在 Orca 恢复";
+            setTimeout(() => { button.textContent = original; }, RESULT_RESET_MS);
           } else {
             button.textContent = original;
             renderManual(rowElement, result);
@@ -252,7 +271,7 @@
 
         const chips = make("div", "chips");
         if (row.cwd && row.cwd !== project.root) chips.append(make("span", "chip", basename(row.cwd)));
-        if (row.branch) chips.append(make("span", "chip", row.branch));
+        if (row.branch && row.branch !== "HEAD") chips.append(make("span", "chip", row.branch));
         element.append(chips);
 
         const facts = make("div", "facts");
@@ -318,18 +337,32 @@
         const params = new URLSearchParams();
         if (state.selectedProject) params.set("project", state.selectedProject);
         if (state.liveOnly) params.set("live", "1");
-        const [projects, sessions] = await Promise.all([api("/api/projects"), api(`/api/sessions?${params}`)]);
+        const [projects, sessions, health] = await Promise.all([
+          conditionalApi("/api/projects", state.projectEtag),
+          conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
+          api("/healthz"),
+        ]);
         if (requestId !== state.requestId || state.query) return;
-        state.projects = projects;
-        state.sessions = sessions;
-        renderProjects();
-        render();
+        indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
+        let changed = false;
+        if (!projects.unchanged) {
+          state.projects = projects.body;
+          state.projectEtag = projects.etag;
+          renderProjects();
+          changed = true;
+        }
+        if (!sessions.unchanged) {
+          state.sessions = sessions.body;
+          state.sessionEtag = sessions.etag;
+          changed = true;
+        }
+        if (changed) render();
       }
 
       async function runSearch() {
         const query = searchInput.value.trim();
         state.query = query;
-        if (!query) { await loadList(); return; }
+        if (!query) { state.sessionEtag = ""; await loadList(); return; }
         const requestId = ++state.requestId;
         try {
           let rows = await api(`/api/search?q=${encodeURIComponent(query)}`);
@@ -343,12 +376,14 @@
 
       function selectProject(key) {
         state.selectedProject = key;
+        state.sessionEtag = "";
         renderProjects();
         state.query ? runSearch() : loadList().catch((error) => showToast(error.message));
       }
 
       function setLiveOnly(value) {
         state.liveOnly = value;
+        state.sessionEtag = "";
         allMode.setAttribute("aria-pressed", String(!value));
         liveMode.setAttribute("aria-pressed", String(value));
         state.query ? runSearch() : loadList().catch((error) => showToast(error.message));

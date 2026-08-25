@@ -1,14 +1,17 @@
-import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { closeSync, openSync, readSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import { FTS_TEXT_MAX_CHARS, ORCATAB_CLAUDE_DIR, RESCAN_INTERVAL_MS } from "./config";
+import { FTS_TEXT_MAX_CHARS, ORCATAB_CLAUDE_DIR, RESCAN_INTERVAL_MS, WATCH_DEBOUNCE_MS } from "./config";
 import { getDefaultDatabase, type FtsRow, type OrcaDatabase, type StoredSession } from "./db";
 import { cleanPromptForDisplay, parseLine } from "./parse";
-import { createProjectDeps, mergeOrcaWorkspaceProjects, resolveProjectKey } from "./projects";
+import {
+  createProjectDeps, mergeDeletedWorktreeProjects, mergeOrcaWorkspaceProjects, resolveProjectKey,
+} from "./projects";
 
 const SESSION_FILE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/;
 const BYTE_NEWLINE = 0x0a;
 
 export interface IndexSummary { files: number; changed: number; ms: number; }
+export interface WatchHandle { mode: "fs.watch" | "timer"; close(): void; }
 export interface IndexerOptions {
   claudeDir?: string;
   db?: OrcaDatabase;
@@ -104,7 +107,8 @@ export function createIndexer(options: IndexerOptions = {}) {
   const projectDeps = createProjectDeps(db);
   const projectResolver = options.resolveProject ?? resolveProjectKey;
   const now = options.now ?? Date.now;
-  let rescanRunning = false;
+  let activeRun: Promise<IndexSummary> | null = null;
+  let rerunRequested = false;
 
   async function indexFile(file: FileInfo): Promise<boolean> {
     const stored = db.getStoredSession(file.sid);
@@ -129,32 +133,81 @@ export function createIndexer(options: IndexerOptions = {}) {
     return true;
   }
 
-  async function indexAll(): Promise<IndexSummary> {
+  async function performIndexAll(): Promise<IndexSummary> {
     const startedAt = now();
     const files = discoverSessionFiles(claudeDir);
     let changed = 0;
     for (const file of files) if (await indexFile(file)) changed += 1;
+    if (changed > 0) db.bumpDataVersion();
     mergeOrcaWorkspaceProjects(db);
+    mergeDeletedWorktreeProjects(db);
     db.setMeta("indexed_at", String(now()));
     return { files: files.length, changed, ms: Math.max(0, Math.round(now() - startedAt)) };
   }
 
-  function startRescanTimer(): ReturnType<typeof setInterval> {
-    const timer = setInterval(async () => {
-      if (rescanRunning) return;
-      rescanRunning = true;
-      try { await indexAll(); }
-      catch (error) { console.error("orcatab rescan failed", error); }
-      finally { rescanRunning = false; }
-    }, RESCAN_INTERVAL_MS);
+  function indexAll(): Promise<IndexSummary> {
+    if (activeRun !== null) {
+      rerunRequested = true;
+      return activeRun;
+    }
+    activeRun = (async () => {
+      let summary: IndexSummary;
+      do {
+        rerunRequested = false;
+        summary = await performIndexAll();
+      } while (rerunRequested);
+      return summary;
+    })().finally(() => { activeRun = null; });
+    return activeRun;
+  }
+
+  function runBackground(source: string): void {
+    void indexAll().catch((error) => console.error(`orcatab ${source} rescan failed`, error));
+  }
+
+  function startWatcher(onFailure?: () => void): WatchHandle {
+    let watcher: FSWatcher | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let failed = false;
+    const close = () => {
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      watcher?.close();
+    };
+    try {
+      watcher = watch(join(claudeDir, "projects"), { recursive: true }, () => {
+        if (debounceTimer !== null) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => runBackground("watch"), WATCH_DEBOUNCE_MS);
+        debounceTimer.unref?.();
+      });
+      const handle: WatchHandle = { mode: "fs.watch", close };
+      watcher.on("error", (error) => {
+        if (failed) return;
+        failed = true;
+        handle.mode = "timer";
+        console.error("orcatab fs.watch failed; using timer fallback", error);
+        close();
+        onFailure?.();
+      });
+      return handle;
+    } catch (error) {
+      console.error("orcatab fs.watch failed; using timer fallback", error);
+      return { mode: "timer", close: () => {} };
+    }
+  }
+
+  function startRescanTimer(intervalMs = RESCAN_INTERVAL_MS): ReturnType<typeof setInterval> {
+    const timer = setInterval(() => runBackground("timer"), intervalMs);
     timer.unref?.();
     return timer;
   }
 
-  return { indexAll, startRescanTimer };
+  return { indexAll, startWatcher, startRescanTimer };
 }
 
 let defaultIndexer: ReturnType<typeof createIndexer> | null = null;
 function getDefaultIndexer(): ReturnType<typeof createIndexer> { return defaultIndexer ??= createIndexer(); }
 export async function indexAll(): Promise<IndexSummary> { return getDefaultIndexer().indexAll(); }
-export function startRescanTimer(): ReturnType<typeof setInterval> { return getDefaultIndexer().startRescanTimer(); }
+export function startWatcher(onFailure?: () => void): WatchHandle { return getDefaultIndexer().startWatcher(onFailure); }
+export function startRescanTimer(intervalMs = RESCAN_INTERVAL_MS): ReturnType<typeof setInterval> {
+  return getDefaultIndexer().startRescanTimer(intervalMs);
+}

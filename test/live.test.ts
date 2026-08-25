@@ -49,4 +49,25 @@ describe("live session reader", () => {
     reader.getLiveMap();
     expect(reads).toBe(2);
   });
+
+  test("increments liveVersion only when the sid to status map changes", () => {
+    let now = 0;
+    let status = "busy";
+    let name = "first";
+    const reader = createLiveReader({
+      claudeDir: "/fixture", now: () => now, listFiles: () => ["1.json"],
+      readFile: () => JSON.stringify({ sessionId: "sid", pid: process.pid, status, name }),
+      isPidAlive: () => true,
+    });
+    reader.getLiveMap();
+    expect(reader.getLiveVersion()).toBe(1);
+    now = 4_000;
+    name = "renamed";
+    reader.getLiveMap();
+    expect(reader.getLiveVersion()).toBe(1);
+    now = 8_000;
+    status = "waiting";
+    reader.getLiveMap();
+    expect(reader.getLiveVersion()).toBe(2);
+  });
 });

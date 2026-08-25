@@ -1,11 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  ORCATAB_CLAUDE_DIR, ORCATAB_DATA_DIR, ORCATAB_HOST, ORCATAB_ORCA_BIN, ORCATAB_PORT,
+  FALLBACK_RESCAN_INTERVAL_MS, ORCATAB_CLAUDE_DIR, ORCATAB_DATA_DIR, ORCATAB_HOST,
+  ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
 } from "./config";
 import { OrcaDatabase } from "./db";
 import { createFocusDeps, OrcaError, resolveFocus, ValidationError, type FocusDeps } from "./focus";
-import { createIndexer, type IndexSummary } from "./indexer";
+import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
 import type { FocusResult, LiveInfo, SearchResult, SessionRow } from "./types";
@@ -26,8 +27,16 @@ export interface OrcaTabServer {
   stop(): void;
 }
 
-function json(value: unknown, status = 200): Response {
-  return Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
+function json(value: unknown, status = 200, headers: HeadersInit = {}): Response {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("Cache-Control", "no-store");
+  return Response.json(value, { status, headers: responseHeaders });
+}
+
+function conditionalJson(request: Request, etag: string, value: () => unknown): Response {
+  const headers = { ETag: etag, "Cache-Control": "no-store" };
+  if (request.headers.get("If-None-Match") === etag) return new Response(null, { status: 304, headers });
+  return json(value(), 200, { ETag: etag });
 }
 
 function boundedLimit(value: string | null, fallback: number, maximum: number): number {
@@ -64,12 +73,26 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
   await refreshProjectMetadata(db, orcaBin);
   const liveReader = createLiveReader({ claudeDir });
-  const defaultFocusDeps = createFocusDeps(db);
-  const focusDeps = options.focusDeps ?? { ...defaultFocusDeps, findLive: liveReader.findLive };
+  const focusDeps = options.focusDeps ?? createFocusDeps(db, {
+    claudeDir, orcaBin, liveFinder: liveReader.findLive,
+  });
   const timers: Array<ReturnType<typeof setInterval>> = [];
+  let watcher: WatchHandle = { mode: "timer", close: () => {} };
+  let rescanTimer: ReturnType<typeof setInterval> | null = null;
   if (options.startTimers !== false) {
-    timers.push(indexer.startRescanTimer(), startProjectMetadataTimer(db, orcaBin));
+    watcher = indexer.startWatcher(() => {
+      if (rescanTimer !== null) clearInterval(rescanTimer);
+      rescanTimer = indexer.startRescanTimer(FALLBACK_RESCAN_INTERVAL_MS);
+      timers.push(rescanTimer);
+    });
+    rescanTimer = indexer.startRescanTimer(watcher.mode === "fs.watch" ? RESCAN_INTERVAL_MS : FALLBACK_RESCAN_INTERVAL_MS);
+    timers.push(rescanTimer, startProjectMetadataTimer(db, orcaBin));
   }
+
+  const versionedLive = () => {
+    const live = liveReader.getLiveMap();
+    return { live, etag: `"${db.getDataVersion()}-${liveReader.getLiveVersion()}"` };
+  };
 
   const handler = async (request: Request): Promise<Response> => {
     try {
@@ -81,15 +104,24 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       }
       if (request.method === "GET" && url.pathname === "/healthz") {
         const rawIndexedAt = db.getMeta("indexed_at");
-        return json({ ok: true, sessions: db.countSessions(), indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt), version: "p1" });
+        return json({
+          ok: true, sessions: db.countSessions(), indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt),
+          dataVersion: db.getDataVersion(), watch: watcher.mode, version: "p2",
+        });
       }
-      if (request.method === "GET" && url.pathname === "/api/projects") return json(db.listProjects());
+      if (request.method === "GET" && url.pathname === "/api/projects") {
+        const { etag } = versionedLive();
+        return conditionalJson(request, etag, () => db.listProjects());
+      }
       if (request.method === "GET" && url.pathname === "/api/sessions") {
         const limit = boundedLimit(url.searchParams.get("limit"), DEFAULT_SESSIONS_LIMIT, MAX_SESSIONS_LIMIT);
         const projectKey = url.searchParams.get("project") || undefined;
         const liveOnly = url.searchParams.get("live") === "1";
-        const rows = mergeLive(db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit }), liveReader.getLiveMap());
-        return json(liveOnly ? rows.filter((row) => row.live !== null).slice(0, limit) : rows);
+        const { live, etag } = versionedLive();
+        return conditionalJson(request, etag, () => {
+          const rows = mergeLive(db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit }), live);
+          return liveOnly ? rows.filter((row) => row.live !== null).slice(0, limit) : rows;
+        });
       }
       if (request.method === "GET" && url.pathname === "/api/search") {
         const q = url.searchParams.get("q") ?? "";
@@ -98,7 +130,9 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         return json(rows);
       }
       if (request.method === "POST" && url.pathname.startsWith("/api/focus/")) {
-        const sid = decodeURIComponent(url.pathname.slice("/api/focus/".length));
+        let sid: string;
+        try { sid = decodeURIComponent(url.pathname.slice("/api/focus/".length)); }
+        catch { throw new ValidationError("invalid session id encoding"); }
         return json(await resolveFocus(sid, focusDeps, { dryRun: false }));
       }
       if (request.method === "GET" && url.pathname === "/focus") {
@@ -117,7 +151,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   if (!options.quiet) console.log(`orcatab listening on http://${ORCATAB_HOST}:${server.port}`);
   return {
     server, db, indexed,
-    stop: () => { for (const timer of timers) clearInterval(timer); server.stop(true); db.close(); },
+    stop: () => { watcher.close(); for (const timer of timers) clearInterval(timer); server.stop(true); db.close(); },
   };
 }
 

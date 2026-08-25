@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { OrcaDatabase, type FtsRow, type StoredSession } from "../src/db";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDatabaseReadOnly, OrcaDatabase, type FtsRow, type StoredSession } from "../src/db";
 
 const databases: OrcaDatabase[] = [];
+const temporaryDirectories: string[] = [];
 
 function makeDb(): OrcaDatabase {
   const db = new OrcaDatabase(":memory:");
@@ -17,7 +21,10 @@ function session(sid: string, lastInputAt = 1): StoredSession {
   };
 }
 
-afterEach(() => { while (databases.length) databases.pop()!.close(); });
+afterEach(() => {
+  while (databases.length) databases.pop()!.close();
+  while (temporaryDirectories.length) rmSync(temporaryDirectories.pop()!, { recursive: true, force: true });
+});
 
 describe("OrcaDatabase", () => {
   test("stores sessions and builds non-empty display titles", () => {
@@ -76,5 +83,43 @@ describe("OrcaDatabase", () => {
     const results = db.search("共同关键字", 2);
     expect(results).toHaveLength(2);
     expect(results.every((result) => result.hits.length <= 3)).toBeTrue();
+  });
+
+  test("uses a 5 second busy timeout and permits reads during another connection's write", () => {
+    const root = mkdtempSync(join(tmpdir(), "orcatab-db-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "index.db");
+    const writer = new OrcaDatabase(path);
+    const reader = new OrcaDatabase(path);
+    databases.push(writer, reader);
+    const timeout = writer.raw.query("PRAGMA busy_timeout").get() as { timeout: number };
+    expect(timeout.timeout).toBe(5_000);
+    writer.raw.exec("BEGIN IMMEDIATE");
+    try {
+      writer.setMeta("held_write", "yes");
+      expect(reader.getMeta("schema_version")).toBe("1");
+    } finally {
+      writer.raw.exec("ROLLBACK");
+    }
+  });
+
+  test("opens an existing cache read-only and returns null for a missing file", () => {
+    const root = mkdtempSync(join(tmpdir(), "orcatab-readonly-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "index.db");
+    const writable = new OrcaDatabase(path);
+    writable.upsertSession(session("55555555-5555-5555-5555-555555555555"));
+    writable.close();
+    const readonly = openDatabaseReadOnly(path)!;
+    databases.push(readonly);
+    expect(readonly.getSession("55555555-5555-5555-5555-555555555555")?.cwd).toBe("/repo/wt");
+    expect(openDatabaseReadOnly(join(root, "missing.db"))).toBeNull();
+  });
+
+  test("increments dataVersion atomically from zero", () => {
+    const db = makeDb();
+    expect(db.getDataVersion()).toBe(0);
+    expect(db.bumpDataVersion()).toBe(1);
+    expect(db.bumpDataVersion()).toBe(2);
   });
 });
