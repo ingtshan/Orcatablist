@@ -285,7 +285,10 @@
         const copyButton = make("button", "action copy-action", "复制链接");
         copyButton.type = "button";
         copyButton.addEventListener("click", () => copyText(`orcatab://claude/${row.sid}`, "已复制"));
-        actions.append(focusButton, copyButton);
+        const commandButton = make("button", "action command-action", "复制命令");
+        commandButton.type = "button";
+        commandButton.addEventListener("click", () => copyText(`claude --resume ${row.sid}`, "已复制命令"));
+        actions.append(focusButton, copyButton, commandButton);
         element.append(actions);
         return element;
       }

@@ -99,7 +99,9 @@ describe("HTTP server", () => {
     const response = await fetch(`${baseUrl}/`);
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/html");
-    expect(await response.text()).toContain("<title>");
+    const html = await response.text();
+    expect(html).toContain("<title>");
+    expect(html).toContain('copyText(`claude --resume ${row.sid}`, "已复制命令")');
   });
 
   test("validates focus URIs and returns JSON 404 errors", async () => {

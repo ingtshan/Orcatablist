@@ -94,10 +94,12 @@ describe("OrcaDatabase", () => {
     databases.push(writer, reader);
     const timeout = writer.raw.query("PRAGMA busy_timeout").get() as { timeout: number };
     expect(timeout.timeout).toBe(5_000);
+    const schemaVersion = writer.getMeta("schema_version");
+    expect(schemaVersion).not.toBeNull();
     writer.raw.exec("BEGIN IMMEDIATE");
     try {
       writer.setMeta("held_write", "yes");
-      expect(reader.getMeta("schema_version")).toBe("1");
+      expect(reader.getMeta("schema_version")).toBe(schemaVersion);
     } finally {
       writer.raw.exec("ROLLBACK");
     }
