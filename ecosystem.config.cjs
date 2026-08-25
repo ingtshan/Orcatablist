@@ -4,7 +4,7 @@ module.exports = {
   apps: [{
     name: "orcatab",
     cwd: __dirname,
-    script: "src/server.ts",
+    script: "src/main.ts",
     interpreter: "/opt/homebrew/bin/bun",
     env: { ORCATAB_PORT: "47831" },
     autorestart: true, watch: false, max_restarts: 10, restart_delay: 2000,
