@@ -11,4 +11,4 @@
 验收 3：PASS；indexed 88 / 1108 ms；projects 12；lumina groups 1 / sessions 71；live 59；empty title 0；课堂树 8 / highlight 1；focus 400；HTML title 1。
 验收 4：dry-run `switched`，handle `term_ea8b32c1-b2d3-43d9-a8f1-a635963f685f`，tabId `a809d886-95ff-45d5-b727-56a1b8e7b983`。
 验收 5：提交后核验 `git status --porcelain` 为空。
-实现 commit：PENDING
+实现 commit：`f73b7031b803ab3f05ab5e406a2b6dd6c6e23dd2`
