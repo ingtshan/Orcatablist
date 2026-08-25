@@ -55,6 +55,7 @@ describe("incremental indexer", () => {
     expect(db.getStoredSession(SID)).toMatchObject({
       title: "Orca tab linking",
       firstPrompt: "orca 是否有链接可以打开对应的 tab，比如 uri_tab(claude, sessionId)",
+      lastPrompt: "orca 是否有链接可以打开对应的 tab，比如 uri_tab(claude, sessionId)",
       lastInputAt: Date.parse("2026-08-25T08:08:39.177Z"), promptCount: 1,
       parsedOffset: Buffer.byteLength(initial),
     });
@@ -67,6 +68,7 @@ describe("incremental indexer", () => {
     expect((await indexer.indexAll()).changed).toBe(1);
     const afterAppend = db.getStoredSession(SID)!;
     expect(afterAppend.promptCount).toBe(2);
+    expect(afterAppend.lastPrompt).toBe("第二个问题");
     expect(afterAppend.parsedOffset).toBe(Buffer.byteLength(initial + appended));
     expect(db.countSessionFts(SID)).toBe(4);
 
@@ -77,13 +79,14 @@ describe("incremental indexer", () => {
     appendFileSync(path, ',"message":{"content":"半行完成"},"timestamp":"2026-08-25T10:00:00.000Z"}\n');
     await indexer.indexAll();
     expect(db.getStoredSession(SID)!.promptCount).toBe(3);
+    expect(db.getStoredSession(SID)!.lastPrompt).toBe("半行完成");
     expect(db.getStoredSession(SID)!.parsedOffset).toBe(readFileSync(path).byteLength);
     expect(db.countSessionFts(SID)).toBe(5);
 
     const replacement = `${prompt("截断后问题", "2026-08-26T00:00:00.000Z")}\n`;
     writeFileSync(path, replacement);
     await indexer.indexAll();
-    expect(db.getStoredSession(SID)).toMatchObject({ title: null, firstPrompt: "截断后问题", promptCount: 1, parsedOffset: Buffer.byteLength(replacement) });
+    expect(db.getStoredSession(SID)).toMatchObject({ title: null, firstPrompt: "截断后问题", lastPrompt: "截断后问题", promptCount: 1, parsedOffset: Buffer.byteLength(replacement) });
     expect(db.countSessionFts(SID)).toBe(1);
     db.close();
   });
@@ -98,6 +101,48 @@ describe("incremental indexer", () => {
     await indexer.indexAll();
     expect(db.getStoredSession(SID)!.parsedOffset).toBe(0);
     expect(db.getStoredSession(SID)!.title).toBeNull();
+    expect(db.getStoredSession(SID)!.lastPrompt).toBeNull();
+    db.close();
+  });
+
+  test("tracks the first prompt and latest non-empty cleaned prompt independently", async () => {
+    const root = temporaryDirectory();
+    const projectDir = join(root, "projects", "prompts");
+    mkdirSync(projectDir, { recursive: true });
+    const path = join(projectDir, `${SID}.jsonl`);
+    writeFileSync(path, [
+      prompt("  第一条 <context>忽略标签</context>  ", "2026-08-25T08:00:00.000Z"),
+      prompt("第二条\n最近问题", "2026-08-25T08:01:00.000Z"),
+      prompt("<system-reminder></system-reminder>", "2026-08-25T08:02:00.000Z"),
+    ].join("\n") + "\n");
+    const db = new OrcaDatabase(join(root, "index.db"));
+    const indexer = createIndexer({
+      claudeDir: root, db,
+      resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
+    });
+
+    await indexer.indexAll();
+    expect(db.getStoredSession(SID)).toMatchObject({
+      firstPrompt: "第一条 忽略标签",
+      lastPrompt: "第二条 最近问题",
+      promptCount: 3,
+    });
+    db.close();
+  });
+
+  test("keeps lastPrompt null when a session has no prompt", async () => {
+    const root = temporaryDirectory();
+    const projectDir = join(root, "projects", "title-only");
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, `${SID}.jsonl`), `${AI_TITLE_LINE}\n`);
+    const db = new OrcaDatabase(join(root, "index.db"));
+    const indexer = createIndexer({
+      claudeDir: root, db,
+      resolveProject: async () => ({ key: "unknown", name: "未知", root: "", color: null }),
+    });
+
+    await indexer.indexAll();
+    expect(db.getStoredSession(SID)).toMatchObject({ title: "Orca tab linking", lastPrompt: null, promptCount: 0 });
     db.close();
   });
 

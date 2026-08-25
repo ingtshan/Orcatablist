@@ -4,14 +4,14 @@ import { dirname, join } from "node:path";
 import { DISPLAY_TITLE_MAX_CHARS, ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
 import type { ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
 
-const SCHEMA_VERSION = "2"; // bump whenever parse/derivation rules change so stale caches rebuild
+const SCHEMA_VERSION = "3"; // bump whenever parse/derivation rules change so stale caches rebuild
 const SEARCH_ROWS_MULTIPLIER = 3;
 const MAX_HITS_PER_SESSION = 3;
 const LIKE_CONTEXT_CHARS = 40;
 
 export interface StoredSession {
   sid: string; projectKey: string; cwd: string | null; branch: string | null;
-  title: string | null; firstPrompt: string | null; lastInputAt: number | null;
+  title: string | null; firstPrompt: string | null; lastPrompt: string | null; lastInputAt: number | null;
   promptCount: number; filePath: string; fileSize: number; fileMtime: number; parsedOffset: number;
 }
 
@@ -21,7 +21,8 @@ export interface ProjectRecord { key: string; name: string; root: string; color:
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS sessions (
   sid TEXT PRIMARY KEY, project_key TEXT NOT NULL, cwd TEXT, git_branch TEXT,
-  title TEXT, first_prompt TEXT, last_input_at INTEGER, prompt_count INTEGER NOT NULL DEFAULT 0,
+  title TEXT, first_prompt TEXT,
+  last_prompt TEXT, last_input_at INTEGER, prompt_count INTEGER NOT NULL DEFAULT 0,
   file_path TEXT NOT NULL, file_size INTEGER NOT NULL DEFAULT 0, file_mtime INTEGER NOT NULL DEFAULT 0,
   parsed_offset INTEGER NOT NULL DEFAULT 0
 );
@@ -66,6 +67,7 @@ function sessionRow(row: Record<string, unknown>): SessionRow {
   const sid = String(row.sid);
   const title = typeof row.title === "string" && row.title ? row.title : null;
   const firstPrompt = typeof row.first_prompt === "string" && row.first_prompt ? row.first_prompt : null;
+  const lastPrompt = typeof row.last_prompt === "string" && row.last_prompt ? row.last_prompt : null;
   return {
     sid,
     projectKey: String(row.project_key),
@@ -73,6 +75,7 @@ function sessionRow(row: Record<string, unknown>): SessionRow {
     branch: typeof row.git_branch === "string" ? row.git_branch : null,
     title,
     firstPrompt,
+    lastPrompt,
     displayTitle: title ?? firstPrompt?.slice(0, DISPLAY_TITLE_MAX_CHARS) ?? sid.slice(0, 8),
     lastInputAt: typeof row.last_input_at === "number" ? row.last_input_at : null,
     promptCount: Number(row.prompt_count),
@@ -131,14 +134,14 @@ export class OrcaDatabase {
   }
   upsertSession(row: StoredSession): void {
     this.raw.query(`INSERT INTO sessions
-      (sid, project_key, cwd, git_branch, title, first_prompt, last_input_at, prompt_count, file_path, file_size, file_mtime, parsed_offset)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (sid, project_key, cwd, git_branch, title, first_prompt, last_prompt, last_input_at, prompt_count, file_path, file_size, file_mtime, parsed_offset)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(sid) DO UPDATE SET project_key=excluded.project_key, cwd=excluded.cwd,
       git_branch=excluded.git_branch, title=excluded.title, first_prompt=excluded.first_prompt,
-      last_input_at=excluded.last_input_at, prompt_count=excluded.prompt_count, file_path=excluded.file_path,
+      last_prompt=excluded.last_prompt, last_input_at=excluded.last_input_at, prompt_count=excluded.prompt_count, file_path=excluded.file_path,
       file_size=excluded.file_size, file_mtime=excluded.file_mtime, parsed_offset=excluded.parsed_offset`)
-      .run(row.sid, row.projectKey, row.cwd, row.branch, row.title, row.firstPrompt, row.lastInputAt,
-        row.promptCount, row.filePath, row.fileSize, row.fileMtime, row.parsedOffset);
+      .run(row.sid, row.projectKey, row.cwd, row.branch, row.title, row.firstPrompt, row.lastPrompt,
+        row.lastInputAt, row.promptCount, row.filePath, row.fileSize, row.fileMtime, row.parsedOffset);
   }
   getStoredSession(sid: string): StoredSession | null {
     const row = this.raw.query("SELECT * FROM sessions WHERE sid = ?").get(sid) as Record<string, unknown> | null;

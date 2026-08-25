@@ -63,6 +63,7 @@
     .status-idle, .status-shell { background: var(--idle); } .status-offline { background: var(--offline); }
     .session-main { min-width: 0; }
     .session-title { overflow: hidden; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .row-last-input { overflow: hidden; margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
     .hits { display: grid; gap: 3px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
     .hit { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hit strong { color: var(--accent); font-weight: 750; }
@@ -245,7 +246,7 @@
         } finally { button.disabled = false; }
       }
 
-      function sessionRow(row, project) {
+      function sessionRow(row, project, isSearch) {
         const element = make("article", "session-row");
         element.tabIndex = -1;
         element.dataset.sid = row.sid;
@@ -258,6 +259,11 @@
         const title = make("div", "session-title", row.displayTitle);
         if (row.title && row.firstPrompt) title.title = row.firstPrompt;
         main.append(title);
+        if (!isSearch && row.lastPrompt && row.lastPrompt !== row.displayTitle) {
+          const lastInput = make("div", "row-last-input", row.lastPrompt);
+          lastInput.title = row.lastPrompt;
+          main.append(lastInput);
+        }
         if (Array.isArray(row.hits) && row.hits.length) {
           const hits = make("div", "hits");
           row.hits.slice(0, 3).forEach((hit) => {
@@ -295,6 +301,7 @@
 
       function render() {
         state.activeRow = -1;
+        const isSearch = Boolean(state.query);
         content.replaceChildren();
         if (!state.sessions.length) {
           content.append(make("div", "empty", state.query ? "没有匹配的会话" : "当前筛选下没有会话"));
@@ -315,7 +322,7 @@
           const latest = rows.reduce((value, row) => Math.max(value, row.lastInputAt || 0), 0) || null;
           header.append(color, make("h2", "group-title", project.name), make("span", "group-meta", `${rows.length} 个会话 · 最近 ${relativeTime(latest)}`));
           const list = make("div", "session-list");
-          rows.sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0)).forEach((row) => list.append(sessionRow(row, project)));
+          rows.sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0)).forEach((row) => list.append(sessionRow(row, project, isSearch)));
           section.append(header, list);
           content.append(section);
         });

@@ -21,7 +21,7 @@ function git(...args: string[]): void {
 function stored(projectKey: string): StoredSession {
   return {
     sid: "11111111-1111-1111-1111-111111111111", projectKey, cwd: "/tmp/wt", branch: null,
-    title: null, firstPrompt: null, lastInputAt: null, promptCount: 0, filePath: "/tmp/a", fileSize: 0,
+    title: null, firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0, filePath: "/tmp/a", fileSize: 0,
     fileMtime: 0, parsedOffset: 0,
   };
 }

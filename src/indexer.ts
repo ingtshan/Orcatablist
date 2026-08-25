@@ -69,7 +69,7 @@ function readCompleteLines(path: string, offset: number, size: number): Complete
 function emptySession(file: FileInfo): StoredSession {
   return {
     sid: file.sid, projectKey: "unknown", cwd: null, branch: null, title: null,
-    firstPrompt: null, lastInputAt: null, promptCount: 0, filePath: file.path,
+    firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0, filePath: file.path,
     fileSize: 0, fileMtime: 0, parsedOffset: 0,
   };
 }
@@ -88,6 +88,7 @@ function applyLines(base: StoredSession, lines: string[]): { session: StoredSess
       session = {
         ...session,
         firstPrompt: session.firstPrompt ?? (cleaned || null),
+        lastPrompt: cleaned ? cleaned : session.lastPrompt,
         lastInputAt: event.ts === null || event.ts === undefined
           ? session.lastInputAt : Math.max(session.lastInputAt ?? event.ts, event.ts),
         promptCount: session.promptCount + 1,

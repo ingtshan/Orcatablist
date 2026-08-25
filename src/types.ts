@@ -5,6 +5,7 @@ export interface SessionRow {
   sid: string; projectKey: string; cwd: string | null; branch: string | null;
   title: string | null;
   firstPrompt: string | null;
+  lastPrompt: string | null;
   displayTitle: string;
   lastInputAt: number | null;
   promptCount: number;

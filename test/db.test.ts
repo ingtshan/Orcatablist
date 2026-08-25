@@ -16,7 +16,7 @@ function makeDb(): OrcaDatabase {
 function session(sid: string, lastInputAt = 1): StoredSession {
   return {
     sid, projectKey: "/repo", cwd: "/repo/wt", branch: "main", title: null,
-    firstPrompt: "首条问题", lastInputAt, promptCount: 1, filePath: `/tmp/${sid}.jsonl`,
+    firstPrompt: "首条问题", lastPrompt: "最近问题", lastInputAt, promptCount: 1, filePath: `/tmp/${sid}.jsonl`,
     fileSize: 10, fileMtime: 20, parsedOffset: 10,
   };
 }
@@ -33,8 +33,9 @@ describe("OrcaDatabase", () => {
     db.upsertSession(session("11111111-1111-1111-1111-111111111111"));
     const row = db.getSession("11111111-1111-1111-1111-111111111111");
     expect(row?.displayTitle).toBe("首条问题");
+    expect(row?.lastPrompt).toBe("最近问题");
     expect(db.listProjects()[0]).toMatchObject({ name: "repo", sessionCount: 1, lastInputAt: 1 });
-    expect(db.listSessions({ limit: 10 })).toHaveLength(1);
+    expect(db.listSessions({ limit: 10 })).toEqual([row!]);
   });
 
   test("MATCH finds Chinese trigram text and emits highlighted snippets", () => {
@@ -95,7 +96,7 @@ describe("OrcaDatabase", () => {
     const timeout = writer.raw.query("PRAGMA busy_timeout").get() as { timeout: number };
     expect(timeout.timeout).toBe(5_000);
     const schemaVersion = writer.getMeta("schema_version");
-    expect(schemaVersion).not.toBeNull();
+    expect(schemaVersion).toBe("3");
     writer.raw.exec("BEGIN IMMEDIATE");
     try {
       writer.setMeta("held_write", "yes");
