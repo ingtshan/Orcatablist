@@ -109,12 +109,15 @@ function parseCliArgs(args: string[]): { sid: string; dryRun: boolean } {
   return { sid: input.startsWith(URI_PREFIX) ? input.slice(URI_PREFIX.length) : input, dryRun };
 }
 
-if (import.meta.main) {
+async function runCli(args: string[]): Promise<void> {
   try {
-    const { sid, dryRun } = parseCliArgs(process.argv.slice(2));
+    const { sid, dryRun } = parseCliArgs(args);
     console.log(JSON.stringify(await resolveFocus(sid, createFocusDeps(), { dryRun })));
   } catch (error) {
     console.error(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
     process.exitCode = 1;
   }
 }
+
+// No top-level await: this module is imported by server.ts, which pm2 loads with require().
+if (import.meta.main) void runCli(process.argv.slice(2));

@@ -121,10 +121,4 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   };
 }
 
-if (import.meta.main) {
-  try { await createServer(); }
-  catch (error) {
-    console.error("orcatab startup failed", error instanceof Error ? error.stack : error);
-    process.exitCode = 1;
-  }
-}
+// Process entry lives in src/main.ts (no top-level await: pm2 loads scripts with require()).
