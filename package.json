@@ -1,0 +1,16 @@
+{
+  "name": "orcatab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "focus": "bun run src/focus.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}

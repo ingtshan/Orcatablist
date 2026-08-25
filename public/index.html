@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OrcaTab · Claude 会话</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #F4F7F6; --surface: #FFFFFF; --text: #17222A; --muted: #5C6B75;
+      --line: #D5DEE1; --accent: #0E6C75; --accent-soft: #E1F0F1; --hover: #EDF3F2;
+      --busy: #B45309; --waiting: #B91C1C; --idle: #2F855A; --offline: #8A97A0;
+      --focus-ring: #0E6C75; --danger-soft: #FCE8E8; --shadow: #17222A1A;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0E1417; --surface: #151C21; --text: #E4E9EC; --muted: #93A1AB;
+        --line: #263039; --accent: #62C6CD; --accent-soft: #18343A; --hover: #1C272D;
+        --busy: #F5A524; --waiting: #F87171; --idle: #4ADE80; --offline: #6B7A85;
+        --focus-ring: #62C6CD; --danger-soft: #3A2024; --shadow: #00000040;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; overflow-x: hidden; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; }
+    button, input, select { color: inherit; font: inherit; }
+    button, select { cursor: pointer; }
+    :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+    .topbar { position: sticky; z-index: 10; top: 0; display: flex; align-items: center; gap: 16px; min-height: 68px; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--line); box-shadow: 0 3px 14px var(--shadow); }
+    .brand { display: flex; align-items: center; gap: 9px; min-width: 145px; font-weight: 750; letter-spacing: -.02em; }
+    .brand-mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--accent); color: var(--surface); }
+    .search-wrap { position: relative; flex: 1; max-width: 780px; }
+    .search-wrap::before { position: absolute; top: 50%; left: 14px; color: var(--muted); content: "⌕"; font-size: 20px; transform: translateY(-52%); }
+    #search { width: 100%; height: 42px; padding: 0 16px 0 42px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+    #search:focus { border-color: var(--accent); background: var(--surface); }
+    .mode-switch { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+    .mode-switch button { padding: 7px 13px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
+    .mode-switch button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 5px var(--shadow); font-weight: 650; }
+    .layout { display: grid; grid-template-columns: 245px minmax(0, 1fr); width: min(1420px, 100%); margin: 0 auto; }
+    .sidebar { position: sticky; top: 68px; align-self: start; height: calc(100vh - 68px); padding: 24px 16px; border-right: 1px solid var(--line); }
+    .sidebar h2 { margin: 0 10px 12px; color: var(--muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+    #project-list { display: grid; gap: 4px; }
+    .project-button { display: grid; grid-template-columns: 1fr auto; gap: 10px; width: 100%; padding: 10px; border: 0; border-radius: 9px; background: transparent; text-align: left; }
+    .project-button:hover { background: var(--hover); }
+    .project-button.active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+    .project-button .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+    main { min-width: 0; padding: 24px clamp(16px, 3vw, 44px) 60px; }
+    .mobile-project { display: none; width: 100%; height: 42px; margin-bottom: 18px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+    .group { margin-bottom: 30px; }
+    .group-header { display: flex; align-items: center; gap: 9px; margin: 0 0 10px; padding: 0 3px; }
+    .color-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: var(--project-color, var(--offline)); }
+    .group-title { margin: 0; font-size: 16px; }
+    .group-meta { color: var(--muted); font-size: 13px; }
+    .session-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .session-row { display: grid; grid-template-columns: 12px minmax(180px, 1fr) auto auto; gap: 12px; align-items: center; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    .session-row:last-child { border-bottom: 0; }
+    .session-row:hover, .session-row.keyboard-active { background: var(--hover); }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--offline); box-shadow: 0 0 0 3px var(--bg); }
+    .status-busy { background: var(--busy); } .status-waiting { background: var(--waiting); }
+    .status-idle, .status-shell { background: var(--idle); } .status-offline { background: var(--offline); }
+    .session-main { min-width: 0; }
+    .session-title { overflow: hidden; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .hits { display: grid; gap: 3px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .hit { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hit strong { color: var(--accent); font-weight: 750; }
+    .chips { display: flex; max-width: 360px; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .chip { max-width: 160px; overflow: hidden; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .facts { display: grid; min-width: 92px; justify-items: end; gap: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .actions { display: flex; gap: 7px; }
+    .action { min-width: 62px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); white-space: nowrap; }
+    .action:hover { border-color: var(--accent); color: var(--accent); }
+    .action.primary { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+    .manual { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--muted); font-size: 12px; }
+    .manual code { overflow: hidden; font: 12px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { padding: 70px 20px; border: 1px dashed var(--line); border-radius: 13px; color: var(--muted); text-align: center; }
+    #toast { position: fixed; right: 24px; bottom: 22px; z-index: 20; padding: 10px 14px; border-radius: 9px; background: var(--text); color: var(--surface); box-shadow: 0 5px 20px var(--shadow); opacity: 0; transform: translateY(8px); transition: .16s ease; pointer-events: none; }
+    #toast.visible { opacity: 1; transform: translateY(0); }
+    @media (max-width: 899px) {
+      .topbar { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+      .brand { min-width: auto; }
+      .search-wrap { order: 3; min-width: 100%; }
+      .mode-switch { margin-left: auto; }
+      .layout { display: block; }
+      .sidebar { display: none; }
+      main { padding-top: 18px; }
+      .mobile-project { display: block; }
+      .session-row { grid-template-columns: 12px minmax(0, 1fr) auto; }
+      .chips { grid-column: 2 / -1; justify-content: flex-start; }
+      .facts { grid-column: 2; grid-row: 3; justify-items: start; }
+      .actions { grid-column: 3; grid-row: 2 / 4; flex-direction: column; }
+      .manual { grid-column: 2 / -1; }
+    }
+    @media (max-width: 560px) {
+      .brand span:last-child { display: none; }
+      .session-row { gap: 9px; padding: 12px 10px; }
+      .chips { max-width: 100%; }
+      .chip { max-width: 115px; }
+      .action { min-width: 54px; padding-inline: 7px; font-size: 12px; }
+      .group-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">O</span><span>OrcaTab</span></div>
+    <div class="search-wrap"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
+    <div class="mode-switch" aria-label="会话范围">
+      <button id="all-mode" type="button" aria-pressed="true">全部</button>
+      <button id="live-mode" type="button" aria-pressed="false">在线</button>
+    </div>
+  </header>
+  <div class="layout">
+    <aside class="sidebar"><h2>项目</h2><nav id="project-list" aria-label="项目筛选"></nav></aside>
+    <main>
+      <select id="mobile-project" class="mobile-project" aria-label="项目筛选"><option value="">全部项目</option></select>
+      <div id="content" aria-live="polite"></div>
+    </main>
+  </div>
+  <div id="toast" role="status"></div>
+  <script>
+    (() => {
+      const POLL_MS = 5000;
+      const SEARCH_DEBOUNCE_MS = 200;
+      const RESULT_RESET_MS = 2000;
+      const state = { projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0, activeRow: -1 };
+      const searchInput = document.querySelector("#search");
+      const content = document.querySelector("#content");
+      const projectList = document.querySelector("#project-list");
+      const mobileProject = document.querySelector("#mobile-project");
+      const allMode = document.querySelector("#all-mode");
+      const liveMode = document.querySelector("#live-mode");
+      const toast = document.querySelector("#toast");
+      let searchTimer = 0;
+      let toastTimer = 0;
+
+      async function api(path, options) {
+        const response = await fetch(path, options);
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        return body;
+      }
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("visible");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("visible"), RESULT_RESET_MS);
+      }
+
+      function basename(path) {
+        return path ? path.replace(/\/+$/, "").split("/").pop() || path : "";
+      }
+
+      function relativeTime(timestamp) {
+        if (timestamp == null) return "无时间";
+        const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+        if (minutes < 1) return "刚刚";
+        if (minutes < 60) return `${minutes} 分钟前`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours} 小时前`;
+        return `${Math.floor(hours / 24)} 天前`;
+      }
+
+      function projectFor(key) {
+        return state.projects.find((project) => project.key === key) || { key, name: basename(key) || "未知", root: "", color: null };
+      }
+
+      function make(tag, className, text) {
+        const element = document.createElement(tag);
+        if (className) element.className = className;
+        if (text != null) element.textContent = text;
+        return element;
+      }
+
+      function appendHighlighted(parent, snippet) {
+        let remaining = snippet;
+        while (remaining) {
+          const start = remaining.indexOf("‹");
+          const end = start < 0 ? -1 : remaining.indexOf("›", start + 1);
+          if (start < 0 || end < 0) { parent.append(document.createTextNode(remaining)); return; }
+          parent.append(document.createTextNode(remaining.slice(0, start)));
+          parent.append(make("strong", "", remaining.slice(start + 1, end)));
+          remaining = remaining.slice(end + 1);
+        }
+      }
+
+      async function copyText(text, message) {
+        try { await navigator.clipboard.writeText(text); showToast(message); }
+        catch (error) { showToast(`复制失败：${error.message}`); }
+      }
+
+      function renderManual(rowElement, result) {
+        rowElement.querySelector(".manual")?.remove();
+        const panel = make("div", "manual");
+        if (result.command) {
+          panel.append(make("code", "", result.command));
+          const button = make("button", "action", "复制命令");
+          button.type = "button";
+          button.addEventListener("click", () => copyText(result.command, "已复制命令"));
+          panel.append(button);
+        } else {
+          panel.textContent = result.reason === "running-outside-orca" ? "该会话正在 Orca 外运行，无法重复恢复。" : `需要手动处理：${result.reason}`;
+        }
+        rowElement.append(panel);
+      }
+
+      async function focusSession(row, button, rowElement) {
+        const original = row.live ? "定位" : "恢复";
+        button.disabled = true;
+        button.textContent = "处理中…";
+        try {
+          const result = await api(`/api/focus/${encodeURIComponent(row.sid)}`, { method: "POST" });
+          if (result.action === "switched") {
+            button.textContent = "已切到 tab";
+            setTimeout(() => { button.textContent = original; }, RESULT_RESET_MS);
+          } else if (result.action === "resumed") {
+            button.textContent = "已在 Orca 恢复";
+          } else {
+            button.textContent = original;
+            renderManual(rowElement, result);
+          }
+        } catch (error) {
+          button.textContent = original;
+          showToast(`定位失败：${error.message}`);
+        } finally { button.disabled = false; }
+      }
+
+      function sessionRow(row, project) {
+        const element = make("article", "session-row");
+        element.tabIndex = -1;
+        element.dataset.sid = row.sid;
+        const status = row.live?.status || "offline";
+        const dot = make("span", `status-dot status-${status}`);
+        dot.title = row.live ? `${status}${row.live.name ? ` · ${row.live.name}` : ""}` : "offline";
+        element.append(dot);
+
+        const main = make("div", "session-main");
+        const title = make("div", "session-title", row.displayTitle);
+        if (row.title && row.firstPrompt) title.title = row.firstPrompt;
+        main.append(title);
+        if (Array.isArray(row.hits) && row.hits.length) {
+          const hits = make("div", "hits");
+          row.hits.slice(0, 3).forEach((hit) => {
+            const line = make("div", "hit");
+            appendHighlighted(line, hit.snippet);
+            hits.append(line);
+          });
+          main.append(hits);
+        }
+        element.append(main);
+
+        const chips = make("div", "chips");
+        if (row.cwd && row.cwd !== project.root) chips.append(make("span", "chip", basename(row.cwd)));
+        if (row.branch) chips.append(make("span", "chip", row.branch));
+        element.append(chips);
+
+        const facts = make("div", "facts");
+        facts.append(make("span", "", relativeTime(row.lastInputAt)), make("span", "", `${row.promptCount} 轮`));
+        element.append(facts);
+
+        const actions = make("div", "actions");
+        const focusButton = make("button", "action primary focus-action", row.live ? "定位" : "恢复");
+        focusButton.type = "button";
+        focusButton.addEventListener("click", () => focusSession(row, focusButton, element));
+        const copyButton = make("button", "action copy-action", "复制链接");
+        copyButton.type = "button";
+        copyButton.addEventListener("click", () => copyText(`orcatab://claude/${row.sid}`, "已复制"));
+        actions.append(focusButton, copyButton);
+        element.append(actions);
+        return element;
+      }
+
+      function render() {
+        state.activeRow = -1;
+        content.replaceChildren();
+        if (!state.sessions.length) {
+          content.append(make("div", "empty", state.query ? "没有匹配的会话" : "当前筛选下没有会话"));
+          return;
+        }
+        const groups = new Map();
+        state.sessions.forEach((row) => {
+          const rows = groups.get(row.projectKey) || [];
+          rows.push(row);
+          groups.set(row.projectKey, rows);
+        });
+        groups.forEach((rows, key) => {
+          const project = projectFor(key);
+          const section = make("section", "group");
+          const header = make("header", "group-header");
+          const color = make("span", "color-dot");
+          if (project.color) color.style.setProperty("--project-color", project.color);
+          const latest = rows.reduce((value, row) => Math.max(value, row.lastInputAt || 0), 0) || null;
+          header.append(color, make("h2", "group-title", project.name), make("span", "group-meta", `${rows.length} 个会话 · 最近 ${relativeTime(latest)}`));
+          const list = make("div", "session-list");
+          rows.sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0)).forEach((row) => list.append(sessionRow(row, project)));
+          section.append(header, list);
+          content.append(section);
+        });
+      }
+
+      function renderProjects() {
+        projectList.replaceChildren();
+        mobileProject.replaceChildren(new Option("全部项目", ""));
+        state.projects.forEach((project) => {
+          const button = make("button", `project-button${state.selectedProject === project.key ? " active" : ""}`);
+          button.type = "button";
+          button.append(make("span", "name", project.name), make("span", "count", String(project.sessionCount)));
+          button.addEventListener("click", () => selectProject(state.selectedProject === project.key ? "" : project.key));
+          projectList.append(button);
+          mobileProject.append(new Option(`${project.name} (${project.sessionCount})`, project.key));
+        });
+        mobileProject.value = state.selectedProject;
+      }
+
+      async function loadList() {
+        const requestId = ++state.requestId;
+        const params = new URLSearchParams();
+        if (state.selectedProject) params.set("project", state.selectedProject);
+        if (state.liveOnly) params.set("live", "1");
+        const [projects, sessions] = await Promise.all([api("/api/projects"), api(`/api/sessions?${params}`)]);
+        if (requestId !== state.requestId || state.query) return;
+        state.projects = projects;
+        state.sessions = sessions;
+        renderProjects();
+        render();
+      }
+
+      async function runSearch() {
+        const query = searchInput.value.trim();
+        state.query = query;
+        if (!query) { await loadList(); return; }
+        const requestId = ++state.requestId;
+        try {
+          let rows = await api(`/api/search?q=${encodeURIComponent(query)}`);
+          if (state.liveOnly) rows = rows.filter((row) => row.live);
+          if (state.selectedProject) rows = rows.filter((row) => row.projectKey === state.selectedProject);
+          if (requestId !== state.requestId || state.query !== query) return;
+          state.sessions = rows;
+          render();
+        } catch (error) { showToast(`搜索失败：${error.message}`); }
+      }
+
+      function selectProject(key) {
+        state.selectedProject = key;
+        renderProjects();
+        state.query ? runSearch() : loadList().catch((error) => showToast(error.message));
+      }
+
+      function setLiveOnly(value) {
+        state.liveOnly = value;
+        allMode.setAttribute("aria-pressed", String(!value));
+        liveMode.setAttribute("aria-pressed", String(value));
+        state.query ? runSearch() : loadList().catch((error) => showToast(error.message));
+      }
+
+      function moveRow(delta) {
+        const rows = [...document.querySelectorAll(".session-row")];
+        if (!rows.length) return;
+        rows[state.activeRow]?.classList.remove("keyboard-active");
+        state.activeRow = (state.activeRow + delta + rows.length) % rows.length;
+        rows[state.activeRow].classList.add("keyboard-active");
+        rows[state.activeRow].focus();
+        rows[state.activeRow].scrollIntoView({ block: "nearest" });
+      }
+
+      searchInput.addEventListener("input", () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
+      });
+      mobileProject.addEventListener("change", () => selectProject(mobileProject.value));
+      allMode.addEventListener("click", () => setLiveOnly(false));
+      liveMode.addEventListener("click", () => setLiveOnly(true));
+      document.addEventListener("keydown", (event) => {
+        const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
+        if (event.key === "/" && !typing) { event.preventDefault(); searchInput.focus(); return; }
+        if (typing) return;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); moveRow(event.key === "ArrowDown" ? 1 : -1); return; }
+        const row = document.querySelectorAll(".session-row")[state.activeRow];
+        if (!row) return;
+        if (event.key === "Enter") row.querySelector(".focus-action")?.click();
+        if (event.key.toLowerCase() === "c") row.querySelector(".copy-action")?.click();
+      });
+
+      loadList().catch((error) => showToast(`加载失败：${error.message}`));
+      setInterval(() => { if (!state.query) loadList().catch((error) => showToast(error.message)); }, POLL_MS);
+    })();
+  </script>
+</body>
+</html>
