@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,11 +9,13 @@ import type { FocusDeps } from "../src/focus";
 
 const SID = "44444444-4444-4444-4444-444444444444";
 const CODEX_SID = "55555555-5555-5555-5555-555555555555";
+const HERMES_SID = "20260811_031044_76b3bb";
 let root = "";
 let baseUrl = "";
 let app: OrcaTabServer;
 let claudeDir = "";
 let codexDir = "";
+let hermesDb = "";
 let sessionPath = "";
 
 const focusDeps: FocusDeps = {
@@ -45,8 +48,26 @@ beforeAll(async () => {
     JSON.stringify({ type: "response_item", timestamp: "2026-08-25T09:00:01.000Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Codex 页面测试" }] } }),
   ].join("\n") + "\n");
   writeFileSync(join(codexDir, "session_index.jsonl"), `${JSON.stringify({ id: CODEX_SID, thread_name: "Codex 测试会话" })}\n`);
+  hermesDb = join(root, "hermes-state.db");
+  const hermes = new Database(hermesDb, { create: true });
+  hermes.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, title TEXT, display_name TEXT, cwd TEXT, git_branch TEXT,
+      started_at REAL, message_count INTEGER
+    );
+    CREATE TABLE messages (
+      id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, timestamp REAL, active INTEGER
+    );
+  `);
+  hermes.query(`INSERT INTO sessions
+    (id, title, display_name, cwd, git_branch, started_at, message_count) VALUES (?, ?, NULL, ?, ?, ?, ?)`)
+    .run(HERMES_SID, "Hermes 服务测试", cwd, "hermes-test", 1_777_777_000, 1);
+  hermes.query(`INSERT INTO messages
+    (id, session_id, role, content, timestamp, active) VALUES (1, ?, 'user', ?, ?, 1)`)
+    .run(HERMES_SID, "Hermes 页面测试", 1_777_777_001);
+  hermes.close();
   app = await createServer({
-    port: 0, claudeDir, codexDir, dataDir: join(root, "data"),
+    port: 0, claudeDir, codexDir, hermesDb, dataDir: join(root, "data"),
     orcaBin: join(root, "missing-orca"), focusDeps, startTimers: false, quiet: true,
   });
   baseUrl = `http://127.0.0.1:${app.server.port}`;
@@ -58,19 +79,23 @@ describe("HTTP server", () => {
   test("reports health and indexed session count", async () => {
     const response = await fetch(`${baseUrl}/healthz`);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toMatchObject({ ok: true, sessions: 2, agents: ["claude", "codex"], version: "p5", dataVersion: 1, watch: "timer" });
+    expect(await response.json()).toMatchObject({
+      ok: true, sessions: 3, agents: ["claude", "codex", "hermes"], version: "p6", dataVersion: 1, watch: "timer",
+    });
   });
 
   test("serves projects and sessions", async () => {
     const projects = await (await fetch(`${baseUrl}/api/projects`)).json();
     expect(projects).toHaveLength(1);
-    expect(projects[0]).toMatchObject({ name: "fixture-project", sessionCount: 2 });
+    expect(projects[0]).toMatchObject({ name: "fixture-project", sessionCount: 3 });
     const sessions = await (await fetch(`${baseUrl}/api/sessions?limit=99999`)).json();
-    expect(sessions).toHaveLength(2);
+    expect(sessions).toHaveLength(3);
     expect(sessions.find((row: { agent: string }) => row.agent === "claude"))
       .toMatchObject({ agent: "claude", sid: SID, displayTitle: "课堂树会话", live: null });
     expect(sessions.find((row: { agent: string }) => row.agent === "codex"))
       .toMatchObject({ agent: "codex", sid: CODEX_SID, displayTitle: "Codex 测试会话", live: null });
+    expect(sessions.find((row: { agent: string }) => row.agent === "hermes"))
+      .toMatchObject({ agent: "hermes", sid: HERMES_SID, displayTitle: "Hermes 服务测试", live: null });
     expect(await (await fetch(`${baseUrl}/api/sessions?live=1`)).json()).toEqual([]);
   });
 
@@ -102,7 +127,7 @@ describe("HTTP server", () => {
     appendFileSync(sessionPath, `${JSON.stringify({
       type: "user", message: { content: "ETag 更新" }, timestamp: "2026-08-25T09:00:00.000Z",
     })}\n`);
-    await createIndexer({ claudeDir, codexDir, db: app.db }).indexAll();
+    await createIndexer({ claudeDir, codexDir, hermesDb, db: app.db }).indexAll();
     const changed = await fetch(`${baseUrl}/api/sessions`, { headers: { "If-None-Match": etag! } });
     expect(changed.status).toBe(200);
     expect(changed.headers.get("ETag")).not.toBe(etag);
@@ -116,6 +141,8 @@ describe("HTTP server", () => {
     expect(html).toContain("<title>");
     expect(html).toContain("orcatab://${row.agent}/${row.sid}");
     expect(html).toContain("codex resume ${row.sid}");
+    expect(html).toContain("hermes --resume ${row.sid}");
+    expect(html).toContain("agent-hermes");
   });
 
   test("validates focus URIs and returns JSON 404 errors", async () => {
@@ -135,10 +162,12 @@ describe("HTTP server", () => {
     expect(claudeUri.status).toBe(200);
     const legacyPost = await fetch(`${baseUrl}/api/focus/${SID}`, { method: "POST" });
     expect(legacyPost.status).toBe(200);
-    const badAgent = await fetch(`${baseUrl}/api/focus/hermes/${SID}`, { method: "POST" });
-    expect(badAgent.status).toBe(400);
-    const futureAgent = await fetch(`${baseUrl}/focus?uri=${encodeURIComponent(`orcatab://hermes/${SID}`)}`);
-    expect(futureAgent.status).toBe(400);
+    const hermesPost = await fetch(`${baseUrl}/api/focus/hermes/${HERMES_SID}`, { method: "POST" });
+    expect(hermesPost.status).toBe(200);
+    expect(await hermesPost.json()).toEqual({ action: "manual", reason: "unknown-session", command: null });
+    const hermesUri = await fetch(`${baseUrl}/focus?uri=${encodeURIComponent(`orcatab://hermes/${HERMES_SID}`)}`);
+    expect(hermesUri.status).toBe(200);
+    expect(await hermesUri.text()).toContain("manual unknown-session");
     const missing = await fetch(`${baseUrl}/missing`);
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ error: "not found" });

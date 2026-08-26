@@ -105,6 +105,15 @@ describe("OrcaDatabase", () => {
     expect(db.search("跨 agent 聚合", 10).map((row) => row.agent).sort()).toEqual(["claude", "codex"]);
   });
 
+  test("returns Hermes as its own agent and bounds a stored title only for display", () => {
+    const db = makeDb();
+    const sid = "20260811_031044_76b3bb";
+    const title = "赫".repeat(100);
+    db.upsertSession({ ...session(sid, 3, "hermes"), title });
+    expect(db.getStoredSession("hermes", sid)?.title).toBe(title);
+    expect(db.getSession("hermes", sid)).toMatchObject({ agent: "hermes", displayTitle: "赫".repeat(80) });
+  });
+
   test("uses a 5 second busy timeout and permits reads during another connection's write", () => {
     const root = mkdtempSync(join(tmpdir(), "orcatab-db-"));
     temporaryDirectories.push(root);

@@ -1,7 +1,8 @@
 import { closeSync, existsSync, openSync, readSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import {
-  FTS_TEXT_MAX_CHARS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, RESCAN_INTERVAL_MS, WATCH_DEBOUNCE_MS,
+  FTS_TEXT_MAX_CHARS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_HERMES_DB,
+  RESCAN_INTERVAL_MS, WATCH_DEBOUNCE_MS,
 } from "./config";
 import { getDefaultDatabase, type FtsRow, type OrcaDatabase, type StoredSession } from "./db";
 import { cleanPromptForDisplay } from "./parse";
@@ -10,6 +11,7 @@ import {
 } from "./projects";
 import { createClaudeSource } from "./sources/claude";
 import { createCodexSource } from "./sources/codex";
+import { createHermesSource } from "./sources/hermes";
 import type { Agent, ParsedEvent } from "./types";
 
 const BYTE_NEWLINE = 0x0a;
@@ -17,16 +19,19 @@ const BYTE_NEWLINE = 0x0a;
 export interface IndexSummary { files: number; changed: number; ms: number; }
 export interface WatchHandle { mode: "fs.watch" | "timer"; close(): void; }
 export interface SessionFileInfo { agent: Agent; sid: string; path: string; size: number; mtime: number; }
+export interface DerivedSession { session: StoredSession; fts: FtsRow[]; }
 export interface SessionSource {
   agent: Agent;
   discover(): SessionFileInfo[];
   parseLine(line: string): ParsedEvent;
   prepare?(): void;
   titleFor?(sid: string): string | null;
+  deriveSession?(info: SessionFileInfo, base: StoredSession): DerivedSession;
 }
 export interface IndexerOptions {
   claudeDir?: string;
   codexDir?: string;
+  hermesDb?: string;
   sources?: SessionSource[];
   db?: OrcaDatabase;
   resolveProject?: typeof resolveProjectKey;
@@ -106,7 +111,10 @@ function applyLines(base: StoredSession, lines: string[], source: SessionSource)
 export function createIndexer(options: IndexerOptions = {}) {
   const claudeDir = options.claudeDir ?? ORCATAB_CLAUDE_DIR;
   const codexDir = options.codexDir ?? ORCATAB_CODEX_DIR;
-  const sources = options.sources ?? [createClaudeSource(claudeDir), createCodexSource(codexDir)];
+  const hermesDb = options.hermesDb ?? ORCATAB_HERMES_DB;
+  const sources = options.sources ?? [
+    createClaudeSource(claudeDir), createCodexSource(codexDir), createHermesSource(hermesDb),
+  ];
   const sourcesByAgent = new Map(sources.map((source) => [source.agent, source]));
   const watchPaths = [join(claudeDir, "projects"), join(codexDir, "sessions")];
   const db = options.db ?? getDefaultDatabase();
@@ -124,6 +132,21 @@ export function createIndexer(options: IndexerOptions = {}) {
     if (stored && stored.filePath === file.path && stored.fileSize === file.size && stored.fileMtime === file.mtime) {
       if (source.titleFor === undefined || stored.title === sourceTitle) return false;
       db.upsertSession({ ...stored, title: sourceTitle ?? null });
+      return true;
+    }
+    if (source.deriveSession !== undefined) {
+      const derived = source.deriveSession(file, stored ?? emptySession(file));
+      const project = await projectResolver(derived.session.cwd, projectDeps);
+      const session: StoredSession = {
+        ...derived.session, projectKey: project.key, filePath: file.path,
+        fileSize: file.size, fileMtime: file.mtime,
+      };
+      db.transaction(() => {
+        db.deleteSessionFts(file.agent, file.sid);
+        db.upsertProject(project);
+        db.appendSessionFts(derived.fts);
+        db.upsertSession(session);
+      });
       return true;
     }
     const rebuild = stored === null || stored.filePath !== file.path || file.size < stored.fileSize

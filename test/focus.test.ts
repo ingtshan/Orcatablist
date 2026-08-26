@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,6 +11,7 @@ import { OrcaDatabase } from "../src/db";
 import type { LiveInfo } from "../src/types";
 
 const SID = "02998b64-f0d0-48a9-9bf1-8c90e265de7a";
+const HERMES_SID = "20260811_031044_76b3bb";
 const temporaryDirectories: string[] = [];
 
 function deps(options: {
@@ -89,8 +91,12 @@ describe("resolveFocus", () => {
       .toEqual({ action: "manual", reason: "unknown-session", command: null });
   });
 
-  test("rejects invalid session ids", async () => {
-    await expect(resolveFocus("claude", "bad", deps(), { dryRun: true })).rejects.toBeInstanceOf(ValidationError);
+  test("accepts Hermes-style ids and rejects ids containing separators or spaces", async () => {
+    expect(await resolveFocus("hermes", HERMES_SID, deps({ cwd: null }), { dryRun: true }))
+      .toEqual({ action: "manual", reason: "unknown-session", command: null });
+    await expect(resolveFocus("claude", "bad/id", deps(), { dryRun: true })).rejects.toBeInstanceOf(ValidationError);
+    await expect(resolveFocus("claude", "bad id", deps(), { dryRun: true })).rejects.toBeInstanceOf(ValidationError);
+    await expect(resolveFocus("claude", "", deps(), { dryRun: true })).rejects.toBeInstanceOf(ValidationError);
   });
 
   test("dry-run online does not open or call switch", async () => {
@@ -195,6 +201,59 @@ describe("resolveFocus", () => {
       type: "session_meta", payload: { session_id: SID, cwd: "/fixture/codex-workspace" },
     })}\n`);
     expect(createFocusDeps(null, { codexDir: root }).getSessionCwd("codex", SID)).toBe("/fixture/codex-workspace");
+  });
+
+  test("resumes Hermes in an Orca worktree and switches the created terminal", async () => {
+    const calls: string[][] = [];
+    const result = await resolveFocus("hermes", HERMES_SID, deps({
+      cwd: "/repo/hermes-worktree",
+      orca: async (args) => {
+        calls.push(args);
+        if (args[0] === "worktree") return { ok: true };
+        if (args[1] === "create") return { ok: true, result: { terminal: { handle: "hermes_term" } } };
+        return { ok: true };
+      },
+    }), { dryRun: false });
+    expect(result).toEqual({ action: "resumed", handle: "hermes_term" });
+    expect(calls).toEqual([
+      ["worktree", "show", "--worktree", "path:/repo/hermes-worktree", "--json"],
+      ["terminal", "create", "--worktree", "path:/repo/hermes-worktree", "--title", "hermes resume",
+        "--command", `hermes --resume ${HERMES_SID}`, "--json"],
+      ["terminal", "switch", "--terminal", "hermes_term", "--json"],
+    ]);
+  });
+
+  test("Hermes dry-run only checks the worktree and reports hermes --resume", async () => {
+    const calls: string[][] = [];
+    const plans: string[][] = [];
+    const result = await resolveFocus("hermes", HERMES_SID, deps({
+      cwd: "/repo/hermes-worktree", plans,
+      orca: async (args) => { calls.push(args); return { ok: true }; },
+    }), { dryRun: true });
+    expect(result).toEqual({ action: "resumed", handle: "(dry-run)" });
+    expect(calls).toEqual([["worktree", "show", "--worktree", "path:/repo/hermes-worktree", "--json"]]);
+    expect(plans).toEqual([["hermes", "--resume", HERMES_SID]]);
+  });
+
+  test("Hermes returns a manual command outside Orca and unknown without cwd", async () => {
+    const cwd = "/tmp/hermes user's repo";
+    expect(await resolveFocus("hermes", HERMES_SID, deps({ cwd }), { dryRun: false })).toEqual({
+      action: "manual", reason: "not-orca-worktree", command: `cd ${shellQuote(cwd)} && hermes --resume ${HERMES_SID}`,
+    });
+    expect(await resolveFocus("hermes", HERMES_SID, deps({ cwd: null }), { dryRun: false }))
+      .toEqual({ action: "manual", reason: "unknown-session", command: null });
+  });
+
+  test("Hermes cwd falls back to the read-only source database", () => {
+    const root = mkdtempSync(join(tmpdir(), "orcatab-focus-hermes-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "state.db");
+    const database = new Database(path, { create: true });
+    database.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT)");
+    database.query("INSERT INTO sessions(id, cwd) VALUES (?, ?)").run(HERMES_SID, "/fixture/hermes-workspace");
+    database.close();
+    expect(createFocusDeps(null, { hermesDb: path }).getSessionCwd("hermes", HERMES_SID))
+      .toBe("/fixture/hermes-workspace");
   });
 
   test("CLI without a database falls back to JSONL and writes a dry-run plan to stderr", () => {

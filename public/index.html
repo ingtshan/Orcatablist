@@ -65,6 +65,9 @@
     .session-title-line { display: flex; min-width: 0; align-items: center; gap: 7px; }
     .session-title { min-width: 0; overflow: hidden; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
     .agent-badge { flex: 0 0 auto; padding: 2px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font: 10px ui-monospace, Menlo, monospace; letter-spacing: .02em; }
+    .agent-claude { border-color: #d68a56; color: #a95d2e; }
+    .agent-codex { border-color: #6b9bd2; color: #3d72ad; }
+    .agent-hermes { border-color: #8c78c6; color: #674da8; }
     .row-last-input { overflow: hidden; margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
     .hits { display: grid; gap: 3px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
     .hit { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -260,7 +263,7 @@
 
         const main = make("div", "session-main");
         const titleLine = make("div", "session-title-line");
-        titleLine.append(make("span", "agent-badge", row.agent));
+        titleLine.append(make("span", `agent-badge agent-${row.agent}`, row.agent));
         const title = make("div", "session-title", row.displayTitle);
         if (row.title && row.firstPrompt) title.title = row.firstPrompt;
         titleLine.append(title);
@@ -300,7 +303,8 @@
         const commandButton = make("button", "action command-action", "复制命令");
         commandButton.type = "button";
         commandButton.addEventListener("click", () => {
-          const command = row.agent === "codex" ? `codex resume ${row.sid}` : `claude --resume ${row.sid}`;
+          const command = row.agent === "codex" ? `codex resume ${row.sid}`
+            : row.agent === "hermes" ? `hermes --resume ${row.sid}` : `claude --resume ${row.sid}`;
           copyText(command, "已复制命令");
         });
         actions.append(focusButton, copyButton, commandButton);

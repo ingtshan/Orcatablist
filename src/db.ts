@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { DISPLAY_TITLE_MAX_CHARS, ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
 import type { Agent, ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
 
-const SCHEMA_VERSION = "5"; // bump whenever parse/derivation rules change so stale caches rebuild
+const SCHEMA_VERSION = "6"; // bump whenever parse/derivation rules change so stale caches rebuild
 const SEARCH_ROWS_MULTIPLIER = 3;
 const MAX_HITS_PER_SESSION = 3;
 const LIKE_CONTEXT_CHARS = 40;
@@ -79,7 +79,7 @@ function sessionRow(row: Record<string, unknown>): SessionRow {
     title,
     firstPrompt,
     lastPrompt,
-    displayTitle: title ?? firstPrompt?.slice(0, DISPLAY_TITLE_MAX_CHARS) ?? sid.slice(0, 8),
+    displayTitle: (title ?? firstPrompt ?? sid.slice(0, 8)).slice(0, DISPLAY_TITLE_MAX_CHARS),
     lastInputAt: typeof row.last_input_at === "number" ? row.last_input_at : null,
     promptCount: Number(row.prompt_count),
     live: null,

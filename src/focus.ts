@@ -1,12 +1,15 @@
 import { closeSync, existsSync, openSync, readSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { AGENTS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_DATA_DIR, ORCATAB_ORCA_BIN } from "./config";
+import {
+  AGENTS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_DATA_DIR, ORCATAB_HERMES_DB, ORCATAB_ORCA_BIN,
+} from "./config";
 import { getDefaultDatabase, openDatabaseReadOnly, type OrcaDatabase } from "./db";
 import { findLive } from "./live";
 import { findCodexSessionCwd } from "./sources/codex";
+import { findHermesSessionCwd } from "./sources/hermes";
 import type { Agent, FocusResult, LiveInfo } from "./types";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const URI_PATTERN = /^orcatab:\/\/([^/]+)\/(.+)$/;
 const CLI_SCAN_MAX_BYTES = 256 * 1_024;
 
@@ -26,6 +29,7 @@ export interface FocusDeps {
 export interface FocusDepsOptions {
   claudeDir?: string;
   codexDir?: string;
+  hermesDb?: string;
   orcaBin?: string;
   liveFinder?: FocusDeps["findLive"];
   reportPlan?: FocusDeps["reportPlan"];
@@ -77,6 +81,7 @@ export function createFocusDeps(
 ): FocusDeps {
   const claudeDir = options.claudeDir ?? ORCATAB_CLAUDE_DIR;
   const codexDir = options.codexDir ?? ORCATAB_CODEX_DIR;
+  const hermesDb = options.hermesDb ?? ORCATAB_HERMES_DB;
   const orcaBin = options.orcaBin ?? ORCATAB_ORCA_BIN;
   return {
     findLive: options.liveFinder ?? findLive,
@@ -85,6 +90,7 @@ export function createFocusDeps(
         const cwd = db?.getSession(agent, sid)?.cwd;
         if (cwd) return cwd;
       } catch { /* A missing or incompatible cache falls back to the source JSONL. */ }
+      if (agent === "hermes") return findHermesSessionCwd(sid, hermesDb);
       return agent === "codex" ? findCodexSessionCwd(sid, codexDir) : findSessionCwdInClaudeDir(sid, claudeDir);
     },
     psEnv: async (pid) => (await runText(["ps", "-Eww", "-o", "command=", "-p", String(pid)])).stdout,
@@ -122,7 +128,32 @@ export async function resolveFocus(
   options: { dryRun: boolean } = { dryRun: false },
 ): Promise<FocusResult> {
   if (!AGENTS.some((candidate) => candidate === agent)) throw new ValidationError("invalid agent");
-  if (!UUID_PATTERN.test(sid)) throw new ValidationError("invalid session id");
+  if (!SID_PATTERN.test(sid)) throw new ValidationError("invalid session id");
+  if (agent === "hermes") {
+    const cwd = deps.getSessionCwd(agent, sid);
+    if (!cwd) return { action: "manual", reason: "unknown-session", command: null };
+    const worktree = await deps.orcaJson(["worktree", "show", "--worktree", `path:${cwd}`, "--json"]);
+    if (!worktree.ok) {
+      return {
+        action: "manual", reason: "not-orca-worktree",
+        command: `cd ${shellQuote(cwd)} && hermes --resume ${sid}`,
+      };
+    }
+    if (options.dryRun) {
+      deps.reportPlan?.(["hermes", "--resume", sid]);
+      return { action: "resumed", handle: "(dry-run)" };
+    }
+    const created = await deps.orcaJson([
+      "terminal", "create", "--worktree", `path:${cwd}`, "--title", "hermes resume",
+      "--command", `hermes --resume ${sid}`, "--json",
+    ]);
+    if (!created.ok) throw new OrcaError(`orca terminal create failed: ${errorText(created.error)}`);
+    const handle = created.result?.terminal?.handle ?? created.result?.handle ?? created.result?.startupTerminal?.handle;
+    if (typeof handle !== "string" || !handle) throw new OrcaError("orca terminal create returned no handle");
+    const switched = await deps.orcaJson(["terminal", "switch", "--terminal", handle, "--json"]);
+    if (!switched.ok) throw new OrcaError(`orca terminal switch failed: ${errorText(switched.error)}`);
+    return { action: "resumed", handle };
+  }
   if (agent === "codex") {
     const cwd = deps.getSessionCwd(agent, sid);
     if (!cwd) return { action: "manual", reason: "unknown-session", command: null };
@@ -210,6 +241,7 @@ async function runCli(args: string[]): Promise<void> {
     const deps = createFocusDeps(database, {
       claudeDir: ORCATAB_CLAUDE_DIR,
       codexDir: ORCATAB_CODEX_DIR,
+      hermesDb: ORCATAB_HERMES_DB,
       reportPlan: (plan) => console.error(JSON.stringify({ plan })),
     });
     console.log(JSON.stringify(await resolveFocus(agent, sid, deps, { dryRun })));

@@ -5,7 +5,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OrcaDatabase } from "../src/db";
-import { createIndexer } from "../src/indexer";
+import { createIndexer, type SessionSource } from "../src/indexer";
 import { AI_TITLE_LINE, ASSISTANT_TEXT_LINE, REAL_SAMPLE_LINES, USER_PROMPT_LINE } from "./fixtures/lines";
 
 const temporaryDirectories: string[] = [];
@@ -55,7 +55,7 @@ describe("incremental indexer", () => {
     writeFileSync(join(codexDir, "session_index.jsonl"), `${JSON.stringify({ id: SID, thread_name: "Codex 标题" })}\n`);
     const db = new OrcaDatabase(join(root, "data", "index.db"));
     const indexer = createIndexer({
-      claudeDir, codexDir, db,
+      claudeDir, codexDir, hermesDb: join(root, "hermes.db"), db,
       resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
     });
 
@@ -97,6 +97,7 @@ describe("incremental indexer", () => {
     const indexer = createIndexer({
       claudeDir: root,
       codexDir: join(root, "codex"),
+      hermesDb: join(root, "hermes.db"),
       db,
       resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
     });
@@ -149,7 +150,10 @@ describe("incremental indexer", () => {
     mkdirSync(projectDir, { recursive: true });
     writeFileSync(join(projectDir, `${SID}.jsonl`), AI_TITLE_LINE);
     const db = new OrcaDatabase(join(root, "index.db"));
-    const indexer = createIndexer({ claudeDir: root, codexDir: join(root, "codex"), db, resolveProject: async () => ({ key: "unknown", name: "未知", root: "", color: null }) });
+    const indexer = createIndexer({
+      claudeDir: root, codexDir: join(root, "codex"), hermesDb: join(root, "hermes.db"), db,
+      resolveProject: async () => ({ key: "unknown", name: "未知", root: "", color: null }),
+    });
     await indexer.indexAll();
     expect(db.getStoredSession("claude", SID)!.parsedOffset).toBe(0);
     expect(db.getStoredSession("claude", SID)!.title).toBeNull();
@@ -169,7 +173,7 @@ describe("incremental indexer", () => {
     ].join("\n") + "\n");
     const db = new OrcaDatabase(join(root, "index.db"));
     const indexer = createIndexer({
-      claudeDir: root, codexDir: join(root, "codex"), db,
+      claudeDir: root, codexDir: join(root, "codex"), hermesDb: join(root, "hermes.db"), db,
       resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
     });
 
@@ -189,7 +193,7 @@ describe("incremental indexer", () => {
     writeFileSync(join(projectDir, `${SID}.jsonl`), `${AI_TITLE_LINE}\n`);
     const db = new OrcaDatabase(join(root, "index.db"));
     const indexer = createIndexer({
-      claudeDir: root, codexDir: join(root, "codex"), db,
+      claudeDir: root, codexDir: join(root, "codex"), hermesDb: join(root, "hermes.db"), db,
       resolveProject: async () => ({ key: "unknown", name: "未知", root: "", color: null }),
     });
 
@@ -198,10 +202,62 @@ describe("incremental indexer", () => {
     db.close();
   });
 
+  test("uses deriveSession for database sources and replaces FTS only when the ledger changes", async () => {
+    const root = temporaryDirectory();
+    const db = new OrcaDatabase(join(root, "index.db"));
+    let size = 3;
+    let mtime = 1_000;
+    let deriveCalls = 0;
+    let parseCalls = 0;
+    const baseSizes: number[] = [];
+    const source: SessionSource = {
+      agent: "hermes",
+      discover: () => [{ agent: "hermes", sid: "20260811_031044_76b3bb", path: join(root, "state.db"), size, mtime }],
+      parseLine: () => { parseCalls += 1; throw new Error("line parser must not run"); },
+      deriveSession: (info, base) => {
+        deriveCalls += 1;
+        baseSizes.push(base.fileSize);
+        const text = `派生第 ${deriveCalls} 次`;
+        return {
+          session: {
+            agent: "hermes", sid: info.sid, projectKey: "unknown", cwd: "/fixture/hermes",
+            branch: "main", title: null, firstPrompt: text, lastPrompt: text,
+            lastInputAt: info.mtime, promptCount: deriveCalls, filePath: info.path,
+            fileSize: info.size, fileMtime: info.mtime, parsedOffset: 0,
+          },
+          fts: [{ text, agent: "hermes", sid: info.sid, role: "user", ts: info.mtime }],
+        };
+      },
+    };
+    const indexer = createIndexer({
+      sources: [source], db,
+      resolveProject: async () => ({ key: "/fixture/hermes", name: "hermes", root: "/fixture/hermes", color: null }),
+    });
+
+    expect(await indexer.indexAll()).toMatchObject({ files: 1, changed: 1 });
+    expect(await indexer.indexAll()).toMatchObject({ files: 1, changed: 0 });
+    expect(deriveCalls).toBe(1);
+    mtime = 2_000;
+    expect(await indexer.indexAll()).toMatchObject({ files: 1, changed: 1 });
+    expect(deriveCalls).toBe(2);
+    size = 4;
+    expect(await indexer.indexAll()).toMatchObject({ files: 1, changed: 1 });
+    expect(deriveCalls).toBe(3);
+    expect(parseCalls).toBe(0);
+    expect(baseSizes).toEqual([0, 3, 3]);
+    expect(db.getStoredSession("hermes", "20260811_031044_76b3bb")).toMatchObject({
+      projectKey: "/fixture/hermes", firstPrompt: "派生第 3 次", promptCount: 3, fileSize: 4, fileMtime: 2_000,
+    });
+    expect(db.countSessionFts("hermes", "20260811_031044_76b3bb")).toBe(1);
+    db.close();
+  });
+
   test("fails with context when projects directory is missing", async () => {
     const root = temporaryDirectory();
     const db = new OrcaDatabase(join(root, "index.db"));
-    const indexer = createIndexer({ claudeDir: root, codexDir: join(root, "codex"), db });
+    const indexer = createIndexer({
+      claudeDir: root, codexDir: join(root, "codex"), hermesDb: join(root, "hermes.db"), db,
+    });
     await expect(indexer.indexAll()).rejects.toThrow("failed to read Claude projects directory");
     db.close();
   });
@@ -214,7 +270,7 @@ describe("incremental indexer", () => {
     writeFileSync(path, `${prompt("watch 初始", "2026-08-25T08:00:00.000Z")}\n`);
     const db = new OrcaDatabase(join(root, "index.db"));
     const indexer = createIndexer({
-      claudeDir: root, codexDir: join(root, "codex"), db,
+      claudeDir: root, codexDir: join(root, "codex"), hermesDb: join(root, "hermes.db"), db,
       resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
     });
     await indexer.indexAll();

@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   AGENTS, FALLBACK_RESCAN_INTERVAL_MS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_DATA_DIR,
-  ORCATAB_HOST, ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
+  ORCATAB_HERMES_DB, ORCATAB_HOST, ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
 } from "./config";
 import { OrcaDatabase } from "./db";
 import { createFocusDeps, OrcaError, resolveFocus, ValidationError, type FocusDeps } from "./focus";
@@ -18,7 +18,7 @@ const MAX_SEARCH_LIMIT = 200;
 const URI_PATTERN = /^orcatab:\/\/(claude|codex|hermes)\/([A-Za-z0-9_-]{1,128})$/;
 
 export interface ServerOptions {
-  port?: number; claudeDir?: string; codexDir?: string; dataDir?: string; orcaBin?: string;
+  port?: number; claudeDir?: string; codexDir?: string; hermesDb?: string; dataDir?: string; orcaBin?: string;
   db?: OrcaDatabase; focusDeps?: FocusDeps; startTimers?: boolean; quiet?: boolean;
 }
 
@@ -70,16 +70,17 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const dataDir = options.dataDir ?? ORCATAB_DATA_DIR;
   const claudeDir = options.claudeDir ?? ORCATAB_CLAUDE_DIR;
   const codexDir = options.codexDir ?? ORCATAB_CODEX_DIR;
+  const hermesDb = options.hermesDb ?? ORCATAB_HERMES_DB;
   const orcaBin = options.orcaBin ?? ORCATAB_ORCA_BIN;
   mkdirSync(join(dataDir, "logs"), { recursive: true });
   const db = options.db ?? new OrcaDatabase(join(dataDir, "index.db"));
-  const indexer = createIndexer({ claudeDir, codexDir, db });
+  const indexer = createIndexer({ claudeDir, codexDir, hermesDb, db });
   const indexed = await indexer.indexAll();
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
   await refreshProjectMetadata(db, orcaBin);
   const liveReader = createLiveReader({ claudeDir });
   const focusDeps = options.focusDeps ?? createFocusDeps(db, {
-    claudeDir, codexDir, orcaBin, liveFinder: liveReader.findLive,
+    claudeDir, codexDir, hermesDb, orcaBin, liveFinder: liveReader.findLive,
   });
   const timers: Array<ReturnType<typeof setInterval>> = [];
   let watcher: WatchHandle = { mode: "timer", close: () => {} };
@@ -111,7 +112,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const rawIndexedAt = db.getMeta("indexed_at");
         return json({
           ok: true, sessions: db.countSessions(), indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt),
-          dataVersion: db.getDataVersion(), watch: watcher.mode, agents: [...AGENTS], version: "p5",
+          dataVersion: db.getDataVersion(), watch: watcher.mode, agents: [...AGENTS], version: "p6",
         });
       }
       if (request.method === "GET" && url.pathname === "/api/projects") {
