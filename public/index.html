@@ -55,6 +55,7 @@
     .color-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: var(--project-color, var(--offline)); }
     .group-title { margin: 0; font-size: 16px; }
     .group-meta { color: var(--muted); font-size: 13px; }
+    .project-focus { min-width: 0; margin-left: auto; padding: 5px 9px; background: transparent; font-size: 12px; }
     .session-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
     .session-row { display: grid; grid-template-columns: 12px minmax(180px, 1fr) minmax(90px, auto) auto auto; gap: 12px; align-items: center; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
     .session-row:last-child { border-bottom: 0; }
@@ -326,6 +327,26 @@
         } finally { button.disabled = false; }
       }
 
+      async function focusProject(project, button) {
+        const original = "回到 Orca";
+        button.disabled = true;
+        button.textContent = "切换中…";
+        try {
+          const result = await api("/api/projects/focus", jsonRequest("POST", { projectKey: project.key }));
+          if (result.action === "switched") {
+            button.textContent = "已切回";
+            showToast(`已切回 Orca · ${project.name}`);
+            setTimeout(() => { button.textContent = original; }, RESULT_RESET_MS);
+          } else {
+            button.textContent = original;
+            showToast("该 worktree 没有可切回的 Orca 终端");
+          }
+        } catch (error) {
+          button.textContent = original;
+          showToast(`切换失败：${error.message}`);
+        } finally { button.disabled = false; }
+      }
+
       function sessionRow(row, project, isSearch, options = {}) {
         const element = make("article", "session-row");
         element.tabIndex = -1;
@@ -439,7 +460,16 @@
           const color = make("span", "color-dot");
           if (project.color) color.style.setProperty("--project-color", project.color);
           const latest = rows.reduce((value, row) => Math.max(value, row.lastInputAt || 0), 0) || null;
-          header.append(color, make("h2", "group-title", project.name), make("span", "group-meta", `${rows.length} 个会话 · 最近 ${relativeTime(latest)}`));
+          const projectFocus = make("button", "action project-focus", "回到 Orca");
+          projectFocus.type = "button";
+          projectFocus.title = `回到 Orca 中的 ${project.name} worktree`;
+          projectFocus.addEventListener("click", () => focusProject(project, projectFocus));
+          header.append(
+            color,
+            make("h2", "group-title", project.name),
+            make("span", "group-meta", `${rows.length} 个会话 · 最近 ${relativeTime(latest)}`),
+            projectFocus,
+          );
           const list = make("div", "session-list");
           rows.sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0))
             .forEach((row) => list.append(sessionRow(row, project, isSearch, { goalPicker: true })));

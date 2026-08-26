@@ -29,6 +29,9 @@ export type FocusResult =
   | { action: "switched"; handle: string; tabId: string | null }
   | { action: "resumed"; handle: string }
   | { action: "manual"; reason: "running-outside-orca" | "not-orca-worktree" | "unknown-session"; command: string | null };
+export type WorktreeFocusResult =
+  | { action: "switched"; handle: string; tabId: string | null; cwd: string }
+  | { action: "manual"; reason: "no-active-terminal"; cwd: string };
 export interface ParsedEvent {
   kind: "title" | "prompt" | "assistant-text" | "meta" | "skip";
   title?: string; text?: string; ts?: number | null; cwd?: string; branch?: string; version?: string;

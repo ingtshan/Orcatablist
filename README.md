@@ -2,6 +2,10 @@
 
 Claude Code 会话面板：按项目聚合、最近输入倒序、零 token 摘要、`orcatab://claude/<sid>` 一键回到 Orca 的 tab、中文全文搜索。
 
+![OrcaTab Web GUI 脱敏演示：项目聚合、会话状态、多 Agent 标签与快捷操作](assets/orcatab-webgui.png)
+
+> 截图使用纯虚构演示数据，不包含真实会话、用户身份或本机路径。
+
 ## 本地运行
 
 需要 macOS 与 `/opt/homebrew/bin/bun`。服务只监听本机回环地址：

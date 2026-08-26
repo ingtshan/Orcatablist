@@ -155,6 +155,15 @@ export class OrcaDatabase {
     const row = this.raw.query("SELECT * FROM sessions WHERE agent = ? AND sid = ?").get(agent, sid) as Record<string, unknown> | null;
     return row ? sessionRow(row) : null;
   }
+  getSessionBySid(sid: string): SessionRow | null {
+    const row = this.raw.query("SELECT * FROM sessions WHERE sid = ? LIMIT 1").get(sid) as Record<string, unknown> | null;
+    return row ? sessionRow(row) : null;
+  }
+  countUserActivitySince(sid: string, since: number): number {
+    const row = this.raw.query("SELECT COUNT(*) AS count FROM msg_fts WHERE sid = ? AND role = 'user' AND ts > ?")
+      .get(sid, since) as { count: number };
+    return Number(row.count);
+  }
   replaceSessionFts(agent: Agent, sid: string, rows: FtsRow[]): void {
     this.deleteSessionFts(agent, sid); this.appendSessionFts(rows);
   }

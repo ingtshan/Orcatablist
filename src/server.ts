@@ -10,8 +10,10 @@ import { GoalsStore, openGoalsDatabase, sessionIdentityKey, type GoalLinkKind } 
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
+import { handleSppRequest } from "./spp";
 import { suggestSessions } from "./suggest";
 import type { Agent, FocusResult, GoalStatus, LiveInfo, SearchResult, SessionRow } from "./types";
+import { resolveWorktreeFocus } from "./worktree-focus";
 
 const DEFAULT_SESSIONS_LIMIT = 500;
 const MAX_SESSIONS_LIMIT = 5_000;
@@ -76,6 +78,11 @@ async function jsonObject(request: Request): Promise<Record<string, unknown>> {
 function requiredName(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) throw new ValidationError("name is required");
   return value.trim();
+}
+
+function requiredProjectKey(value: unknown): string {
+  if (typeof value !== "string" || !value) throw new ValidationError("projectKey is required");
+  return value;
 }
 
 function nullableText(value: unknown, field: string): string | null | undefined {
@@ -149,6 +156,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const handler = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
+      if (url.pathname.startsWith("/spp/")) return handleSppRequest(request, { db, getLiveMap: liveReader.getLiveMap, focusDeps });
       if (request.method === "GET" && url.pathname === "/") {
         return new Response(Bun.file(join(import.meta.dir, "..", "public", "index.html")), {
           headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -165,6 +173,16 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       if (request.method === "GET" && url.pathname === "/api/projects") {
         const { etag } = versionedLive();
         return conditionalJson(request, etag, () => db.listProjects());
+      }
+      if (request.method === "POST" && url.pathname === "/api/projects/focus") {
+        const body = await jsonObject(request);
+        const projectKey = requiredProjectKey(body.projectKey);
+        const project = db.listProjectRecords().find((candidate) => candidate.key === projectKey);
+        if (!project) throw new NotFoundError("project not found");
+        const cwd = db.listSessions({ projectKey, limit: MAX_SESSIONS_LIMIT })
+          .find((row) => Boolean(row.cwd))?.cwd || project.root;
+        if (!cwd) throw new NotFoundError("project has no indexed worktree");
+        return json(await resolveWorktreeFocus(cwd, focusDeps));
       }
       if (request.method === "GET" && url.pathname === "/api/sessions") {
         const limit = boundedLimit(url.searchParams.get("limit"), DEFAULT_SESSIONS_LIMIT, MAX_SESSIONS_LIMIT);
@@ -280,5 +298,3 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     },
   };
 }
-
-// Process entry lives in src/main.ts (no top-level await: pm2 loads scripts with require()).

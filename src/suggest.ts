@@ -4,6 +4,7 @@ import type { Goal, SessionRow, SessionSuggestion, SuggestionReason } from "./ty
 const MAX_TITLE_SCORE = 3;
 const BRANCH_SCORE = 3;
 const PROJECT_SCORE = 2;
+const CONTEXT_SCORE = 2;
 const MINIMUM_SCORE = 2;
 const DEFAULT_LIMIT = 8;
 const LATIN_WORD_PATTERN = /[a-z]+/g;
@@ -51,11 +52,13 @@ export function suggestSessions(
   excluded: Set<`${string}/${string}`>,
   pool: SessionRow[],
   limit = DEFAULT_LIMIT,
+  options: { contextPath?: string } = {},
 ): SessionSuggestion[] {
   const confirmedKeys = new Set(confirmed.map((row) => sessionIdentityKey(row.agent, row.sid)));
   const confirmedBranches = new Set(confirmed.map((row) => row.branch).filter(discriminatingBranch));
   const confirmedProjects = new Set(confirmed.map((row) => row.projectKey));
   const goalTokens = tokens(goal.name);
+  const contextPath = options.contextPath?.trim();
   for (const row of confirmed) {
     for (const token of tokens(row.displayTitle)) goalTokens.add(token);
   }
@@ -87,6 +90,11 @@ export function suggestSessions(
         score += BRANCH_SCORE;
         reasons.push({ code: "branch", label: `分支含 “${branchMatches[0]}”` });
       }
+    }
+
+    if (contextPath && (row.cwd === contextPath || row.projectKey.includes(contextPath))) {
+      score += CONTEXT_SCORE;
+      reasons.push({ code: "project", label: `同上下文 ${finalProjectSegment(contextPath)}` });
     }
 
     const titleMatches = matchingTokens(tokens(`${row.displayTitle} ${row.firstPrompt ?? ""}`), goalTokens);

@@ -17,13 +17,23 @@ let claudeDir = "";
 let codexDir = "";
 let hermesDb = "";
 let sessionPath = "";
+let fixtureCwd = "";
+let focusOpens = 0;
+const focusCalls: string[][] = [];
 
 const focusDeps: FocusDeps = {
   findLive: () => null,
   getSessionCwd: () => null,
   psEnv: async () => "",
-  orcaJson: async () => ({ ok: false }),
-  openOrca: async () => {},
+  orcaJson: async (args) => {
+    focusCalls.push(args);
+    if (args[1] === "list") return { ok: true, result: { terminals: [
+      { handle: "term_fixture", tabId: "tab_fixture", connected: true, orphaned: false, lastOutputAt: 10, worktreePath: fixtureCwd },
+    ] } };
+    if (args[1] === "focus") return { ok: true, result: { focus: { tabId: "tab_switched" } } };
+    return { ok: false };
+  },
+  openOrca: async () => { focusOpens += 1; },
 };
 
 beforeAll(async () => {
@@ -32,6 +42,7 @@ beforeAll(async () => {
   codexDir = join(root, "codex");
   const projectDir = join(claudeDir, "projects", "fixture");
   const cwd = join(root, "workspace", "fixture-project");
+  fixtureCwd = cwd;
   mkdirSync(projectDir, { recursive: true });
   const codexSessionDir = join(codexDir, "sessions", "2026", "08", "25");
   mkdirSync(codexSessionDir, { recursive: true });
@@ -99,6 +110,36 @@ describe("HTTP server", () => {
     expect(await (await fetch(`${baseUrl}/api/sessions?live=1`)).json()).toEqual([]);
   });
 
+  test("focuses the latest indexed worktree for a known project", async () => {
+    focusCalls.length = 0;
+    focusOpens = 0;
+    const [project] = await (await fetch(`${baseUrl}/api/projects`)).json();
+    const response = await fetch(`${baseUrl}/api/projects/focus`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectKey: project.key }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      action: "switched", handle: "term_fixture", tabId: "tab_switched", cwd: fixtureCwd,
+    });
+    expect(focusOpens).toBe(1);
+    expect(focusCalls).toEqual([
+      ["terminal", "list", "--worktree", `path:${fixtureCwd}`, "--json"],
+      ["terminal", "focus", "--terminal", "term_fixture", "--json"],
+    ]);
+
+    const missingKey = await fetch(`${baseUrl}/api/projects/focus`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+    });
+    expect(missingKey.status).toBe(400);
+    expect(await missingKey.json()).toEqual({ error: "projectKey is required" });
+    const unknown = await fetch(`${baseUrl}/api/projects/focus`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectKey: "/unknown" }),
+    });
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toEqual({ error: "project not found" });
+  });
+
   test("search returns grouped highlighted hits", async () => {
     const results = await (await fetch(`${baseUrl}/api/search?q=${encodeURIComponent("课堂树")}`)).json();
     expect(results).toHaveLength(1);
@@ -143,6 +184,8 @@ describe("HTTP server", () => {
     expect(html).toContain("codex resume ${row.sid}");
     expect(html).toContain("hermes --resume ${row.sid}");
     expect(html).toContain("agent-hermes");
+    expect(html).toContain("回到 Orca");
+    expect(html).toContain("/api/projects/focus");
     expect(html).toContain("新建目标");
     expect(html).toContain("证据");
   });
