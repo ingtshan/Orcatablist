@@ -113,6 +113,7 @@
     .floating-menu[open] { z-index: 40; }
     .floating-menu[open] > .floating-menu-toggle { border-color: var(--accent); color: var(--accent); }
     .floating-menu-panel { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: grid; width: max-content; min-width: 132px; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px #17222A2E; }
+    .floating-menu.open-up > .floating-menu-panel { top: auto; bottom: calc(100% + 6px); }
     .floating-menu-action { width: 100%; min-width: 0; text-align: left; }
     .menu-open { position: relative; z-index: 35; }
     .project-item-menu { position: absolute; z-index: 2; top: 50%; right: 5px; opacity: 0; transform: translateY(-50%); transition: opacity .12s ease; pointer-events: none; }
@@ -306,6 +307,7 @@
       const RESULT_RESET_MS = 2000;
       const LIVE_POOL_LIMIT = 5000;
       const VISIBLE_SESSION_LIMIT = 500;
+      const FLOATING_MENU_VIEWPORT_GAP = 8;
       const state = {
         projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0,
         activeRow: -1, projectEtag: "", sessionEtag: "", view: "sessions",
@@ -479,6 +481,15 @@
         return closed;
       }
 
+      function positionFloatingMenu(menu, panel) {
+        menu.classList.remove("open-up");
+        const panelRect = panel.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+        const shouldOpenUp = panelRect.bottom > window.innerHeight - FLOATING_MENU_VIEWPORT_GAP
+          && menuRect.top > panelRect.height + FLOATING_MENU_VIEWPORT_GAP;
+        menu.classList.toggle("open-up", shouldOpenUp);
+      }
+
       function floatingMenu(ariaLabel, className, toggleClass, label = "更多") {
         const menu = make("details", `floating-menu ${className}`.trim());
         const toggle = make("summary", `floating-menu-toggle ${toggleClass}`.trim(), label);
@@ -489,7 +500,11 @@
         menu.addEventListener("toggle", () => {
           const host = menu.closest(".session-row, .project-item, .managed-project, .worktree-header");
           host?.classList.toggle("menu-open", menu.open);
-          if (menu.open) closeFloatingMenus(menu);
+          if (!menu.open) { menu.classList.remove("open-up"); return; }
+          closeFloatingMenus(menu);
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => { if (menu.open) positionFloatingMenu(menu, panel); });
+          });
         });
         panel.addEventListener("click", (event) => {
           if (event.target instanceof Element && event.target.closest("button")) menu.open = false;
@@ -1340,6 +1355,14 @@
       liveMode.addEventListener("click", () => setLiveOnly(true));
       document.addEventListener("click", (event) => {
         if (event.target instanceof Element && !event.target.closest(".floating-menu")) closeFloatingMenus();
+      });
+      window.addEventListener("resize", () => {
+        requestAnimationFrame(() => {
+          document.querySelectorAll(".floating-menu[open]").forEach((menu) => {
+            const panel = menu.querySelector(".floating-menu-panel");
+            if (panel) positionFloatingMenu(menu, panel);
+          });
+        });
       });
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && closeFloatingMenus()) { event.preventDefault(); return; }

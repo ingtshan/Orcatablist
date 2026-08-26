@@ -309,6 +309,7 @@ describe("HTTP server", () => {
     expect(html).toContain('action focus-action ${row.live ? "focus-jump" : "focus-resume"}');
     expect(html).toContain('make("details", `floating-menu ${className}`.trim())');
     expect(html).toContain('.floating-menu-panel { position: absolute;');
+    expect(html).toContain('.floating-menu.open-up > .floating-menu-panel');
     expect(html).toContain('"action-drawer", "action drawer-toggle"');
     expect(html).toContain('event.key === "Escape" && closeFloatingMenus()');
     expect(html).toContain("drawerPanel.append(copyButton, commandButton)");
