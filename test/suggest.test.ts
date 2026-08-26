@@ -19,13 +19,14 @@ function session(id: string, overrides: Partial<SessionRow> = {}): SessionRow {
 
 describe("suggestSessions", () => {
   test("scores and labels branch, project, and title evidence", () => {
-    const confirmed = session("confirmed", { displayTitle: "Agent migration baseline" });
-    const candidate = session("candidate", { lastInputAt: 10 });
+    // Use a real feature branch: a shared default branch like "main" is deliberately not a signal.
+    const confirmed = session("confirmed", { branch: "feature/agent-migration", displayTitle: "Agent migration baseline" });
+    const candidate = session("candidate", { branch: "feature/agent-migration", lastInputAt: 10 });
     const results = suggestSessions(goal, [confirmed], new Set(), [confirmed, candidate]);
     expect(results).toHaveLength(1);
     expect(results[0]?.score).toBe(7);
     expect(results[0]?.reasons).toEqual([
-      { code: "branch", label: "同分支 main" },
+      { code: "branch", label: "同分支 feature/agent-migration" },
       { code: "project", label: "同项目 orcatab" },
       { code: "title", label: "标题含 “agent”" },
     ]);
@@ -82,4 +83,23 @@ describe("suggestSessions", () => {
   test("tokenizes long Latin words and adjacent CJK while dropping short and numeric terms", () => {
     expect([...tokens("AI Agent agent 123 课堂树!")]).toEqual(["agent", "课堂", "堂树"]);
   });
+});
+
+test("a shared default branch (main) is not treated as evidence of shared intent", () => {
+  const goal = { id: "g", name: "OrcaTab", status: "active" as const, externalRef: null, color: null, createdAt: 0, updatedAt: 0 };
+  const row = (over: Partial<SessionRow>): SessionRow => ({
+    agent: "codex", sid: "s", projectKey: "/x/other", cwd: "/x/other", branch: "main",
+    title: null, firstPrompt: null, lastPrompt: null, displayTitle: "unrelated", lastInputAt: 1,
+    promptCount: 1, live: null, goals: [], ...over,
+  });
+  const confirmed = [row({ sid: "c1", projectKey: "/x/orcatab", branch: "main", displayTitle: "P7 goals" })];
+  // candidate: different project, but same generic branch "main" and no token overlap → must NOT be suggested
+  const noise = row({ sid: "n1", projectKey: "/x/other", branch: "main", displayTitle: "unrelated task" });
+  const out = suggestSessions(goal, confirmed, new Set(), [noise]);
+  expect(out.find((s) => s.sid === "n1")).toBeUndefined();
+  // but a real feature branch shared with a confirmed session still counts
+  const confirmed2 = [row({ sid: "c2", projectKey: "/x/orcatab", branch: "feature/goals", displayTitle: "P7" })];
+  const same = row({ sid: "n2", projectKey: "/x/other", branch: "feature/goals", displayTitle: "unrelated" });
+  const out2 = suggestSessions(goal, confirmed2, new Set(), [same]);
+  expect(out2.find((s) => s.sid === "n2")?.reasons.some((r) => r.code === "branch")).toBe(true);
 });

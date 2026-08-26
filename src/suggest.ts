@@ -7,6 +7,8 @@ const PROJECT_SCORE = 2;
 const MINIMUM_SCORE = 2;
 const DEFAULT_LIMIT = 8;
 const LATIN_WORD_PATTERN = /[a-z]+/g;
+// A default branch shared by nearly every repo is not evidence of shared intent.
+const GENERIC_BRANCHES = new Set(["main", "master", "develop", "dev", "trunk", "release"]);
 const CJK_CHARACTER_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
 
 export function tokens(value: string): Set<string> {
@@ -38,6 +40,11 @@ function validBranch(branch: string | null): branch is string {
   return Boolean(branch && branch !== "HEAD");
 }
 
+// Branch is a *discriminating* signal only when it is not a repo-wide default.
+function discriminatingBranch(branch: string | null): branch is string {
+  return validBranch(branch) && !GENERIC_BRANCHES.has(branch.toLocaleLowerCase());
+}
+
 export function suggestSessions(
   goal: Goal,
   confirmed: SessionRow[],
@@ -46,7 +53,7 @@ export function suggestSessions(
   limit = DEFAULT_LIMIT,
 ): SessionSuggestion[] {
   const confirmedKeys = new Set(confirmed.map((row) => sessionIdentityKey(row.agent, row.sid)));
-  const confirmedBranches = new Set(confirmed.map((row) => row.branch).filter(validBranch));
+  const confirmedBranches = new Set(confirmed.map((row) => row.branch).filter(discriminatingBranch));
   const confirmedProjects = new Set(confirmed.map((row) => row.projectKey));
   const goalTokens = tokens(goal.name);
   for (const row of confirmed) {
@@ -61,7 +68,7 @@ export function suggestSessions(
     const reasons: SuggestionReason[] = [];
 
     if (confirmed.length > 0) {
-      if (validBranch(row.branch) && confirmedBranches.has(row.branch)) {
+      if (discriminatingBranch(row.branch) && confirmedBranches.has(row.branch)) {
         score += BRANCH_SCORE;
         reasons.push({ code: "branch", label: `同分支 ${row.branch}` });
       }
@@ -75,7 +82,7 @@ export function suggestSessions(
         score += PROJECT_SCORE;
         reasons.push({ code: "project", label: `项目含 “${projectMatches[0]}”` });
       }
-      const branchMatches = validBranch(row.branch) ? matchingTokens(tokens(row.branch), goalTokens) : [];
+      const branchMatches = discriminatingBranch(row.branch) ? matchingTokens(tokens(row.branch), goalTokens) : [];
       if (branchMatches.length > 0) {
         score += BRANCH_SCORE;
         reasons.push({ code: "branch", label: `分支含 “${branchMatches[0]}”` });
