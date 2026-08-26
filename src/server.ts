@@ -7,15 +7,18 @@ import {
 import { OrcaDatabase } from "./db";
 import { createFocusDeps, resolveFocus, SID_PATTERN, ValidationError, type FocusDeps } from "./focus";
 import { GoalsStore, openGoalsDatabase, sessionIdentityKey, type GoalLinkKind } from "./goals";
+import {
+  boundedLimit, conditionalJson, decodeParts, focusText, json, jsonObject, nullableText, requiredName, requiredString,
+} from "./http";
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
+import { openProjectPreferencesDatabase, ProjectPreferencesStore } from "./project-preferences";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
 import { createSessionLiveReader, mergeSessionLive, type SessionLiveReader } from "./session-live";
 import { handleSppRequest } from "./spp";
 import { suggestSessions } from "./suggest";
-import type { Agent, FocusResult, GoalStatus, SearchResult, SessionRow } from "./types";
+import type { Agent, GoalStatus, SearchResult, SessionRow } from "./types";
 import { resolveWorktreeFocus } from "./worktree-focus";
-
 const DEFAULT_SESSIONS_LIMIT = 500;
 const MAX_SESSIONS_LIMIT = 5_000;
 const SUGGESTION_POOL_LIMIT = 5_000;
@@ -33,77 +36,19 @@ export interface OrcaTabServer {
   stop(): void;
 }
 class NotFoundError extends Error { override name = "NotFoundError"; }
-
-function json(value: unknown, status = 200, headers: HeadersInit = {}): Response {
-  const responseHeaders = new Headers(headers);
-  responseHeaders.set("Cache-Control", "no-store");
-  return Response.json(value, { status, headers: responseHeaders });
-}
-
-function conditionalJson(request: Request, etag: string, value: () => unknown): Response {
-  const headers = { ETag: etag, "Cache-Control": "no-store" };
-  if (request.headers.get("If-None-Match") === etag) return new Response(null, { status: 304, headers });
-  return json(value(), 200, { ETag: etag });
-}
-
-function boundedLimit(value: string | null, fallback: number, maximum: number): number {
-  if (value === null) return fallback;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
-}
-
 function attachGoals<T extends SessionRow>(rows: T[], store: GoalsStore): T[] {
   const goals = store.goalsForSessions(rows.map(({ agent, sid }) => ({ agent, sid })));
   return rows.map((row) => ({ ...row, goals: goals.get(sessionIdentityKey(row.agent, row.sid)) ?? [] }));
 }
-
 function enabledAgent(value: string): value is Agent {
   return AGENTS.some((agent) => agent === value);
 }
-
-async function jsonObject(request: Request): Promise<Record<string, unknown>> {
-  let value: unknown;
-  try { value = await request.json(); }
-  catch { throw new ValidationError("invalid JSON body"); }
-  if (value === null || Array.isArray(value) || typeof value !== "object") throw new ValidationError("JSON body must be an object");
-  return value as Record<string, unknown>;
-}
-
-function requiredName(value: unknown): string {
-  if (typeof value !== "string" || !value.trim()) throw new ValidationError("name is required");
-  return value.trim();
-}
-
-function requiredProjectKey(value: unknown): string {
-  if (typeof value !== "string" || !value) throw new ValidationError("projectKey is required");
-  return value;
-}
-
-function nullableText(value: unknown, field: string): string | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value !== "string") throw new ValidationError(`${field} must be a string or null`);
-  return value.trim() || null;
-}
-
-function decodeParts(pathname: string, prefix: string): string[] {
-  try { return pathname.slice(prefix.length).split("/").map(decodeURIComponent); }
-  catch { throw new ValidationError("invalid path encoding"); }
-}
-
-function focusText(result: FocusResult): string {
-  if (result.action === "switched") return `switched ${result.handle}`;
-  if (result.action === "resumed") return `resumed ${result.handle}`;
-  return `manual ${result.reason}${result.command ? ` ${result.command}` : ""}`;
-}
-
 function errorResponse(error: unknown, request: Request): Response {
   const status = error instanceof ValidationError ? 400 : error instanceof NotFoundError ? 404 : 500;
   const message = error instanceof Error ? error.message : String(error);
   if (status === 500) console.error(`orcatab ${request.method} ${new URL(request.url).pathname}`, error instanceof Error ? error.stack : error);
   return json({ error: message }, status);
 }
-
 export async function createServer(options: ServerOptions = {}): Promise<OrcaTabServer> {
   const dataDir = options.dataDir ?? ORCATAB_DATA_DIR;
   const claudeDir = options.claudeDir ?? ORCATAB_CLAUDE_DIR;
@@ -113,6 +58,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   mkdirSync(join(dataDir, "logs"), { recursive: true });
   const db = options.db ?? new OrcaDatabase(join(dataDir, "index.db"));
   const goalsStore = options.goalsStore ?? new GoalsStore(openGoalsDatabase(join(dataDir, "goals.db")));
+  const projectPreferences = new ProjectPreferencesStore(openProjectPreferencesDatabase(join(dataDir, "project-preferences.db")));
   const indexer = createIndexer({ claudeDir, codexDir, hermesDb, db });
   const indexed = await indexer.indexAll();
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
@@ -136,12 +82,10 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     rescanTimer = indexer.startRescanTimer(watcher.mode === "fs.watch" ? RESCAN_INTERVAL_MS : FALLBACK_RESCAN_INTERVAL_MS);
     timers.push(rescanTimer, startProjectMetadataTimer(db, orcaBin));
   }
-
-  const versionedLive = async () => {
+  const versionedLive = async (contentVersion: number) => {
     const live = await sessionLiveReader.refresh();
-    return { live, etag: `"${db.getDataVersion()}-${sessionLiveReader.getLiveVersion()}-${goalsStore.goalsVersion}"` };
+    return { live, etag: `"${contentVersion}-${sessionLiveReader.getLiveVersion()}-${goalsStore.goalsVersion}"` };
   };
-
   const goalSummaries = () => goalsStore.listGoals().map((goal) => {
     const links = goalsStore.confirmedLinks(goal.id);
     const timestamps = links.map(({ agent, sid }) => db.getSession(agent, sid)?.lastInputAt ?? null)
@@ -149,7 +93,6 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     return { ...goal, sessionCount: links.length, lastActivityAt: timestamps.length ? Math.max(...timestamps) : null };
   }).sort((left, right) => Number(right.lastActivityAt !== null) - Number(left.lastActivityAt !== null)
     || (right.lastActivityAt ?? -1) - (left.lastActivityAt ?? -1));
-
   const handler = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
@@ -167,20 +110,53 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         return json({
           ok: true, sessions: db.countSessions(), goals: goalsStore.countGoals(),
           indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt), dataVersion: db.getDataVersion(),
+          listVersion: db.getListVersion(),
           watch: watcher.mode, agents: [...AGENTS], version: "p7",
         });
       }
       if (request.method === "GET" && url.pathname === "/api/projects") {
-        const { etag } = await versionedLive();
-        return conditionalJson(request, etag, () => db.listProjects());
+        const etag = `"p-${db.getListVersion()}-${projectPreferences.preferencesVersion}"`;
+        return conditionalJson(request, etag, () => projectPreferences.apply(db.listProjects()));
+      }
+      if (request.method === "PATCH" && url.pathname === "/api/projects") {
+        const body = await jsonObject(request);
+        const projectKey = requiredString(body.projectKey, "projectKey");
+        if (body.pinned !== undefined && typeof body.pinned !== "boolean") throw new ValidationError("pinned must be a boolean");
+        if (body.archived !== undefined && typeof body.archived !== "boolean") throw new ValidationError("archived must be a boolean");
+        if (body.pinned === undefined && body.archived === undefined) throw new ValidationError("pinned or archived is required");
+        if (body.pinned === true && body.archived === true) throw new ValidationError("project cannot be pinned and archived");
+        const project = db.listProjects().find((candidate) => candidate.key === projectKey);
+        if (!project) throw new NotFoundError("project not found");
+        projectPreferences.update(projectKey, { pinned: body.pinned, archived: body.archived });
+        return json(projectPreferences.apply([project])[0]);
+      }
+      if (request.method === "GET" && url.pathname === "/api/worktrees") {
+        const etag = `"w-${projectPreferences.worktreePreferencesVersion}"`;
+        return conditionalJson(request, etag, () => projectPreferences.listWorktreePreferences());
+      }
+      if (request.method === "PATCH" && url.pathname === "/api/worktrees") {
+        const body = await jsonObject(request);
+        const projectKey = requiredString(body.projectKey, "projectKey");
+        const root = requiredString(body.root, "root");
+        if (typeof body.archived !== "boolean") throw new ValidationError("archived must be a boolean");
+        const project = db.listProjects().find((candidate) => candidate.key === projectKey);
+        if (!project) throw new NotFoundError("project not found");
+        const preference = projectPreferences.getWorktreePreference(root);
+        const canRestoreStale = body.archived === false && preference?.projectKey === projectKey;
+        if (!db.hasWorktree(projectKey, root) && !canRestoreStale) throw new NotFoundError("worktree not found");
+        return json(projectPreferences.updateWorktree(projectKey, root, body.archived));
+      }
+      if (request.method === "GET" && url.pathname === "/api/live") {
+        const live = await sessionLiveReader.refresh();
+        return conditionalJson(request, `"l-${sessionLiveReader.getLiveVersion()}"`, () => Object.fromEntries(live));
       }
       if (request.method === "POST" && url.pathname === "/api/projects/focus") {
         const body = await jsonObject(request);
-        const projectKey = requiredProjectKey(body.projectKey);
+        const projectKey = requiredString(body.projectKey, "projectKey");
         const project = db.listProjectRecords().find((candidate) => candidate.key === projectKey);
         if (!project) throw new NotFoundError("project not found");
-        const cwd = db.listSessions({ projectKey, limit: MAX_SESSIONS_LIMIT })
-          .find((row) => Boolean(row.cwd))?.cwd || project.root;
+        const cwd = db.listSessions({ projectKey, limit: MAX_SESSIONS_LIMIT }).map((row) => row.worktreeRoot || row.cwd)
+          .find((path): path is string => Boolean(path)) || project.root;
         if (!cwd) throw new NotFoundError("project has no indexed worktree");
         return json(await resolveWorktreeFocus(cwd, focusDeps));
       }
@@ -188,7 +164,15 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const limit = boundedLimit(url.searchParams.get("limit"), DEFAULT_SESSIONS_LIMIT, MAX_SESSIONS_LIMIT);
         const projectKey = url.searchParams.get("project") || undefined;
         const liveOnly = url.searchParams.get("live") === "1";
-        const { live, etag } = await versionedLive();
+        const includeLive = url.searchParams.get("includeLive") !== "0";
+        if (liveOnly && !includeLive) throw new ValidationError("live=1 requires live session data");
+        if (!includeLive) {
+          const etag = `"s-${db.getListVersion()}-${goalsStore.goalsVersion}"`;
+          return conditionalJson(request, etag, () => attachGoals(
+            db.listSessions({ ...(projectKey ? { projectKey } : {}), limit }), goalsStore,
+          ));
+        }
+        const { live, etag } = await versionedLive(db.getListVersion());
         return conditionalJson(request, etag, () => {
           const base = db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit });
           const rows = attachGoals(mergeSessionLive(base, live), goalsStore);
@@ -198,7 +182,11 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       if (request.method === "GET" && url.pathname === "/api/search") {
         const q = url.searchParams.get("q") ?? "";
         const limit = boundedLimit(url.searchParams.get("limit"), DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
-        const { live, etag } = await versionedLive();
+        if (url.searchParams.get("includeLive") === "0") {
+          const rows: SearchResult[] = q.trim() ? db.search(q, limit) : [];
+          return json(attachGoals(rows, goalsStore));
+        }
+        const { live, etag } = await versionedLive(db.getDataVersion());
         return conditionalJson(request, etag, () => {
           const rows: SearchResult[] = q.trim() ? mergeSessionLive(db.search(q, limit), live) : [];
           return attachGoals(rows, goalsStore);
@@ -284,7 +272,6 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       return errorResponse(error, request);
     }
   };
-
   const server = Bun.serve({ hostname: ORCATAB_HOST, port: options.port ?? ORCATAB_PORT, fetch: handler });
   if (!options.quiet) console.log(`orcatab listening on http://${ORCATAB_HOST}:${server.port}`);
   return {
@@ -293,6 +280,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       watcher.close();
       for (const timer of timers) clearInterval(timer);
       server.stop(true);
+      projectPreferences.close();
       goalsStore.close();
       db.close();
     },

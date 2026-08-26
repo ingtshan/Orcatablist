@@ -168,6 +168,17 @@ describe("resolveFocus", () => {
     db.close();
   });
 
+  test("prefers the indexed worktree root over a nested session cwd", () => {
+    const db = new OrcaDatabase(":memory:");
+    db.upsertSession({
+      agent: "claude", sid: SID, projectKey: "/repo", cwd: "/repo/packages/app", worktreeRoot: "/repo",
+      branch: "main", title: null, firstPrompt: "fixture", lastPrompt: "fixture", lastInputAt: 1,
+      promptCount: 1, filePath: "/tmp/session.jsonl", fileSize: 1, fileMtime: 1, parsedOffset: 1,
+    });
+    expect(createFocusDeps(db).getSessionCwd("claude", SID)).toBe("/repo");
+    db.close();
+  });
+
   test("finds cwd directly from a source JSONL when no cache exists", () => {
     const root = mkdtempSync(join(tmpdir(), "orcatab-focus-source-"));
     temporaryDirectories.push(root);

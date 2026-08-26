@@ -55,7 +55,7 @@ function createFixture(path: string): void {
 
 function emptyBase(info: SessionFileInfo): StoredSession {
   return {
-    agent: "hermes", sid: info.sid, projectKey: "unknown", cwd: null, branch: null,
+    agent: "hermes", sid: info.sid, projectKey: "unknown", cwd: null, worktreeRoot: null, branch: null,
     title: null, firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0,
     filePath: info.path, fileSize: 0, fileMtime: 0, parsedOffset: 0,
   };
@@ -80,7 +80,7 @@ describe("Hermes SQLite session source", () => {
     const derived = source.deriveSession!(info, emptyBase(info));
     expect(derived.session).toEqual({
       agent: "hermes", sid: HERMES_SID, projectKey: "unknown", cwd: "/fixture/hermes-worktree",
-      branch: "feature/hermes", title: "Hermes 回退标题", firstPrompt: "第一条 展示文本",
+      worktreeRoot: null, branch: "feature/hermes", title: "Hermes 回退标题", firstPrompt: "第一条 展示文本",
       lastPrompt: "最后一条真实输入", lastInputAt: 109_000, promptCount: 2,
       filePath: path, fileSize: 9, fileMtime: 109_000, parsedOffset: 0,
     });

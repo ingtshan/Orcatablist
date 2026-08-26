@@ -91,7 +91,8 @@ export function createFocusDeps(
     findLive: options.liveFinder ?? sessionLiveReader!.findLive,
     getSessionCwd: (agent, sid) => {
       try {
-        const cwd = db?.getSession(agent, sid)?.cwd;
+        const session = db?.getSession(agent, sid);
+        const cwd = session?.worktreeRoot || session?.cwd;
         if (cwd) return cwd;
       } catch { /* A missing or incompatible cache falls back to the source JSONL. */ }
       if (agent === "hermes") return findHermesSessionCwd(sid, hermesDb);

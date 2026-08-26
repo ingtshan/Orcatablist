@@ -28,7 +28,7 @@ function storedSession(
   lastInputAt: number,
 ): StoredSession {
   return {
-    agent, sid, projectKey, cwd, branch: "main", title, firstPrompt: `${title} first prompt`,
+    agent, sid, projectKey, cwd, worktreeRoot: cwd, branch: "main", title, firstPrompt: `${title} first prompt`,
     lastPrompt: `${title} last prompt`, lastInputAt, promptCount: 2,
     filePath: join(root, `${sid}.jsonl`), fileSize: 1, fileMtime: 1, parsedOffset: 1,
   };

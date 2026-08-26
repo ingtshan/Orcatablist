@@ -100,7 +100,7 @@ function deriveFromRows(
   }
 
   const session: StoredSession = {
-    agent: "hermes", sid: info.sid, projectKey: "unknown", cwd: meta.cwd || null,
+    agent: "hermes", sid: info.sid, projectKey: "unknown", cwd: meta.cwd || null, worktreeRoot: null,
     branch: meta.gitBranch || null, title: titleFromMeta(meta), firstPrompt, lastPrompt,
     lastInputAt, promptCount, filePath: info.path, fileSize: info.size,
     fileMtime: info.mtime, parsedOffset: 0,

@@ -10,7 +10,10 @@ export interface LiveInfo {
   tabId?: string | null;
   leafId?: string | null;
 }
-export interface ProjectRow { key: string; name: string; root: string; color: string | null; sessionCount: number; lastInputAt: number | null; }
+export interface ProjectRow {
+  key: string; name: string; root: string; color: string | null;
+  sessionCount: number; lastInputAt: number | null; pinned: boolean; archived: boolean;
+}
 export interface Goal {
   id: string; name: string; status: GoalStatus; externalRef: string | null;
   color: string | null; createdAt: number; updatedAt: number;
@@ -19,7 +22,7 @@ export interface GoalSummary extends Goal { sessionCount: number; lastActivityAt
 export interface GoalRef { id: string; name: string; }
 export interface SessionRow {
   agent: Agent;
-  sid: string; projectKey: string; cwd: string | null; branch: string | null;
+  sid: string; projectKey: string; cwd: string | null; worktreeRoot: string | null; branch: string | null;
   title: string | null;
   firstPrompt: string | null;
   lastPrompt: string | null;

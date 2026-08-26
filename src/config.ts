@@ -22,6 +22,7 @@ export const RESCAN_INTERVAL_MS = 60_000;
 export const FALLBACK_RESCAN_INTERVAL_MS = 10_000;
 export const WATCH_DEBOUNCE_MS = 500;
 export const LIVE_CACHE_MS = 3_000;
+export const HERMES_PROCESS_CACHE_MS = 30_000;
 export const FTS_TEXT_MAX_CHARS = 8_000;
 export const FIRST_PROMPT_MAX_CHARS = 200;
 export const DISPLAY_TITLE_MAX_CHARS = 80;

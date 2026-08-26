@@ -10,7 +10,7 @@ const goal: Goal = {
 
 function session(id: string, overrides: Partial<SessionRow> = {}): SessionRow {
   return {
-    agent: "claude", sid: id, projectKey: "/workspace/orcatab", cwd: "/workspace/orcatab",
+    agent: "claude", sid: id, projectKey: "/workspace/orcatab", cwd: "/workspace/orcatab", worktreeRoot: "/workspace/orcatab",
     branch: "main", title: null, firstPrompt: "Agent migration plan", lastPrompt: null,
     displayTitle: "Agent migration", lastInputAt: 1, promptCount: 1, live: null, goals: [],
     ...overrides,
@@ -88,7 +88,7 @@ describe("suggestSessions", () => {
 test("a shared default branch (main) is not treated as evidence of shared intent", () => {
   const goal = { id: "g", name: "OrcaTab", status: "active" as const, externalRef: null, color: null, createdAt: 0, updatedAt: 0 };
   const row = (over: Partial<SessionRow>): SessionRow => ({
-    agent: "codex", sid: "s", projectKey: "/x/other", cwd: "/x/other", branch: "main",
+    agent: "codex", sid: "s", projectKey: "/x/other", cwd: "/x/other", worktreeRoot: "/x/other", branch: "main",
     title: null, firstPrompt: null, lastPrompt: null, displayTitle: "unrelated", lastInputAt: 1,
     promptCount: 1, live: null, goals: [], ...over,
   });

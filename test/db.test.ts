@@ -16,7 +16,7 @@ function makeDb(): OrcaDatabase {
 
 function session(sid: string, lastInputAt = 1, agent: Agent = "claude"): StoredSession {
   return {
-    agent, sid, projectKey: "/repo", cwd: "/repo/wt", branch: "main", title: null,
+    agent, sid, projectKey: "/repo", cwd: "/repo/wt", worktreeRoot: "/repo/wt", branch: "main", title: null,
     firstPrompt: "首条问题", lastPrompt: "最近问题", lastInputAt, promptCount: 1, filePath: `/tmp/${sid}.jsonl`,
     fileSize: 10, fileMtime: 20, parsedOffset: 10,
   };
@@ -35,6 +35,7 @@ describe("OrcaDatabase", () => {
     const row = db.getSession("claude", "11111111-1111-1111-1111-111111111111");
     expect(row?.displayTitle).toBe("首条问题");
     expect(row?.lastPrompt).toBe("最近问题");
+    expect(row?.worktreeRoot).toBe("/repo/wt");
     expect(db.listProjects()[0]).toMatchObject({ name: "repo", sessionCount: 1, lastInputAt: 1 });
     expect(db.listSessions({ limit: 10 })).toEqual([row!]);
   });
@@ -143,14 +144,20 @@ describe("OrcaDatabase", () => {
     writable.close();
     const readonly = openDatabaseReadOnly(path)!;
     databases.push(readonly);
-    expect(readonly.getSession("claude", "55555555-5555-5555-5555-555555555555")?.cwd).toBe("/repo/wt");
+    expect(readonly.getSession("claude", "55555555-5555-5555-5555-555555555555"))
+      .toMatchObject({ cwd: "/repo/wt", worktreeRoot: "/repo/wt" });
     expect(openDatabaseReadOnly(join(root, "missing.db"))).toBeNull();
   });
 
-  test("increments dataVersion atomically from zero", () => {
+  test("increments data and list versions independently from zero", () => {
     const db = makeDb();
     expect(db.getDataVersion()).toBe(0);
+    expect(db.getListVersion()).toBe(0);
     expect(db.bumpDataVersion()).toBe(1);
     expect(db.bumpDataVersion()).toBe(2);
+    expect(db.getListVersion()).toBe(0);
+    expect(db.bumpListVersion()).toBe(1);
+    expect(db.bumpListVersion()).toBe(2);
+    expect(db.getDataVersion()).toBe(2);
   });
 });

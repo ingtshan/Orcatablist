@@ -2,15 +2,15 @@ import { accessSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
-import { LIVE_CACHE_MS, ORCATAB_ORCA_BIN } from "./config";
+import { HERMES_PROCESS_CACHE_MS, LIVE_CACHE_MS, ORCATAB_ORCA_BIN } from "./config";
 import { sessionIdentityKey } from "./goals";
 import { getLiveMap as getClaudeLiveMap } from "./live";
+import { listHermesProcessEnvironments } from "./process-environments";
 import type { Agent, LiveInfo, LiveStatus, SessionRow } from "./types";
 
 const ACTIVE_FILE_PATTERN = /^hermes-tui-active-session-[A-Za-z0-9._-]+\.json$/;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const ACTIVE_FILE_MAX_BYTES = 4_096;
-const HERMES_PROCESS_SCAN_LIMIT = 64;
 const ORCA_RUNTIME_TIMEOUT_MS = 3_000;
 const RUNTIME_CLIENT_RELATIVE_PATH = "app.asar.unpacked/out/cli/runtime-client.js";
 const runtimeRequire = createRequire(import.meta.url);
@@ -79,25 +79,6 @@ async function callRuntime(orcaBin: string): Promise<unknown> {
   const module = runtimeRequire(path) as RuntimeClientModule;
   if (typeof module.RuntimeClient !== "function") throw new Error(`invalid Orca runtime client module ${path}`);
   return new module.RuntimeClient(undefined, ORCA_RUNTIME_TIMEOUT_MS).call("session.tabs.listAll", {});
-}
-
-async function psText(args: string[], tolerateExit = false): Promise<string> {
-  const child = Bun.spawn(["ps", ...args], { stdout: "pipe", stderr: "pipe" });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
-  ]);
-  if (exitCode !== 0 && !tolerateExit) throw new Error(`ps process scan failed (${exitCode}): ${stderr.trim()}`);
-  return stdout;
-}
-
-async function listProcessEnvironments(): Promise<string> {
-  const listing = await psText(["-axo", "pid=,command="]);
-  const pids = listing.split("\n").flatMap((line) => {
-    const match = /^\s*(\d+)\s+(.+)$/.exec(line);
-    if (!match || !/(?:hermes|ui-tui|tui_dist)/i.test(match[2]!)) return [];
-    return [match[1]!];
-  }).slice(0, HERMES_PROCESS_SCAN_LIMIT);
-  return (await Promise.all(pids.map((pid) => psText(["-Eww", "-o", "command=", "-p", pid], true)))).join("\n");
 }
 
 function readSmallTextFile(path: string): string {
@@ -171,6 +152,23 @@ function providerTabs(tabs: RuntimeTab[]): Map<string, LiveInfo> {
   }));
 }
 
+function hermesFallbackTabs(tabs: RuntimeTab[]): RuntimeTab[] {
+  return tabs.filter((tab) => {
+    if (asAgent(tab.agentStatus?.agentType) !== "hermes" || toLiveInfo(tab) === null) return false;
+    const sid = stringValue(tab.agentStatus?.providerSession?.id);
+    return sid === null || !SESSION_ID_PATTERN.test(sid);
+  });
+}
+
+function tabSignature(tabs: RuntimeTab[]): string {
+  return tabs.map((tab) => [
+    stringValue(tab.terminal) ?? stringValue(tab.agentStatus?.terminalHandle) ?? "",
+    stringValue(tab.parentTabId) ?? "", stringValue(tab.leafId) ?? "",
+  ].join(":"))
+    .sort()
+    .join("|");
+}
+
 function environmentValue(line: string, name: string): string | null {
   const match = line.match(new RegExp(`(?:^|\\s)${name}=([^\\s]+)(?:\\s|$)`));
   return match?.[1] ?? null;
@@ -223,7 +221,7 @@ function liveMapsEqual(left: Map<string, LiveInfo>, right: Map<string, LiveInfo>
   for (const [key, value] of left) {
     const other = right.get(key);
     if (!other || value.pid !== other.pid || value.status !== other.status || value.waitingFor !== other.waitingFor ||
-      value.name !== other.name || value.handle !== other.handle || value.tabId !== other.tabId || value.leafId !== other.leafId) return false;
+      value.handle !== other.handle || value.tabId !== other.tabId || value.leafId !== other.leafId) return false;
   }
   return true;
 }
@@ -232,7 +230,7 @@ export function createSessionLiveReader(options: SessionLiveReaderOptions = {}):
   const now = options.now ?? Date.now;
   const claudeLive = options.getClaudeLiveMap ?? getClaudeLiveMap;
   const runtimeCall = options.callRuntime ?? (() => callRuntime(options.orcaBin ?? ORCATAB_ORCA_BIN));
-  const processScan = options.listProcessEnvironments ?? listProcessEnvironments;
+  const processScan = options.listProcessEnvironments ?? listHermesProcessEnvironments;
   const readTextFile = options.readTextFile ?? readSmallTextFile;
   const onError = options.onError ?? ((error) => console.warn(error.message));
   let cached = new Map<string, LiveInfo>();
@@ -240,6 +238,19 @@ export function createSessionLiveReader(options: SessionLiveReaderOptions = {}):
   let version = 0;
   let pending: Promise<Map<string, LiveInfo>> | null = null;
   let lastError = "";
+  let processText = "";
+  let processTextAt = Number.NEGATIVE_INFINITY;
+  let processTabSignature = "";
+
+  async function cachedProcessText(tabs: RuntimeTab[], current: number): Promise<string> {
+    const signature = tabSignature(tabs);
+    if (signature !== processTabSignature || current - processTextAt >= HERMES_PROCESS_CACHE_MS) {
+      processText = await processScan();
+      processTextAt = current;
+      processTabSignature = signature;
+    }
+    return processText;
+  }
 
   async function load(startedAt: number): Promise<Map<string, LiveInfo>> {
     const next: Map<string, LiveInfo> = new Map(
@@ -248,11 +259,15 @@ export function createSessionLiveReader(options: SessionLiveReaderOptions = {}):
     try {
       const tabs = runtimeTabs(await runtimeCall());
       for (const [key, info] of providerTabs(tabs)) next.set(key, info);
-      const tabsByHandle = new Map(tabs.flatMap((tab) => {
+      const fallbackTabs = hermesFallbackTabs(tabs);
+      const tabsByHandle = new Map(fallbackTabs.flatMap((tab) => {
         const handle = stringValue(tab.terminal) ?? stringValue(tab.agentStatus?.terminalHandle);
         return handle === null ? [] : [[handle, tab] as const];
       }));
-      for (const [key, info] of hermesTabs(await processScan(), tabsByHandle, readTextFile)) next.set(key, info);
+      if (tabsByHandle.size > 0) {
+        const environments = await cachedProcessText(fallbackTabs, startedAt);
+        for (const [key, info] of hermesTabs(environments, tabsByHandle, readTextFile)) next.set(key, info);
+      } else processTabSignature = "";
       lastError = "";
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : String(cause);

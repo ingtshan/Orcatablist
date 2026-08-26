@@ -4,13 +4,13 @@ import { dirname, join } from "node:path";
 import { DISPLAY_TITLE_MAX_CHARS, ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
 import type { Agent, ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
 
-const SCHEMA_VERSION = "6"; // bump whenever parse/derivation rules change so stale caches rebuild
+const SCHEMA_VERSION = "7"; // bump whenever parse/derivation rules change so stale caches rebuild
 const SEARCH_ROWS_MULTIPLIER = 3;
 const MAX_HITS_PER_SESSION = 3;
 const LIKE_CONTEXT_CHARS = 40;
 
 export interface StoredSession {
-  agent: Agent; sid: string; projectKey: string; cwd: string | null; branch: string | null;
+  agent: Agent; sid: string; projectKey: string; cwd: string | null; worktreeRoot: string | null; branch: string | null;
   title: string | null; firstPrompt: string | null; lastPrompt: string | null; lastInputAt: number | null;
   promptCount: number; filePath: string; fileSize: number; fileMtime: number; parsedOffset: number;
 }
@@ -20,7 +20,7 @@ export interface ProjectRecord { key: string; name: string; root: string; color:
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS sessions (
-  agent TEXT NOT NULL, sid TEXT NOT NULL, project_key TEXT NOT NULL, cwd TEXT, git_branch TEXT,
+  agent TEXT NOT NULL, sid TEXT NOT NULL, project_key TEXT NOT NULL, cwd TEXT, worktree_root TEXT, git_branch TEXT,
   title TEXT, first_prompt TEXT,
   last_prompt TEXT, last_input_at INTEGER, prompt_count INTEGER NOT NULL DEFAULT 0,
   file_path TEXT NOT NULL, file_size INTEGER NOT NULL DEFAULT 0, file_mtime INTEGER NOT NULL DEFAULT 0,
@@ -61,6 +61,9 @@ function openDatabase(path: string): Database {
   if (row === null) {
     database.query("INSERT INTO meta(key, value) VALUES ('schema_version', ?)").run(SCHEMA_VERSION);
   }
+  database.exec(`INSERT INTO meta(key, value)
+    SELECT 'list_version', COALESCE((SELECT value FROM meta WHERE key = 'data_version'), '0')
+    WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'list_version');`);
   return database;
 }
 
@@ -75,6 +78,7 @@ function sessionRow(row: Record<string, unknown>): SessionRow {
     sid,
     projectKey: String(row.project_key),
     cwd: typeof row.cwd === "string" ? row.cwd : null,
+    worktreeRoot: typeof row.worktree_root === "string" ? row.worktree_root : null,
     branch: typeof row.git_branch === "string" ? row.git_branch : null,
     title,
     firstPrompt,
@@ -133,18 +137,27 @@ export class OrcaDatabase {
       ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(meta.value AS INTEGER) + 1 AS TEXT)`).run();
     return this.getDataVersion();
   }
+  getListVersion(): number {
+    const parsed = Number.parseInt(this.getMeta("list_version") ?? String(this.getDataVersion()), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  bumpListVersion(): number {
+    this.raw.query(`INSERT INTO meta(key, value) VALUES ('list_version', '1')
+      ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(meta.value AS INTEGER) + 1 AS TEXT)`).run();
+    return this.getListVersion();
+  }
   countSessions(): number {
     return Number((this.raw.query("SELECT COUNT(*) AS count FROM sessions").get() as { count: number }).count);
   }
   upsertSession(row: StoredSession): void {
     this.raw.query(`INSERT INTO sessions
-      (agent, sid, project_key, cwd, git_branch, title, first_prompt, last_prompt, last_input_at, prompt_count, file_path, file_size, file_mtime, parsed_offset)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (agent, sid, project_key, cwd, worktree_root, git_branch, title, first_prompt, last_prompt, last_input_at, prompt_count, file_path, file_size, file_mtime, parsed_offset)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(agent, sid) DO UPDATE SET project_key=excluded.project_key, cwd=excluded.cwd,
-      git_branch=excluded.git_branch, title=excluded.title, first_prompt=excluded.first_prompt,
+      worktree_root=excluded.worktree_root, git_branch=excluded.git_branch, title=excluded.title, first_prompt=excluded.first_prompt,
       last_prompt=excluded.last_prompt, last_input_at=excluded.last_input_at, prompt_count=excluded.prompt_count, file_path=excluded.file_path,
       file_size=excluded.file_size, file_mtime=excluded.file_mtime, parsed_offset=excluded.parsed_offset`)
-      .run(row.agent, row.sid, row.projectKey, row.cwd, row.branch, row.title, row.firstPrompt, row.lastPrompt,
+      .run(row.agent, row.sid, row.projectKey, row.cwd, row.worktreeRoot, row.branch, row.title, row.firstPrompt, row.lastPrompt,
         row.lastInputAt, row.promptCount, row.filePath, row.fileSize, row.fileMtime, row.parsedOffset);
   }
   getStoredSession(agent: Agent, sid: string): StoredSession | null {
@@ -205,15 +218,24 @@ export class OrcaDatabase {
     this.raw.query("INSERT OR REPLACE INTO cwd_cache(cwd, project_key) VALUES (?, ?)").run(cwd, projectKey);
   }
   listProjects(): ProjectRow[] {
-    return this.raw.query(`SELECT p.key, p.name, p.root, p.color, COUNT(s.sid) AS sessionCount,
+    const rows = this.raw.query(`SELECT p.key, p.name, p.root, p.color, COUNT(s.sid) AS sessionCount,
       MAX(s.last_input_at) AS lastInputAt FROM projects p LEFT JOIN sessions s ON s.project_key = p.key
-      GROUP BY p.key ORDER BY lastInputAt IS NULL, lastInputAt DESC`).all() as ProjectRow[];
+      GROUP BY p.key ORDER BY lastInputAt IS NULL, lastInputAt DESC`).all() as Array<Omit<ProjectRow, "pinned" | "archived">>;
+    return rows.map((row) => ({ ...row, pinned: false, archived: false }));
   }
   listSessions(options: { projectKey?: string; limit: number }): SessionRow[] {
     const rows = options.projectKey === undefined
       ? this.raw.query("SELECT * FROM sessions ORDER BY last_input_at IS NULL, last_input_at DESC LIMIT ?").all(options.limit)
       : this.raw.query("SELECT * FROM sessions WHERE project_key = ? ORDER BY last_input_at IS NULL, last_input_at DESC LIMIT ?").all(options.projectKey, options.limit);
     return (rows as Record<string, unknown>[]).map(sessionRow);
+  }
+  hasWorktree(projectKey: string, root: string): boolean {
+    const row = this.raw.query(`SELECT 1 AS found FROM sessions s
+      LEFT JOIN projects p ON p.key = s.project_key
+      WHERE s.project_key = ?
+        AND COALESCE(NULLIF(s.worktree_root, ''), NULLIF(s.cwd, ''), NULLIF(p.root, ''), '') = ?
+      LIMIT 1`).get(projectKey, root) as { found: number } | null;
+    return row !== null;
   }
   search(query: string, limit: number): SearchResult[] {
     const q = query.trim();

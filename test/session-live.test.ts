@@ -9,7 +9,7 @@ const CLAUDE_SID = "02998b64-f0d0-48a9-9bf1-8c90e265de7a";
 const HERMES_SID = "20260811_031044_76b3bb";
 const ACTIVE_FILE = join(tmpdir(), "hermes-tui-active-session-abcd.json");
 
-function runtimeSnapshot(codexHandle = "term_codex") {
+function runtimeSnapshot(codexHandle = "term_codex", hermesHandle = "term_hermes", codexTitle = "Codex tab") {
   return {
     ok: true,
     result: {
@@ -18,7 +18,7 @@ function runtimeSnapshot(codexHandle = "term_codex") {
         tabs: [
           {
             type: "terminal", parentTabId: "tab_codex", leafId: "leaf_codex",
-            terminal: codexHandle, title: "Codex tab",
+            terminal: codexHandle, title: codexTitle,
             agentStatus: {
               agentType: "codex", state: "working", updatedAt: 30,
               providerSession: { key: "session_id", id: CODEX_SID },
@@ -34,7 +34,7 @@ function runtimeSnapshot(codexHandle = "term_codex") {
           },
           {
             type: "terminal", parentTabId: "tab_hermes", leafId: "leaf_hermes",
-            terminal: "term_hermes", title: "Hermes tab",
+            terminal: hermesHandle, title: "Hermes tab",
             agentStatus: { agentType: "hermes", state: "waiting", toolName: "approval", updatedAt: 10 },
           },
         ],
@@ -81,10 +81,11 @@ describe("multi-agent open-session reader", () => {
     let now = 0;
     let calls = 0;
     let handle = "term_one";
+    let title = "first title";
     const reader = createSessionLiveReader({
       now: () => now,
       getClaudeLiveMap: () => new Map(),
-      callRuntime: async () => { calls += 1; return runtimeSnapshot(handle); },
+      callRuntime: async () => { calls += 1; return runtimeSnapshot(handle, "term_hermes", title); },
       listProcessEnvironments: async () => "",
     });
     await reader.refresh();
@@ -93,10 +94,46 @@ describe("multi-agent open-session reader", () => {
     await reader.refresh();
     expect(calls).toBe(1);
     now = 4_000;
-    handle = "term_two";
+    title = "renamed title";
     await reader.refresh();
     expect(calls).toBe(2);
+    expect(reader.getLiveVersion()).toBe(1);
+    now = 8_000;
+    handle = "term_two";
+    await reader.refresh();
+    expect(calls).toBe(3);
     expect(reader.getLiveVersion()).toBe(2);
+  });
+
+  test("reuses Hermes process mappings while rereading the active session and rescans changed tabs", async () => {
+    let now = 0;
+    let scans = 0;
+    let sid = HERMES_SID;
+    let hermesHandle = "term_hermes";
+    const reader = createSessionLiveReader({
+      now: () => now,
+      getClaudeLiveMap: () => new Map(),
+      callRuntime: async () => runtimeSnapshot("term_codex", hermesHandle),
+      listProcessEnvironments: async () => {
+        scans += 1;
+        return `HERMES_TUI_ACTIVE_SESSION_FILE=${ACTIVE_FILE} ORCA_TERMINAL_HANDLE=${hermesHandle}`;
+      },
+      readTextFile: () => JSON.stringify({ session_id: sid }),
+    });
+
+    expect((await reader.refresh()).has(`hermes/${HERMES_SID}`)).toBeTrue();
+    expect(scans).toBe(1);
+    now = 4_000;
+    sid = "20260811_031044_changed";
+    expect((await reader.refresh()).has(`hermes/${sid}`)).toBeTrue();
+    expect(scans).toBe(1);
+    now = 8_000;
+    hermesHandle = "term_hermes_new";
+    expect((await reader.refresh()).get(`hermes/${sid}`)?.handle).toBe(hermesHandle);
+    expect(scans).toBe(2);
+    now = 39_000;
+    await reader.refresh();
+    expect(scans).toBe(3);
   });
 
   test("keeps Claude fallback when the Orca runtime is unavailable and reports context", async () => {
@@ -117,6 +154,7 @@ describe("multi-agent open-session reader", () => {
   });
 
   test("ignores malformed providers and untrusted Hermes active-file paths", async () => {
+    let scans = 0;
     const reader = createSessionLiveReader({
       now: () => 0,
       getClaudeLiveMap: () => new Map(),
@@ -127,9 +165,13 @@ describe("multi-agent open-session reader", () => {
           agentStatus: { agentType: "unknown", state: "working", providerSession: { id: "sid" } },
         }] }] },
       }),
-      listProcessEnvironments: async () => "HERMES_TUI_ACTIVE_SESSION_FILE=/etc/passwd ORCA_TERMINAL_HANDLE=term_unknown",
+      listProcessEnvironments: async () => {
+        scans += 1;
+        return "HERMES_TUI_ACTIVE_SESSION_FILE=/etc/passwd ORCA_TERMINAL_HANDLE=term_unknown";
+      },
       readTextFile: () => { throw new Error("must not read"); },
     });
     expect((await reader.refresh()).size).toBe(0);
+    expect(scans).toBe(0);
   });
 });

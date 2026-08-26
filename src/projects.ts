@@ -74,7 +74,10 @@ export function mergeOrcaWorkspaceProjects(db: OrcaDatabase): number {
     const target = projects.find((candidate) => !candidate.key.startsWith("orca-workspaces:") && candidate.name === project.name);
     if (target) { db.rewriteProjectKey(project.key, target.key); merged += 1; }
   }
-  if (merged > 0) db.bumpDataVersion();
+  if (merged > 0) {
+    db.bumpDataVersion();
+    db.bumpListVersion();
+  }
   return merged;
 }
 
@@ -98,7 +101,10 @@ export function mergeDeletedWorktreeProjects(db: OrcaDatabase): number {
     db.rewriteProjectKey(project.key, target.key);
     merged += 1;
   }
-  if (merged > 0) db.bumpDataVersion();
+  if (merged > 0) {
+    db.bumpDataVersion();
+    db.bumpListVersion();
+  }
   return merged;
 }
 
@@ -119,7 +125,10 @@ export async function refreshProjectMetadata(db: OrcaDatabase, orcaBin = ORCATAB
       const color = typeof repo.badgeColor === "string" ? repo.badgeColor : null;
       if (db.updateProjectMetadata(project.key, name, color)) updated += 1;
     }
-    if (updated > 0) db.bumpDataVersion();
+    if (updated > 0) {
+      db.bumpDataVersion();
+      db.bumpListVersion();
+    }
     return updated;
   } catch {
     return 0;

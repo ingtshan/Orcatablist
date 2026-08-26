@@ -57,13 +57,17 @@ describe("incremental indexer", () => {
     const indexer = createIndexer({
       claudeDir, codexDir, hermesDb: join(root, "hermes.db"), db,
       resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
+      resolveWorktree: () => "/fixture/repo/worktree",
     });
 
     expect(await indexer.indexAll()).toMatchObject({ files: 2, changed: 2 });
-    expect(db.getStoredSession("claude", SID)).toMatchObject({ agent: "claude", firstPrompt: "Claude 同号" });
+    expect(db.getListVersion()).toBe(1);
+    expect(db.getStoredSession("claude", SID)).toMatchObject({
+      agent: "claude", firstPrompt: "Claude 同号", worktreeRoot: "/fixture/repo/worktree",
+    });
     expect(db.getStoredSession("codex", SID)).toMatchObject({
       agent: "codex", title: "Codex 标题", firstPrompt: "Codex 同号", lastPrompt: "Codex 同号",
-      branch: "codex", parsedOffset: Buffer.byteLength(codexInitial),
+      worktreeRoot: "/fixture/repo/worktree", branch: "codex", parsedOffset: Buffer.byteLength(codexInitial),
     });
     expect(db.countSessionFts("claude", SID)).toBe(1);
     expect(db.countSessionFts("codex", SID)).toBe(1);
@@ -75,11 +79,14 @@ describe("incremental indexer", () => {
     })}\n`;
     appendFileSync(codexPath, appended);
     expect((await indexer.indexAll()).changed).toBe(1);
+    expect(db.getDataVersion()).toBe(2);
+    expect(db.getListVersion()).toBe(1);
     expect(db.getStoredSession("codex", SID)?.parsedOffset).toBe(Buffer.byteLength(codexInitial + appended));
     expect(db.countSessionFts("codex", SID)).toBe(2);
 
     writeFileSync(join(codexDir, "session_index.jsonl"), `${JSON.stringify({ id: SID, thread_name: "更新后的标题" })}\n`);
     expect((await indexer.indexAll()).changed).toBe(1);
+    expect(db.getListVersion()).toBe(2);
     expect(db.getSession("codex", SID)?.title).toBe("更新后的标题");
     db.close();
   });
@@ -221,7 +228,7 @@ describe("incremental indexer", () => {
         return {
           session: {
             agent: "hermes", sid: info.sid, projectKey: "unknown", cwd: "/fixture/hermes",
-            branch: "main", title: null, firstPrompt: text, lastPrompt: text,
+            worktreeRoot: null, branch: "main", title: null, firstPrompt: text, lastPrompt: text,
             lastInputAt: info.mtime, promptCount: deriveCalls, filePath: info.path,
             fileSize: info.size, fileMtime: info.mtime, parsedOffset: 0,
           },

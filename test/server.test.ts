@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type OrcaTabServer } from "../src/server";
@@ -22,8 +22,9 @@ const openTabs = new Map<string, LiveInfo>([
     handle: "term_hermes", tabId: "tab_hermes", leafId: "leaf_hermes",
   }],
 ]);
+let liveRefreshes = 0;
 const sessionLiveReader: SessionLiveReader = {
-  refresh: async () => openTabs,
+  refresh: async () => { liveRefreshes += 1; return openTabs; },
   getLiveMap: () => openTabs,
   getLiveVersion: () => 1,
   findLive: async (agent, sid) => openTabs.get(`${agent}/${sid}`) ?? null,
@@ -60,20 +61,24 @@ beforeAll(async () => {
   codexDir = join(root, "codex");
   const projectDir = join(claudeDir, "projects", "fixture");
   const cwd = join(root, "workspace", "fixture-project");
-  fixtureCwd = cwd;
   mkdirSync(projectDir, { recursive: true });
   const codexSessionDir = join(codexDir, "sessions", "2026", "08", "25");
   mkdirSync(codexSessionDir, { recursive: true });
   mkdirSync(cwd, { recursive: true });
+  const gitInit = Bun.spawnSync(["git", "init", cwd], { stdout: "pipe", stderr: "pipe" });
+  if (gitInit.exitCode !== 0) throw new Error(new TextDecoder().decode(gitInit.stderr));
+  fixtureCwd = realpathSync(cwd);
+  const sessionCwd = join(cwd, "packages", "app");
+  mkdirSync(sessionCwd, { recursive: true });
   const lines = [
     JSON.stringify({ type: "ai-title", aiTitle: "课堂树会话" }),
-    JSON.stringify({ type: "user", message: { content: "请解释课堂树结构" }, timestamp: "2026-08-25T08:00:00.000Z", cwd, gitBranch: "main" }),
+    JSON.stringify({ type: "user", message: { content: "请解释课堂树结构" }, timestamp: "2026-08-25T08:00:00.000Z", cwd: sessionCwd, gitBranch: "main" }),
     JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "课堂树用于组织内容" }] }, timestamp: "2026-08-25T08:00:01.000Z" }),
   ];
   sessionPath = join(projectDir, `${SID}.jsonl`);
   writeFileSync(sessionPath, `${lines.join("\n")}\n`);
   writeFileSync(join(codexSessionDir, `rollout-2026-08-25T09-00-00-${CODEX_SID}.jsonl`), [
-    JSON.stringify({ type: "session_meta", timestamp: "2026-08-25T09:00:00.000Z", payload: { session_id: CODEX_SID, cwd, git: { branch: "codex-test" } } }),
+    JSON.stringify({ type: "session_meta", timestamp: "2026-08-25T09:00:00.000Z", payload: { session_id: CODEX_SID, cwd: sessionCwd, git: { branch: "codex-test" } } }),
     JSON.stringify({ type: "response_item", timestamp: "2026-08-25T09:00:01.000Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Codex 页面测试" }] } }),
   ].join("\n") + "\n");
   writeFileSync(join(codexDir, "session_index.jsonl"), `${JSON.stringify({ id: CODEX_SID, thread_name: "Codex 测试会话" })}\n`);
@@ -90,7 +95,7 @@ beforeAll(async () => {
   `);
   hermes.query(`INSERT INTO sessions
     (id, title, display_name, cwd, git_branch, started_at, message_count) VALUES (?, ?, NULL, ?, ?, ?, ?)`)
-    .run(HERMES_SID, "Hermes 服务测试", cwd, "hermes-test", 1_777_777_000, 1);
+    .run(HERMES_SID, "Hermes 服务测试", sessionCwd, "hermes-test", 1_777_777_000, 1);
   hermes.query(`INSERT INTO messages
     (id, session_id, role, content, timestamp, active) VALUES (1, ?, 'user', ?, ?, 1)`)
     .run(HERMES_SID, "Hermes 页面测试", 1_777_777_001);
@@ -109,29 +114,121 @@ describe("HTTP server", () => {
     const response = await fetch(`${baseUrl}/healthz`);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toMatchObject({
-      ok: true, sessions: 3, goals: 0, agents: ["claude", "codex", "hermes"], version: "p7", dataVersion: 1, watch: "timer",
+      ok: true, sessions: 3, goals: 0, agents: ["claude", "codex", "hermes"], version: "p7",
+      dataVersion: 1, listVersion: 1, watch: "timer",
     });
   });
 
   test("serves projects and sessions", async () => {
     const projects = await (await fetch(`${baseUrl}/api/projects`)).json();
     expect(projects).toHaveLength(1);
-    expect(projects[0]).toMatchObject({ name: "fixture-project", sessionCount: 3 });
+    expect(projects[0]).toMatchObject({
+      name: "fixture-project", sessionCount: 3, pinned: false, archived: false,
+    });
     const sessions = await (await fetch(`${baseUrl}/api/sessions?limit=99999`)).json();
     expect(sessions).toHaveLength(3);
     expect(sessions.find((row: { agent: string }) => row.agent === "claude"))
-      .toMatchObject({ agent: "claude", sid: SID, displayTitle: "课堂树会话", live: null, goals: [] });
+      .toMatchObject({ agent: "claude", sid: SID, displayTitle: "课堂树会话", worktreeRoot: fixtureCwd, live: null, goals: [] });
     expect(sessions.find((row: { agent: string }) => row.agent === "codex"))
       .toMatchObject({
         agent: "codex", sid: CODEX_SID, displayTitle: "Codex 测试会话",
+        worktreeRoot: fixtureCwd,
         live: { handle: "term_codex", tabId: "tab_codex", status: "busy" },
       });
     expect(sessions.find((row: { agent: string }) => row.agent === "hermes"))
       .toMatchObject({
         agent: "hermes", sid: HERMES_SID, displayTitle: "Hermes 服务测试",
+        worktreeRoot: fixtureCwd,
         live: { handle: "term_hermes", tabId: "tab_hermes", status: "idle" },
       });
     expect(await (await fetch(`${baseUrl}/api/sessions?live=1`)).json()).toHaveLength(2);
+  });
+
+  test("serves static lists without live refreshes and versions live state separately", async () => {
+    liveRefreshes = 0;
+    const projects = await fetch(`${baseUrl}/api/projects`);
+    expect(projects.headers.get("ETag")).toMatch(/^"p-\d+-\d+"$/);
+    await projects.json();
+
+    const sessions = await fetch(`${baseUrl}/api/sessions?includeLive=0`);
+    expect(sessions.headers.get("ETag")).toMatch(/^"s-\d+-\d+"$/);
+    expect((await sessions.json()).every((row: { live: unknown }) => row.live === null)).toBeTrue();
+    expect(liveRefreshes).toBe(0);
+
+    const live = await fetch(`${baseUrl}/api/live`);
+    const liveEtag = live.headers.get("ETag");
+    expect(liveEtag).toBe('"l-1"');
+    expect(Object.keys(await live.json()).sort()).toEqual([
+      `codex/${CODEX_SID}`, `hermes/${HERMES_SID}`,
+    ]);
+    expect(liveRefreshes).toBe(1);
+    expect((await fetch(`${baseUrl}/api/live`, { headers: { "If-None-Match": liveEtag! } })).status).toBe(304);
+
+    const invalid = await fetch(`${baseUrl}/api/sessions?includeLive=0&live=1`);
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "live=1 requires live session data" });
+  });
+
+  test("pins, archives, and restores a project without deleting indexed sessions", async () => {
+    const [project] = await (await fetch(`${baseUrl}/api/projects`)).json();
+    const initial = await fetch(`${baseUrl}/api/projects`);
+    const initialEtag = initial.headers.get("ETag");
+    await initial.json();
+    const patchProject = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/projects`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+
+    const pinned = await patchProject({ projectKey: project.key, pinned: true });
+    expect(pinned.status).toBe(200);
+    expect(await pinned.json()).toMatchObject({ key: project.key, pinned: true, archived: false });
+    const afterPin = await fetch(`${baseUrl}/api/projects`, { headers: { "If-None-Match": initialEtag! } });
+    expect(afterPin.status).toBe(200);
+    expect(afterPin.headers.get("ETag")).not.toBe(initialEtag);
+    await afterPin.json();
+
+    const archived = await patchProject({ projectKey: project.key, archived: true });
+    expect(await archived.json()).toMatchObject({ key: project.key, pinned: false, archived: true });
+    expect(await (await fetch(`${baseUrl}/api/sessions`)).json()).toHaveLength(3);
+    const restored = await patchProject({ projectKey: project.key, archived: false });
+    expect(await restored.json()).toMatchObject({ key: project.key, pinned: false, archived: false });
+
+    for (const body of [
+      {}, { projectKey: project.key }, { projectKey: project.key, pinned: "yes" },
+      { projectKey: project.key, archived: 1 }, { projectKey: project.key, pinned: true, archived: true },
+    ]) expect((await patchProject(body)).status).toBe(400);
+    expect((await patchProject({ projectKey: "/missing", pinned: true })).status).toBe(404);
+  });
+
+  test("archives and restores one indexed worktree without deleting sessions", async () => {
+    const [project] = await (await fetch(`${baseUrl}/api/projects`)).json();
+    const initial = await fetch(`${baseUrl}/api/worktrees`);
+    const initialEtag = initial.headers.get("ETag");
+    expect(initialEtag).toMatch(/^"w-\d+"$/);
+    expect(await initial.json()).toEqual([]);
+    const patchWorktree = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/worktrees`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+
+    const archived = await patchWorktree({ projectKey: project.key, root: fixtureCwd, archived: true });
+    expect(archived.status).toBe(200);
+    expect(await archived.json()).toEqual({ projectKey: project.key, root: fixtureCwd, archived: true });
+    expect(await (await fetch(`${baseUrl}/api/sessions`)).json()).toHaveLength(3);
+    const changed = await fetch(`${baseUrl}/api/worktrees`, { headers: { "If-None-Match": initialEtag! } });
+    expect(changed.status).toBe(200);
+    expect(changed.headers.get("ETag")).not.toBe(initialEtag);
+    expect(await changed.json()).toEqual([{ projectKey: project.key, root: fixtureCwd, archived: true }]);
+
+    const restored = await patchWorktree({ projectKey: project.key, root: fixtureCwd, archived: false });
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toEqual({ projectKey: project.key, root: fixtureCwd, archived: false });
+    expect(await (await fetch(`${baseUrl}/api/worktrees`)).json()).toEqual([]);
+
+    for (const body of [
+      {}, { projectKey: project.key, archived: true },
+      { projectKey: project.key, root: fixtureCwd, archived: 1 },
+    ]) expect((await patchWorktree(body)).status).toBe(400);
+    expect((await patchWorktree({ projectKey: "/missing", root: fixtureCwd, archived: true })).status).toBe(404);
+    expect((await patchWorktree({ projectKey: project.key, root: "/missing", archived: true })).status).toBe(404);
   });
 
   test("focuses the latest indexed worktree for a known project", async () => {
@@ -208,9 +305,31 @@ describe("HTTP server", () => {
     expect(html).toContain("codex resume ${row.sid}");
     expect(html).toContain("hermes --resume ${row.sid}");
     expect(html).toContain("agent-hermes");
-    expect(html).toContain('row.live ? "定位" : "恢复"');
+    expect(html).toContain('row.live ? "跳转" : "恢复"');
+    expect(html).toContain('action focus-action ${row.live ? "focus-jump" : "focus-resume"}');
+    expect(html).toContain('make("details", "action-drawer")');
+    expect(html).toContain('make("summary", "action drawer-toggle", "更多")');
+    expect(html).toContain("drawerPanel.append(copyButton, commandButton)");
     expect(html).toContain("回到 Orca");
     expect(html).toContain("/api/projects/focus");
+    expect(html).toContain('conditionalApi("/api/live"');
+    expect(html).toContain('params.set("includeLive", "0")');
+    expect(html).toContain("已归档");
+    expect(html).toContain("置顶");
+    expect(html).toContain('jsonRequest("PATCH", { projectKey: project.key, ...patch })');
+    expect(html).toContain('id="projects-view-button"');
+    expect(html).toContain("项目管理");
+    expect(html).toContain('id="project-search"');
+    expect(html).toContain("查看会话");
+    expect(html).toContain("groupedWorktrees");
+    expect(html).toContain("row.worktreeRoot || row.cwd");
+    expect(html).toContain("主 worktree");
+    expect(html).toContain('conditionalApi("/api/worktrees", state.worktreeEtag)');
+    expect(html).toContain('"button", `action worktree-archive${worktreeArchived ? " restore" : ""}`');
+    expect(html).toContain("updateWorktreePreference(");
+    expect(html).toContain("focusWorktreeSession(firstSession, worktreeName, focus)");
+    expect(html).toContain("focus.dataset.sid = firstSession.sid");
+    expect(html).not.toContain('make("h2", "group-title", project.name)');
     expect(html).toContain("新建目标");
     expect(html).toContain("证据");
   });

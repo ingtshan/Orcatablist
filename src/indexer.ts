@@ -13,6 +13,7 @@ import { createClaudeSource } from "./sources/claude";
 import { createCodexSource } from "./sources/codex";
 import { createHermesSource } from "./sources/hermes";
 import type { Agent, ParsedEvent } from "./types";
+import { resolveWorktreeRoot } from "./worktrees";
 
 const BYTE_NEWLINE = 0x0a;
 
@@ -20,6 +21,7 @@ export interface IndexSummary { files: number; changed: number; ms: number; }
 export interface WatchHandle { mode: "fs.watch" | "timer"; close(): void; }
 export interface SessionFileInfo { agent: Agent; sid: string; path: string; size: number; mtime: number; }
 export interface DerivedSession { session: StoredSession; fts: FtsRow[]; }
+interface IndexFileResult { changed: boolean; listChanged: boolean; }
 export interface SessionSource {
   agent: Agent;
   discover(): SessionFileInfo[];
@@ -35,6 +37,7 @@ export interface IndexerOptions {
   sources?: SessionSource[];
   db?: OrcaDatabase;
   resolveProject?: typeof resolveProjectKey;
+  resolveWorktree?: typeof resolveWorktreeRoot;
   now?: () => number;
 }
 
@@ -74,10 +77,17 @@ function readCompleteLines(path: string, offset: number, size: number): Complete
 
 function emptySession(file: SessionFileInfo): StoredSession {
   return {
-    agent: file.agent, sid: file.sid, projectKey: "unknown", cwd: null, branch: null, title: null,
+    agent: file.agent, sid: file.sid, projectKey: "unknown", cwd: null, worktreeRoot: null, branch: null, title: null,
     firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0, filePath: file.path,
     fileSize: 0, fileMtime: 0, parsedOffset: 0,
   };
+}
+
+function sessionListChanged(previous: StoredSession | null, next: StoredSession): boolean {
+  if (previous === null) return true;
+  return previous.projectKey !== next.projectKey || previous.cwd !== next.cwd || previous.worktreeRoot !== next.worktreeRoot || previous.branch !== next.branch ||
+    previous.title !== next.title || previous.firstPrompt !== next.firstPrompt || previous.lastPrompt !== next.lastPrompt ||
+    previous.lastInputAt !== next.lastInputAt || previous.promptCount !== next.promptCount;
 }
 
 function applyLines(base: StoredSession, lines: string[], source: SessionSource): { session: StoredSession; fts: FtsRow[] } {
@@ -120,25 +130,26 @@ export function createIndexer(options: IndexerOptions = {}) {
   const db = options.db ?? getDefaultDatabase();
   const projectDeps = createProjectDeps(db);
   const projectResolver = options.resolveProject ?? resolveProjectKey;
+  const worktreeResolver = options.resolveWorktree ?? resolveWorktreeRoot;
   const now = options.now ?? Date.now;
   let activeRun: Promise<IndexSummary> | null = null;
   let rerunRequested = false;
 
-  async function indexFile(file: SessionFileInfo): Promise<boolean> {
+  async function indexFile(file: SessionFileInfo): Promise<IndexFileResult> {
     const source = sourcesByAgent.get(file.agent);
     if (source === undefined) throw new Error(`missing session source for ${file.agent}`);
     const stored = db.getStoredSession(file.agent, file.sid);
     const sourceTitle = source.titleFor?.(file.sid);
     if (stored && stored.filePath === file.path && stored.fileSize === file.size && stored.fileMtime === file.mtime) {
-      if (source.titleFor === undefined || stored.title === sourceTitle) return false;
+      if (source.titleFor === undefined || stored.title === sourceTitle) return { changed: false, listChanged: false };
       db.upsertSession({ ...stored, title: sourceTitle ?? null });
-      return true;
+      return { changed: true, listChanged: true };
     }
     if (source.deriveSession !== undefined) {
       const derived = source.deriveSession(file, stored ?? emptySession(file));
       const project = await projectResolver(derived.session.cwd, projectDeps);
       const session: StoredSession = {
-        ...derived.session, projectKey: project.key, filePath: file.path,
+        ...derived.session, projectKey: project.key, worktreeRoot: worktreeResolver(derived.session.cwd), filePath: file.path,
         fileSize: file.size, fileMtime: file.mtime,
       };
       db.transaction(() => {
@@ -147,7 +158,7 @@ export function createIndexer(options: IndexerOptions = {}) {
         db.appendSessionFts(derived.fts);
         db.upsertSession(session);
       });
-      return true;
+      return { changed: true, listChanged: sessionListChanged(stored, session) };
     }
     const rebuild = stored === null || stored.filePath !== file.path || file.size < stored.fileSize
       || (file.size === stored.fileSize && file.mtime !== stored.fileMtime);
@@ -158,7 +169,8 @@ export function createIndexer(options: IndexerOptions = {}) {
     const parsed = applyLines(parseBase, read.lines, source);
     const project = await projectResolver(parsed.session.cwd, projectDeps);
     const session: StoredSession = {
-      ...parsed.session, title: sourceTitle ?? parsed.session.title, projectKey: project.key, filePath: file.path,
+      ...parsed.session, title: sourceTitle ?? parsed.session.title, projectKey: project.key,
+      worktreeRoot: worktreeResolver(parsed.session.cwd), filePath: file.path,
       fileSize: file.size, fileMtime: file.mtime, parsedOffset: offset + read.consumedBytes,
     };
     db.transaction(() => {
@@ -167,7 +179,7 @@ export function createIndexer(options: IndexerOptions = {}) {
       db.appendSessionFts(parsed.fts);
       db.upsertSession(session);
     });
-    return true;
+    return { changed: true, listChanged: sessionListChanged(stored, session) };
   }
 
   async function performIndexAll(): Promise<IndexSummary> {
@@ -175,8 +187,14 @@ export function createIndexer(options: IndexerOptions = {}) {
     for (const source of sources) source.prepare?.();
     const files = uniqueSessionFiles(sources.flatMap((source) => source.discover()));
     let changed = 0;
-    for (const file of files) if (await indexFile(file)) changed += 1;
+    let listChanged = false;
+    for (const file of files) {
+      const result = await indexFile(file);
+      if (result.changed) changed += 1;
+      listChanged ||= result.listChanged;
+    }
     if (changed > 0) db.bumpDataVersion();
+    if (listChanged) db.bumpListVersion();
     mergeOrcaWorkspaceProjects(db);
     mergeDeletedWorktreeProjects(db);
     db.setMeta("indexed_at", String(now()));

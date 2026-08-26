@@ -10,6 +10,7 @@
       --bg: #F4F7F6; --surface: #FFFFFF; --text: #17222A; --muted: #5C6B75;
       --line: #D5DEE1; --accent: #0E6C75; --accent-soft: #E1F0F1; --hover: #EDF3F2;
       --busy: #B45309; --waiting: #B91C1C; --idle: #2F855A; --offline: #8A97A0;
+      --resume: #9A4E0A; --resume-soft: #FFF0DC;
       --focus-ring: #0E6C75; --danger-soft: #FCE8E8; --shadow: #17222A1A;
     }
     @media (prefers-color-scheme: dark) {
@@ -17,6 +18,7 @@
         --bg: #0E1417; --surface: #151C21; --text: #E4E9EC; --muted: #93A1AB;
         --line: #263039; --accent: #62C6CD; --accent-soft: #18343A; --hover: #1C272D;
         --busy: #F5A524; --waiting: #F87171; --idle: #4ADE80; --offline: #6B7A85;
+        --resume: #F5A524; --resume-soft: #3A2815;
         --focus-ring: #62C6CD; --danger-soft: #3A2024; --shadow: #00000040;
       }
     }
@@ -41,21 +43,35 @@
     #index-status { color: var(--muted); font-size: 12px; white-space: nowrap; }
     .layout { display: grid; grid-template-columns: 245px minmax(0, 1fr); width: min(1420px, 100%); margin: 0 auto; }
     .sidebar { position: sticky; top: 68px; align-self: start; height: calc(100vh - 68px); padding: 24px 16px; border-right: 1px solid var(--line); }
-    .sidebar h2 { margin: 0 10px 12px; color: var(--muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+    .sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 4px 12px 10px; }
+    .sidebar h2 { margin: 0; color: var(--muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+    .archive-scope { padding: 4px 7px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 11px; }
+    .archive-scope:hover, .archive-scope[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
     #project-list { display: grid; gap: 4px; }
-    .project-button { display: grid; grid-template-columns: 1fr auto; gap: 10px; width: 100%; padding: 10px; border: 0; border-radius: 9px; background: transparent; text-align: left; }
-    .project-button:hover { background: var(--hover); }
+    .project-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; border-radius: 9px; }
+    .project-item:hover { background: var(--hover); }
+    .project-button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; min-width: 0; padding: 10px 6px 10px 10px; border: 0; border-radius: 9px; background: transparent; text-align: left; }
     .project-button.active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
     .project-button .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .project-control { min-width: 0; padding: 5px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; }
+    .project-control:hover, .project-control.active { background: var(--surface); color: var(--accent); }
     .count { color: var(--muted); font-variant-numeric: tabular-nums; }
     main { min-width: 0; padding: 24px clamp(16px, 3vw, 44px) 60px; }
+    .mobile-project-tools { display: none; gap: 8px; margin-bottom: 18px; }
     .mobile-project { display: none; width: 100%; height: 42px; margin-bottom: 18px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
     .group { margin-bottom: 30px; }
-    .group-header { display: flex; align-items: center; gap: 9px; margin: 0 0 10px; padding: 0 3px; }
     .color-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: var(--project-color, var(--offline)); }
-    .group-title { margin: 0; font-size: 16px; }
-    .group-meta { color: var(--muted); font-size: 13px; }
-    .project-focus { min-width: 0; margin-left: auto; padding: 5px 9px; background: transparent; font-size: 12px; }
+    .worktree-stack { display: grid; gap: 15px; }
+    .worktree-cluster { min-width: 0; }
+    .worktree-header { display: flex; min-width: 0; align-items: center; gap: 9px; margin: 0 3px 10px; }
+    .worktree-name { max-width: 280px; flex: 0 0 auto; overflow: hidden; margin: 0; font: 700 16px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .worktree-kind { flex: 0 0 auto; padding: 2px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 650; }
+    .worktree-path { min-width: 0; flex: 1 1 160px; overflow: hidden; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .worktree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+    .worktree-focus { flex: 0 0 auto; min-width: 0; padding: 5px 9px; background: transparent; font-size: 12px; }
+    .worktree-archive { flex: 0 0 auto; min-width: 0; padding: 5px 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: 11px; }
+    .worktree-archive:hover { border-color: var(--waiting); color: var(--waiting); }
+    .worktree-archive.restore { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
     .session-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
     .session-row { display: grid; grid-template-columns: 12px minmax(180px, 1fr) minmax(90px, auto) auto auto; gap: 12px; align-items: center; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
     .session-row:last-child { border-bottom: 0; }
@@ -80,15 +96,60 @@
     button.goal-chip:hover { border-color: var(--accent); }
     .reason-chip { background: var(--bg); color: var(--accent); font-family: inherit; }
     .facts { display: grid; min-width: 92px; justify-items: end; gap: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-    .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+    .actions { display: flex; align-items: flex-start; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
     .action { min-width: 62px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); white-space: nowrap; }
     .action:hover { border-color: var(--accent); color: var(--accent); }
     .action.primary { border-color: var(--accent); background: var(--accent); color: var(--surface); }
     .action.danger { border-color: transparent; background: var(--danger-soft); color: var(--waiting); }
+    .focus-action { min-width: 48px; padding: 5px 8px; border-radius: 7px; font-size: 12px; font-weight: 700; }
+    .focus-jump { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+    .focus-jump:hover { border-color: var(--accent); color: var(--surface); filter: brightness(.95); }
+    .focus-resume { border-color: var(--resume); background: var(--resume-soft); color: var(--resume); }
+    .focus-resume:hover { border-color: var(--resume); color: var(--resume); filter: brightness(.96); }
+    .action-drawer { min-width: 0; }
+    .drawer-toggle { display: flex; min-width: 54px; align-items: center; justify-content: center; gap: 4px; padding: 5px 8px; color: var(--muted); font-size: 12px; list-style: none; }
+    .drawer-toggle::-webkit-details-marker { display: none; }
+    .drawer-toggle::after { content: "⌄"; font-size: 11px; transition: transform .12s ease; }
+    .action-drawer[open] .drawer-toggle { border-color: var(--accent); color: var(--accent); }
+    .action-drawer[open] .drawer-toggle::after { transform: rotate(180deg); }
+    .action-drawer:not([open]) > .action-drawer-panel { display: none; }
+    .action-drawer-panel { display: grid; gap: 5px; margin-top: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); box-shadow: 0 5px 16px var(--shadow); }
+    .drawer-action { width: 100%; min-width: 92px; padding: 5px 7px; background: var(--surface); font-size: 11px; }
     .goal-picker { width: 112px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
     .manual { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--muted); font-size: 12px; }
     .manual code { overflow: hidden; font: 12px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .empty { padding: 70px 20px; border: 1px dashed var(--line); border-radius: 13px; color: var(--muted); text-align: center; }
+    .project-management { width: min(1240px, 100%); margin: 0 auto; padding: 32px clamp(16px, 4vw, 54px) 64px; }
+    .project-management-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+    .project-management-title h1 { margin: 0 0 6px; font-size: 25px; letter-spacing: -.02em; }
+    .project-management-title p { margin: 0; color: var(--muted); font-size: 13px; }
+    .project-management-search { width: min(420px, 100%); }
+    #project-search { width: 100%; height: 42px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+    #project-search:focus { border-color: var(--accent); }
+    .project-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 26px; }
+    .project-stat { display: grid; gap: 3px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); text-align: left; }
+    .project-stat:hover { border-color: var(--accent); }
+    .project-stat[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .project-stat-value { font-size: 23px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .project-stat-label { color: var(--muted); font-size: 12px; }
+    .project-list-head { display: flex; align-items: baseline; gap: 9px; margin: 0 2px 10px; }
+    .project-list-head h2 { margin: 0; font-size: 16px; }
+    .project-list-head span { color: var(--muted); font-size: 12px; }
+    .project-management-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .managed-project { display: grid; grid-template-columns: minmax(250px, 1.7fr) minmax(110px, .55fr) minmax(120px, .65fr) auto; gap: 16px; align-items: center; min-height: 82px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .managed-project:last-child { border-bottom: 0; }
+    .managed-project:hover { background: var(--hover); }
+    .managed-project-main { display: flex; align-items: start; gap: 10px; min-width: 0; }
+    .managed-project-main .color-dot { margin-top: 6px; }
+    .managed-project-identity { min-width: 0; }
+    .managed-project-title { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+    .managed-project-name { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .managed-project-path { overflow: hidden; margin-top: 5px; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .project-status { padding: 2px 7px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 10px; font-weight: 650; }
+    .project-status.pinned { background: var(--accent-soft); color: var(--accent); }
+    .managed-project-metric { display: grid; gap: 3px; color: var(--muted); font-size: 11px; }
+    .managed-project-metric strong { color: var(--text); font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .managed-project-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
     .goals-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); width: min(1420px, 100%); min-height: calc(100vh - 68px); margin: 0 auto; }
     .goal-sidebar { position: sticky; top: 68px; align-self: start; height: calc(100vh - 68px); padding: 22px 16px; border-right: 1px solid var(--line); }
     .goal-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 6px 14px; }
@@ -130,8 +191,16 @@
       .goal-card { min-width: 210px; }
       .goal-detail { padding-top: 18px; }
       .goal-editor { grid-template-columns: 1fr 1fr; }
+      .project-management { padding-top: 22px; }
+      .project-management-head { align-items: stretch; flex-direction: column; gap: 14px; }
+      .project-management-search { width: 100%; }
+      .managed-project { grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; }
+      .managed-project-actions { grid-column: 1 / -1; justify-content: flex-start; }
       main { padding-top: 18px; }
-      .mobile-project { display: block; }
+      .mobile-project-tools { display: flex; }
+      .mobile-project { display: block; flex: 1; margin: 0; }
+      .worktree-header { flex-wrap: wrap; }
+      .worktree-path { order: 3; flex-basis: 100%; }
       .session-row { grid-template-columns: 12px minmax(0, 1fr) auto; }
       .chips { grid-column: 2 / -1; justify-content: flex-start; }
       .facts { grid-column: 2; grid-row: 3; justify-items: start; }
@@ -141,12 +210,14 @@
     @media (max-width: 560px) {
       .brand span:last-child { display: none; }
       .view-switch button { padding-inline: 9px; }
+      .project-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .managed-project { grid-template-columns: minmax(0, 1fr) auto; }
+      .managed-project-metric.activity { grid-column: 1 / -1; }
       .goal-editor { grid-template-columns: 1fr; }
       .session-row { gap: 9px; padding: 12px 10px; }
       .chips { max-width: 100%; }
       .chip { max-width: 115px; }
       .action { min-width: 54px; padding-inline: 7px; font-size: 12px; }
-      .group-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     }
   </style>
 </head>
@@ -155,6 +226,7 @@
     <div class="brand"><span class="brand-mark">O</span><span>OrcaTab</span></div>
     <div class="mode-switch view-switch" aria-label="主视图">
       <button id="sessions-view-button" type="button" aria-pressed="true">会话</button>
+      <button id="projects-view-button" type="button" aria-pressed="false">项目</button>
       <button id="goals-view-button" type="button" aria-pressed="false">目标</button>
     </div>
     <div class="search-wrap session-only"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
@@ -167,11 +239,31 @@
     </div>
   </header>
   <div id="sessions-view" class="layout">
-    <aside class="sidebar"><h2>项目</h2><nav id="project-list" aria-label="项目筛选"></nav></aside>
+    <aside class="sidebar">
+      <div class="sidebar-head"><h2 id="project-scope-title">项目</h2><button id="archived-projects" class="archive-scope" type="button" aria-pressed="false">已归档 0</button></div>
+      <nav id="project-list" aria-label="项目筛选"></nav>
+    </aside>
     <main>
-      <select id="mobile-project" class="mobile-project" aria-label="项目筛选"><option value="">全部项目</option></select>
+      <div class="mobile-project-tools">
+        <select id="mobile-project" class="mobile-project" aria-label="项目筛选"><option value="">全部项目</option></select>
+        <button id="mobile-archived-projects" class="action archive-scope" type="button" aria-pressed="false">已归档 0</button>
+      </div>
       <div id="content" aria-live="polite"></div>
     </main>
+  </div>
+  <div id="projects-view" class="project-management" hidden>
+    <header class="project-management-head">
+      <div class="project-management-title"><h1>项目管理</h1><p>集中查找、置顶和归档项目；归档不会删除任何会话。</p></div>
+      <label class="project-management-search"><input id="project-search" type="search" autocomplete="off" placeholder="搜索名称或路径…" aria-label="搜索项目"></label>
+    </header>
+    <div id="project-summary" class="project-summary" aria-label="项目状态筛选">
+      <button class="project-stat" type="button" data-project-scope="active" aria-pressed="true"><span id="active-project-count" class="project-stat-value">0</span><span class="project-stat-label">活跃项目</span></button>
+      <button class="project-stat" type="button" data-project-scope="pinned" aria-pressed="false"><span id="pinned-project-count" class="project-stat-value">0</span><span class="project-stat-label">已置顶</span></button>
+      <button class="project-stat" type="button" data-project-scope="archived" aria-pressed="false"><span id="archived-project-count" class="project-stat-value">0</span><span class="project-stat-label">已归档</span></button>
+      <button class="project-stat" type="button" data-project-scope="all" aria-pressed="false"><span id="all-project-count" class="project-stat-value">0</span><span class="project-stat-label">全部项目</span></button>
+    </div>
+    <div class="project-list-head"><h2>项目</h2><span id="managed-project-count">显示 0 个</span></div>
+    <div id="project-management-list" class="project-management-list" aria-live="polite"></div>
   </div>
   <div id="goals-view" class="goals-layout" hidden>
     <aside class="goal-sidebar">
@@ -197,19 +289,37 @@
       const POLL_MS = 5000;
       const SEARCH_DEBOUNCE_MS = 200;
       const RESULT_RESET_MS = 2000;
+      const LIVE_POOL_LIMIT = 5000;
+      const VISIBLE_SESSION_LIMIT = 500;
       const state = {
         projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0,
         activeRow: -1, projectEtag: "", sessionEtag: "", view: "sessions",
         goals: [], selectedGoalId: "", goalDetail: null, linkAfterCreate: null,
+        sourceSessions: [], liveBySession: {}, liveEtag: "", worktreeEtag: "",
+        archivedWorktrees: new Map(), showArchived: false,
+        projectScope: "active", projectQuery: "",
       };
       const searchInput = document.querySelector("#search");
       const content = document.querySelector("#content");
       const sessionsView = document.querySelector("#sessions-view");
+      const projectsView = document.querySelector("#projects-view");
       const goalsView = document.querySelector("#goals-view");
       const sessionsViewButton = document.querySelector("#sessions-view-button");
+      const projectsViewButton = document.querySelector("#projects-view-button");
       const goalsViewButton = document.querySelector("#goals-view-button");
+      const projectSearchInput = document.querySelector("#project-search");
+      const projectSummary = document.querySelector("#project-summary");
+      const projectManagementList = document.querySelector("#project-management-list");
+      const managedProjectCount = document.querySelector("#managed-project-count");
+      const activeProjectCount = document.querySelector("#active-project-count");
+      const pinnedProjectCount = document.querySelector("#pinned-project-count");
+      const archivedProjectCount = document.querySelector("#archived-project-count");
+      const allProjectCount = document.querySelector("#all-project-count");
       const projectList = document.querySelector("#project-list");
       const mobileProject = document.querySelector("#mobile-project");
+      const projectScopeTitle = document.querySelector("#project-scope-title");
+      const archivedProjects = document.querySelector("#archived-projects");
+      const mobileArchivedProjects = document.querySelector("#mobile-archived-projects");
       const allMode = document.querySelector("#all-mode");
       const liveMode = document.querySelector("#live-mode");
       const indexStatus = document.querySelector("#index-status");
@@ -263,7 +373,78 @@
       }
 
       function projectFor(key) {
-        return state.projects.find((project) => project.key === key) || { key, name: basename(key) || "未知", root: "", color: null };
+        return state.projects.find((project) => project.key === key)
+          || { key, name: basename(key) || "未知", root: "", color: null, pinned: false, archived: false };
+      }
+
+      function visibleProjects() {
+        if (!state.showArchived) return state.projects.filter((project) => !project.archived);
+        const projectKeys = new Set(state.archivedWorktrees.values());
+        return state.projects.filter((project) => project.archived || projectKeys.has(project.key));
+      }
+
+      function worktreeRootFor(row, project = projectFor(row.projectKey)) {
+        return row.worktreeRoot || row.cwd || project.root || "";
+      }
+
+      function applyWorktreePreferences(preferences) {
+        state.archivedWorktrees = new Map(preferences
+          .filter((preference) => preference.archived)
+          .map((preference) => [preference.root, preference.projectKey]));
+      }
+
+      function groupedWorktrees(rows, project) {
+        const groups = new Map();
+        rows.forEach((row) => {
+          const root = worktreeRootFor(row, project);
+          const key = root || "__unknown_worktree__";
+          const group = groups.get(key) || { root, detected: false, latest: 0, rows: [] };
+          group.detected ||= Boolean(row.worktreeRoot);
+          group.latest = Math.max(group.latest, row.lastInputAt || 0);
+          group.rows.push(row);
+          groups.set(key, group);
+        });
+        return [...groups.values()].sort((a, b) => b.latest - a.latest || a.root.localeCompare(b.root));
+      }
+
+      function worktreeKind(group, project) {
+        if (!group.detected) return "工作目录";
+        return group.root === project.root ? "主 worktree" : "关联 worktree";
+      }
+
+      function sessionKey(row) { return `${row.agent}/${row.sid}`; }
+
+      function syncSessionLive() {
+        state.sourceSessions.forEach((row) => { row.live = state.liveBySession[sessionKey(row)] || null; });
+        const scoped = state.sourceSessions.filter((row) => {
+          const project = projectFor(row.projectKey);
+          const worktreeArchived = state.archivedWorktrees.has(worktreeRootFor(row, project));
+          return state.showArchived
+            ? project.archived || (!project.archived && worktreeArchived)
+            : !project.archived && !worktreeArchived;
+        });
+        const rows = state.liveOnly ? scoped.filter((row) => row.live) : scoped;
+        state.sessions = rows.slice(0, VISIBLE_SESSION_LIMIT);
+      }
+
+      function patchSessionLive() {
+        const rows = new Map(state.sessions.map((row) => [sessionKey(row), row]));
+        document.querySelectorAll(".session-row").forEach((element) => {
+          const row = rows.get(`${element.dataset.agent}/${element.dataset.sid}`);
+          if (!row) return;
+          const status = row.live?.status || "offline";
+          const dot = element.querySelector(".status-dot");
+          if (dot) {
+            dot.className = `status-dot status-${status}`;
+            dot.title = row.live ? `${status}${row.live.name ? ` · ${row.live.name}` : ""}` : "offline";
+          }
+          const button = element.querySelector(".focus-action");
+          if (button && (button.textContent === "跳转" || button.textContent === "恢复")) {
+            button.textContent = row.live ? "跳转" : "恢复";
+            button.classList.toggle("focus-jump", Boolean(row.live));
+            button.classList.toggle("focus-resume", !row.live);
+          }
+        });
       }
 
       function make(tag, className, text) {
@@ -306,24 +487,24 @@
       }
 
       async function focusSession(row, button, rowElement) {
-        const original = row.live ? "定位" : "恢复";
+        const defaultLabel = () => row.live ? "跳转" : "恢复";
         button.disabled = true;
         button.textContent = "处理中…";
         try {
           const result = await api(`/api/focus/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`, { method: "POST" });
           if (result.action === "switched") {
             button.textContent = "已切到 tab";
-            setTimeout(() => { button.textContent = original; }, RESULT_RESET_MS);
+            setTimeout(() => { button.textContent = defaultLabel(); }, RESULT_RESET_MS);
           } else if (result.action === "resumed") {
             button.textContent = "已在 Orca 恢复";
-            setTimeout(() => { button.textContent = original; }, RESULT_RESET_MS);
+            setTimeout(() => { button.textContent = defaultLabel(); }, RESULT_RESET_MS);
           } else {
-            button.textContent = original;
+            button.textContent = defaultLabel();
             renderManual(rowElement, result);
           }
         } catch (error) {
-          button.textContent = original;
-          showToast(`定位失败：${error.message}`);
+          button.textContent = defaultLabel();
+          showToast(`跳转失败：${error.message}`);
         } finally { button.disabled = false; }
       }
 
@@ -340,6 +521,26 @@
           } else {
             button.textContent = original;
             showToast("该 worktree 没有可切回的 Orca 终端");
+          }
+        } catch (error) {
+          button.textContent = original;
+          showToast(`切换失败：${error.message}`);
+        } finally { button.disabled = false; }
+      }
+
+      async function focusWorktreeSession(row, worktreeName, button) {
+        const original = "回到 Orca";
+        button.disabled = true;
+        button.textContent = "切换中…";
+        try {
+          const result = await api(`/api/focus/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`, { method: "POST" });
+          if (result.action === "switched" || result.action === "resumed") {
+            button.textContent = "已切回";
+            showToast(`已切回 ${worktreeName} · ${row.displayTitle}`);
+            setTimeout(() => { button.textContent = original; }, RESULT_RESET_MS);
+          } else {
+            button.textContent = original;
+            showToast("无法自动回到该 worktree 的第一个会话");
           }
         } catch (error) {
           button.textContent = original;
@@ -381,7 +582,7 @@
         element.append(main);
 
         const chips = make("div", "chips");
-        if (row.cwd && row.cwd !== project.root) chips.append(make("span", "chip", basename(row.cwd)));
+        if (row.cwd && row.cwd !== (row.worktreeRoot || project.root)) chips.append(make("span", "chip", basename(row.cwd)));
         if (row.branch && row.branch !== "HEAD") chips.append(make("span", "chip", row.branch));
         (row.goals || []).forEach((goal) => {
           const button = make("button", "chip goal-chip", goal.name);
@@ -398,20 +599,38 @@
         element.append(facts);
 
         const actions = make("div", "actions");
-        const focusButton = make("button", "action primary focus-action", row.live ? "定位" : "恢复");
+        const focusButton = make(
+          "button", `action focus-action ${row.live ? "focus-jump" : "focus-resume"}`,
+          row.live ? "跳转" : "恢复",
+        );
         focusButton.type = "button";
         focusButton.addEventListener("click", () => focusSession(row, focusButton, element));
-        const copyButton = make("button", "action copy-action", "复制链接");
+        const drawer = make("details", "action-drawer");
+        const drawerToggle = make("summary", "action drawer-toggle", "更多");
+        const drawerPanel = make("div", "action-drawer-panel");
+        const copyButton = make("button", "action drawer-action copy-action", "复制链接");
         copyButton.type = "button";
-        copyButton.addEventListener("click", () => copyText(`orcatab://${row.agent}/${row.sid}`, "已复制"));
-        const commandButton = make("button", "action command-action", "复制命令");
+        copyButton.addEventListener("click", async () => {
+          await copyText(`orcatab://${row.agent}/${row.sid}`, "已复制链接");
+          drawer.open = false;
+        });
+        const commandButton = make("button", "action drawer-action command-action", "复制命令");
         commandButton.type = "button";
-        commandButton.addEventListener("click", () => {
+        commandButton.addEventListener("click", async () => {
           const command = row.agent === "codex" ? `codex resume ${row.sid}`
             : row.agent === "hermes" ? `hermes --resume ${row.sid}` : `claude --resume ${row.sid}`;
-          copyText(command, "已复制命令");
+          await copyText(command, "已复制命令");
+          drawer.open = false;
         });
-        actions.append(focusButton, copyButton, commandButton);
+        drawerPanel.append(copyButton, commandButton);
+        drawer.append(drawerToggle, drawerPanel);
+        drawer.addEventListener("toggle", () => {
+          if (!drawer.open) return;
+          document.querySelectorAll(".action-drawer[open]").forEach((candidate) => {
+            if (candidate !== drawer) candidate.removeAttribute("open");
+          });
+        });
+        actions.append(focusButton, drawer);
         if (options.goalPicker) {
           const picker = make("select", "goal-picker");
           picker.setAttribute("aria-label", "添加到目标");
@@ -453,47 +672,244 @@
           rows.push(row);
           groups.set(row.projectKey, rows);
         });
-        groups.forEach((rows, key) => {
+        const orderedKeys = visibleProjects().map((project) => project.key).filter((key) => groups.has(key));
+        groups.forEach((_rows, key) => { if (!orderedKeys.includes(key)) orderedKeys.push(key); });
+        orderedKeys.forEach((key) => {
+          const rows = groups.get(key);
           const project = projectFor(key);
-          const section = make("section", "group");
-          const header = make("header", "group-header");
-          const color = make("span", "color-dot");
-          if (project.color) color.style.setProperty("--project-color", project.color);
-          const latest = rows.reduce((value, row) => Math.max(value, row.lastInputAt || 0), 0) || null;
-          const projectFocus = make("button", "action project-focus", "回到 Orca");
-          projectFocus.type = "button";
-          projectFocus.title = `回到 Orca 中的 ${project.name} worktree`;
-          projectFocus.addEventListener("click", () => focusProject(project, projectFocus));
-          header.append(
-            color,
-            make("h2", "group-title", project.name),
-            make("span", "group-meta", `${rows.length} 个会话 · 最近 ${relativeTime(latest)}`),
-            projectFocus,
-          );
-          const list = make("div", "session-list");
-          rows.sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0))
-            .forEach((row) => list.append(sessionRow(row, project, isSearch, { goalPicker: true })));
-          section.append(header, list);
+          const section = make("div", "group");
+          const stack = make("div", "worktree-stack");
+          groupedWorktrees(rows, project).forEach((worktree) => {
+            const cluster = make("section", "worktree-cluster");
+            cluster.dataset.worktreeRoot = worktree.root;
+            const worktreeRows = [...worktree.rows]
+              .sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0));
+            const firstSession = worktreeRows[0];
+            const worktreeHeader = make("header", "worktree-header");
+            const color = make("span", "color-dot");
+            if (project.color) color.style.setProperty("--project-color", project.color);
+            const worktreeName = basename(worktree.root) || "未知目录";
+            const name = make("h2", "worktree-name", worktreeName);
+            name.title = worktree.root || "未识别 worktree";
+            const path = make("span", "worktree-path", worktree.root || "未识别 worktree");
+            path.title = worktree.root || "未识别 worktree";
+            const worktreeArchived = state.archivedWorktrees.has(worktree.root);
+            const focus = make("button", "action worktree-focus", "回到 Orca");
+            focus.type = "button";
+            focus.dataset.agent = firstSession.agent;
+            focus.dataset.sid = firstSession.sid;
+            focus.title = `回到第一个会话：${firstSession.displayTitle}`;
+            focus.addEventListener("click", () => focusWorktreeSession(firstSession, worktreeName, focus));
+            worktreeHeader.append(
+              color,
+              name,
+              make("span", "worktree-kind", worktreeKind(worktree, project)),
+              path,
+              make("span", "worktree-meta", `${worktree.rows.length} 个会话 · 最近 ${relativeTime(worktree.latest || null)}`),
+              focus,
+            );
+            if (!project.archived && worktree.root) {
+              const archive = make(
+                "button", `action worktree-archive${worktreeArchived ? " restore" : ""}`,
+                worktreeArchived ? "恢复" : "归档",
+              );
+              archive.type = "button";
+              archive.title = `${worktreeArchived ? "恢复" : "归档"} worktree：${worktreeName}`;
+              archive.addEventListener("click", () => updateWorktreePreference(
+                project, worktree.root, !worktreeArchived, archive,
+              ));
+              worktreeHeader.append(archive);
+            }
+            const list = make("div", "session-list");
+            worktreeRows.forEach((row) => list.append(sessionRow(row, project, isSearch, { goalPicker: true })));
+            cluster.append(worktreeHeader, list);
+            stack.append(cluster);
+          });
+          section.append(stack);
           content.append(section);
         });
       }
 
       function renderProjects() {
         projectList.replaceChildren();
-        mobileProject.replaceChildren(new Option("全部项目", ""));
-        state.projects.forEach((project) => {
+        const archivedProjectKeys = new Set(state.projects.filter((project) => project.archived).map((project) => project.key));
+        const activeProjectKeys = new Set(state.projects.filter((project) => !project.archived).map((project) => project.key));
+        const archivedProjectCount = archivedProjectKeys.size;
+        const archivedWorktreeCount = [...state.archivedWorktrees.values()]
+          .filter((projectKey) => activeProjectKeys.has(projectKey)).length;
+        const archivedCount = archivedProjectCount + archivedWorktreeCount;
+        const scopeLabel = state.showArchived ? "返回项目" : `已归档 ${archivedCount}`;
+        projectScopeTitle.textContent = state.showArchived ? "已归档" : "项目";
+        for (const toggle of [archivedProjects, mobileArchivedProjects]) {
+          toggle.textContent = scopeLabel;
+          toggle.setAttribute("aria-pressed", String(state.showArchived));
+        }
+        mobileProject.replaceChildren(new Option(state.showArchived ? "全部归档" : "全部项目", ""));
+        visibleProjects().forEach((project) => {
+          const item = make("div", "project-item");
           const button = make("button", `project-button${state.selectedProject === project.key ? " active" : ""}`);
           button.type = "button";
           button.append(make("span", "name", project.name), make("span", "count", String(project.sessionCount)));
           button.addEventListener("click", () => selectProject(state.selectedProject === project.key ? "" : project.key));
-          projectList.append(button);
+          item.append(button);
+          if (!project.archived) {
+            item.append(projectPreferenceButton(
+              project, project.pinned ? "取消置顶" : "置顶", { pinned: !project.pinned }, `project-control${project.pinned ? " active" : ""}`,
+            ));
+          }
+          item.append(projectPreferenceButton(
+            project, project.archived ? "恢复" : "归档", { archived: !project.archived }, "project-control",
+          ));
+          projectList.append(item);
           mobileProject.append(new Option(`${project.name} (${project.sessionCount})`, project.key));
         });
         mobileProject.value = state.selectedProject;
       }
 
+      function filteredManagedProjects() {
+        const query = state.projectQuery.toLocaleLowerCase("zh-CN");
+        return state.projects.filter((project) => {
+          const inScope = state.projectScope === "all"
+            || (state.projectScope === "active" && !project.archived)
+            || (state.projectScope === "pinned" && project.pinned)
+            || (state.projectScope === "archived" && project.archived);
+          if (!inScope) return false;
+          if (!query) return true;
+          return `${project.name} ${project.root} ${project.key}`.toLocaleLowerCase("zh-CN").includes(query);
+        });
+      }
+
+      function managedProjectMetric(value, label, className = "") {
+        const metric = make("div", `managed-project-metric ${className}`.trim());
+        metric.append(make("strong", "", value), make("span", "", label));
+        return metric;
+      }
+
+      function renderProjectManagement() {
+        const active = state.projects.filter((project) => !project.archived).length;
+        const pinned = state.projects.filter((project) => project.pinned).length;
+        const archived = state.projects.filter((project) => project.archived).length;
+        activeProjectCount.textContent = String(active);
+        pinnedProjectCount.textContent = String(pinned);
+        archivedProjectCount.textContent = String(archived);
+        allProjectCount.textContent = String(state.projects.length);
+        projectSummary.querySelectorAll("[data-project-scope]").forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.projectScope === state.projectScope));
+        });
+
+        const projects = filteredManagedProjects();
+        managedProjectCount.textContent = `显示 ${projects.length} / ${state.projects.length} 个`;
+        projectManagementList.replaceChildren();
+        if (!projects.length) {
+          projectManagementList.append(make("div", "empty", state.projectQuery ? "没有匹配的项目" : "当前筛选下没有项目"));
+          return;
+        }
+
+        projects.forEach((project) => {
+          const row = make("article", "managed-project");
+          row.dataset.projectKey = project.key;
+          const main = make("div", "managed-project-main");
+          const color = make("span", "color-dot");
+          if (project.color) color.style.setProperty("--project-color", project.color);
+          const identity = make("div", "managed-project-identity");
+          const title = make("div", "managed-project-title");
+          title.append(make("span", "managed-project-name", project.name));
+          if (project.pinned) title.append(make("span", "project-status pinned", "置顶"));
+          if (project.archived) title.append(make("span", "project-status", "已归档"));
+          identity.append(title, make("div", "managed-project-path", project.root || project.key));
+          main.append(color, identity);
+
+          const actions = make("div", "managed-project-actions");
+          const sessions = make("button", "action primary", "查看会话");
+          sessions.type = "button";
+          sessions.addEventListener("click", () => openManagedProjectSessions(project));
+          const focus = make("button", "action", "回到 Orca");
+          focus.type = "button";
+          focus.addEventListener("click", () => focusProject(project, focus));
+          actions.append(sessions, focus);
+          if (!project.archived) {
+            actions.append(projectPreferenceButton(
+              project, project.pinned ? "取消置顶" : "置顶", { pinned: !project.pinned }, "action",
+            ));
+          }
+          actions.append(projectPreferenceButton(
+            project, project.archived ? "恢复" : "归档", { archived: !project.archived }, "action",
+          ));
+          row.append(
+            main,
+            managedProjectMetric(String(project.sessionCount), "会话"),
+            managedProjectMetric(relativeTime(project.lastInputAt), "最近活动", "activity"),
+            actions,
+          );
+          projectManagementList.append(row);
+        });
+      }
+
       function jsonRequest(method, body) {
         return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+      }
+
+      function projectPreferenceButton(project, label, patch, className) {
+        const button = make("button", className, label);
+        button.type = "button";
+        button.title = `${label}项目 ${project.name}`;
+        button.setAttribute("aria-label", button.title);
+        button.addEventListener("click", () => updateProjectPreference(project, patch, button));
+        return button;
+      }
+
+      async function updateProjectPreference(project, patch, button) {
+        button.disabled = true;
+        try {
+          await api("/api/projects", jsonRequest("PATCH", { projectKey: project.key, ...patch }));
+          const projects = await conditionalApi("/api/projects", "");
+          state.projects = projects.body;
+          state.projectEtag = projects.etag;
+          if (patch.archived !== undefined && state.selectedProject === project.key) state.selectedProject = "";
+          syncSessionLive();
+          renderProjects();
+          render();
+          renderProjectManagement();
+          const message = patch.archived === true ? `已归档 ${project.name}，可在“已归档”中恢复`
+            : patch.archived === false ? `已恢复 ${project.name}`
+              : patch.pinned ? `已置顶 ${project.name}` : `已取消置顶 ${project.name}`;
+          showToast(message);
+        } catch (error) { showToast(`更新项目失败：${error.message}`); }
+        finally { button.disabled = false; }
+      }
+
+      async function updateWorktreePreference(project, root, archived, button) {
+        button.disabled = true;
+        const name = basename(root) || root;
+        try {
+          await api("/api/worktrees", jsonRequest("PATCH", { projectKey: project.key, root, archived }));
+          const preferences = await conditionalApi("/api/worktrees", "");
+          applyWorktreePreferences(preferences.body);
+          state.worktreeEtag = preferences.etag;
+          if (!archived && state.showArchived
+            && ![...state.archivedWorktrees.values()].includes(project.key)) state.selectedProject = "";
+          syncSessionLive();
+          renderProjects();
+          render();
+          showToast(archived
+            ? `已归档 worktree ${name}，可在“已归档”中恢复`
+            : `已恢复 worktree ${name}`);
+        } catch (error) { showToast(`更新 worktree 失败：${error.message}`); }
+        finally { button.disabled = false; }
+      }
+
+      async function openManagedProjectSessions(project) {
+        state.showArchived = project.archived;
+        state.selectedProject = project.key;
+        state.query = "";
+        state.liveOnly = false;
+        searchInput.value = "";
+        allMode.setAttribute("aria-pressed", "true");
+        liveMode.setAttribute("aria-pressed", "false");
+        state.sessionEtag = "";
+        await setView("sessions", false);
+        renderProjects();
+        await loadList();
       }
 
       function openGoalDialog(row = null) {
@@ -506,13 +922,18 @@
       async function setView(view, refresh = true) {
         state.view = view;
         const sessionsActive = view === "sessions";
+        const projectsActive = view === "projects";
+        const goalsActive = view === "goals";
         sessionsView.hidden = !sessionsActive;
-        goalsView.hidden = sessionsActive;
+        projectsView.hidden = !projectsActive;
+        goalsView.hidden = !goalsActive;
         document.querySelectorAll(".session-only").forEach((element) => { element.hidden = !sessionsActive; });
         sessionsViewButton.setAttribute("aria-pressed", String(sessionsActive));
-        goalsViewButton.setAttribute("aria-pressed", String(!sessionsActive));
+        projectsViewButton.setAttribute("aria-pressed", String(projectsActive));
+        goalsViewButton.setAttribute("aria-pressed", String(goalsActive));
         state.activeRow = -1;
-        if (!sessionsActive && refresh) await loadGoals(true);
+        if (projectsActive && refresh) await loadProjectManagement();
+        if (goalsActive && refresh) await loadGoals(true);
       }
 
       function renderGoalList() {
@@ -690,33 +1111,72 @@
         finally { button.disabled = false; }
       }
 
-      async function loadList() {
-        const requestId = ++state.requestId;
-        const params = new URLSearchParams();
-        if (state.selectedProject) params.set("project", state.selectedProject);
-        if (state.liveOnly) params.set("live", "1");
-        const [projects, sessions, health, goals] = await Promise.all([
+      async function loadProjectManagement() {
+        const [projects, health] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
-          conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
           api("/healthz"),
-          api("/api/goals"),
         ]);
-        if (requestId !== state.requestId || state.query) return;
         indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
-        state.goals = goals;
-        let changed = false;
         if (!projects.unchanged) {
           state.projects = projects.body;
           state.projectEtag = projects.etag;
           renderProjects();
-          changed = true;
+        }
+        renderProjectManagement();
+      }
+
+      async function loadList() {
+        const requestId = ++state.requestId;
+        const params = new URLSearchParams();
+        if (state.selectedProject) params.set("project", state.selectedProject);
+        params.set("includeLive", "0");
+        if (state.liveOnly || state.showArchived) params.set("limit", String(LIVE_POOL_LIMIT));
+        const [projects, sessions, worktrees, health, goals, live] = await Promise.all([
+          conditionalApi("/api/projects", state.projectEtag),
+          conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
+          conditionalApi("/api/worktrees", state.worktreeEtag),
+          api("/healthz"),
+          api("/api/goals"),
+          conditionalApi("/api/live", state.liveEtag),
+        ]);
+        if (requestId !== state.requestId || state.query) return;
+        indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
+        state.goals = goals;
+        const projectsChanged = !projects.unchanged;
+        const sessionsChanged = !sessions.unchanged;
+        const worktreesChanged = !worktrees.unchanged;
+        const liveChanged = !live.unchanged;
+        if (!projects.unchanged) {
+          state.projects = projects.body;
+          state.projectEtag = projects.etag;
         }
         if (!sessions.unchanged) {
-          state.sessions = sessions.body;
+          state.sourceSessions = sessions.body;
           state.sessionEtag = sessions.etag;
-          changed = true;
         }
-        if (changed) render();
+        if (!worktrees.unchanged) {
+          applyWorktreePreferences(worktrees.body);
+          state.worktreeEtag = worktrees.etag;
+        }
+        if (!live.unchanged) {
+          state.liveBySession = live.body;
+          state.liveEtag = live.etag;
+        }
+        syncSessionLive();
+        if (projectsChanged || worktreesChanged) renderProjects();
+        if (projectsChanged) renderProjectManagement();
+        if (projectsChanged || sessionsChanged || worktreesChanged || (liveChanged && state.liveOnly)) render();
+        else if (liveChanged) patchSessionLive();
+      }
+
+      async function refreshLive() {
+        const live = await conditionalApi("/api/live", state.liveEtag);
+        if (live.unchanged) return;
+        state.liveBySession = live.body;
+        state.liveEtag = live.etag;
+        syncSessionLive();
+        if (state.liveOnly) render();
+        else patchSessionLive();
       }
 
       async function runSearch() {
@@ -725,11 +1185,11 @@
         if (!query) { state.sessionEtag = ""; await loadList(); return; }
         const requestId = ++state.requestId;
         try {
-          let rows = await api(`/api/search?q=${encodeURIComponent(query)}`);
-          if (state.liveOnly) rows = rows.filter((row) => row.live);
+          let rows = await api(`/api/search?q=${encodeURIComponent(query)}&includeLive=0&limit=200`);
           if (state.selectedProject) rows = rows.filter((row) => row.projectKey === state.selectedProject);
           if (requestId !== state.requestId || state.query !== query) return;
-          state.sessions = rows;
+          state.sourceSessions = rows;
+          syncSessionLive();
           render();
         } catch (error) { showToast(`搜索失败：${error.message}`); }
       }
@@ -749,6 +1209,17 @@
         state.query ? runSearch() : loadList().catch((error) => showToast(error.message));
       }
 
+      async function setArchivedMode(value) {
+        state.showArchived = value;
+        state.selectedProject = "";
+        state.sessionEtag = "";
+        syncSessionLive();
+        renderProjects();
+        render();
+        if (state.query) await runSearch();
+        else await loadList();
+      }
+
       function moveRow(delta) {
         const rows = [...document.querySelectorAll(".session-row")];
         if (!rows.length) return;
@@ -764,6 +1235,9 @@
         state.sessionEtag = "";
         if (state.query) await runSearch();
         else await loadList();
+      });
+      projectsViewButton.addEventListener("click", () => {
+        setView("projects").catch((error) => showToast("加载项目失败：" + error.message));
       });
       goalsViewButton.addEventListener("click", () => {
         setView("goals").catch((error) => showToast("加载目标失败：" + error.message));
@@ -801,13 +1275,29 @@
         clearTimeout(searchTimer);
         searchTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
       });
+      projectSearchInput.addEventListener("input", () => {
+        state.projectQuery = projectSearchInput.value.trim();
+        renderProjectManagement();
+      });
+      projectSummary.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-project-scope]");
+        if (!button) return;
+        state.projectScope = button.dataset.projectScope;
+        renderProjectManagement();
+      });
       mobileProject.addEventListener("change", () => selectProject(mobileProject.value));
+      archivedProjects.addEventListener("click", () => setArchivedMode(!state.showArchived)
+        .catch((error) => showToast(error.message)));
+      mobileArchivedProjects.addEventListener("click", () => setArchivedMode(!state.showArchived)
+        .catch((error) => showToast(error.message)));
       allMode.addEventListener("click", () => setLiveOnly(false));
       liveMode.addEventListener("click", () => setLiveOnly(true));
       document.addEventListener("keydown", (event) => {
         const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
         if (event.key === "/" && !typing && state.view === "sessions") { event.preventDefault(); searchInput.focus(); return; }
+        if (event.key === "/" && !typing && state.view === "projects") { event.preventDefault(); projectSearchInput.focus(); return; }
         if (typing) return;
+        if (state.view !== "sessions") return;
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); moveRow(event.key === "ArrowDown" ? 1 : -1); return; }
         const row = document.querySelectorAll(".session-row")[state.activeRow];
         if (!row) return;
@@ -817,7 +1307,13 @@
 
       loadList().catch((error) => showToast(`加载失败：${error.message}`));
       setInterval(() => {
-        if (state.view === "sessions" && !state.query) loadList().catch((error) => showToast(error.message));
+        if (state.view === "projects") {
+          loadProjectManagement().catch((error) => showToast(error.message));
+          return;
+        }
+        if (state.view !== "sessions") return;
+        const refresh = state.query ? refreshLive() : loadList();
+        refresh.catch((error) => showToast(error.message));
       }, POLL_MS);
     })();
   </script>

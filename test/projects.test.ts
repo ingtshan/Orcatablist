@@ -20,7 +20,7 @@ function git(...args: string[]): void {
 }
 function stored(projectKey: string): StoredSession {
   return {
-    agent: "claude", sid: "11111111-1111-1111-1111-111111111111", projectKey, cwd: "/tmp/wt", branch: null,
+    agent: "claude", sid: "11111111-1111-1111-1111-111111111111", projectKey, cwd: "/tmp/wt", worktreeRoot: "/tmp/wt", branch: null,
     title: null, firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0, filePath: "/tmp/a", fileSize: 0,
     fileMtime: 0, parsedOffset: 0,
   };
@@ -97,6 +97,7 @@ describe("project post-processing", () => {
     expect(db.getSession("claude", "11111111-1111-1111-1111-111111111111")!.projectKey).toBe("/repo/lumina");
     expect(db.getCachedProjectKey("/tmp/wt")).toBe("/repo/lumina");
     expect(db.listProjectRecords()).toHaveLength(1);
+    expect(db.getListVersion()).toBe(1);
     db.close();
   });
 
@@ -111,8 +112,10 @@ describe("project post-processing", () => {
     expect(await refreshProjectMetadata(db, fakeOrca)).toBe(1);
     expect(db.listProjectRecords()[0]).toMatchObject({ name: "展示仓库", color: "#737373" });
     expect(db.getDataVersion()).toBe(1);
+    expect(db.getListVersion()).toBe(1);
     expect(await refreshProjectMetadata(db, fakeOrca)).toBe(0);
     expect(db.getDataVersion()).toBe(1);
+    expect(db.getListVersion()).toBe(1);
     expect(await refreshProjectMetadata(db, join(root, "missing"))).toBe(0);
     db.close();
   });
@@ -130,6 +133,7 @@ describe("project post-processing", () => {
     expect(db.getSession("claude", "11111111-1111-1111-1111-111111111111")!.projectKey).toBe(repo);
     expect(db.listProjectRecords().some((project) => project.key === deleted)).toBeFalse();
     expect(db.getDataVersion()).toBe(1);
+    expect(db.getListVersion()).toBe(1);
     db.close();
   });
 
@@ -151,6 +155,7 @@ describe("project post-processing", () => {
     expect(mergeDeletedWorktreeProjects(db)).toBe(0);
     expect(db.listProjectRecords()).toHaveLength(4);
     expect(db.getDataVersion()).toBe(0);
+    expect(db.getListVersion()).toBe(0);
     db.close();
   });
 });

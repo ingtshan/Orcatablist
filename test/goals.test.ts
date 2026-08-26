@@ -26,7 +26,7 @@ function openStore(path = ":memory:"): GoalsStore {
 
 function storedSession(sid: string): StoredSession {
   return {
-    agent: "claude", sid, projectKey: "/repo/orcatab", cwd: "/repo/orcatab", branch: "main",
+    agent: "claude", sid, projectKey: "/repo/orcatab", cwd: "/repo/orcatab", worktreeRoot: "/repo/orcatab", branch: "main",
     title: "OrcaTab 目标", firstPrompt: "实现目标", lastPrompt: "验证目标", lastInputAt: 42,
     promptCount: 2, filePath: `/tmp/${sid}.jsonl`, fileSize: 1, fileMtime: 2, parsedOffset: 1,
   };
