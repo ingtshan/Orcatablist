@@ -6,10 +6,28 @@ import { join } from "node:path";
 import { createServer, type OrcaTabServer } from "../src/server";
 import { createIndexer } from "../src/indexer";
 import type { FocusDeps } from "../src/focus";
+import type { SessionLiveReader } from "../src/session-live";
+import type { LiveInfo } from "../src/types";
 
 const SID = "44444444-4444-4444-4444-444444444444";
 const CODEX_SID = "55555555-5555-5555-5555-555555555555";
 const HERMES_SID = "20260811_031044_76b3bb";
+const openTabs = new Map<string, LiveInfo>([
+  [`codex/${CODEX_SID}`, {
+    pid: null, status: "busy", waitingFor: null, name: "Codex fixture tab",
+    handle: "term_codex", tabId: "tab_codex", leafId: "leaf_codex",
+  }],
+  [`hermes/${HERMES_SID}`, {
+    pid: null, status: "idle", waitingFor: null, name: "Hermes fixture tab",
+    handle: "term_hermes", tabId: "tab_hermes", leafId: "leaf_hermes",
+  }],
+]);
+const sessionLiveReader: SessionLiveReader = {
+  refresh: async () => openTabs,
+  getLiveMap: () => openTabs,
+  getLiveVersion: () => 1,
+  findLive: async (agent, sid) => openTabs.get(`${agent}/${sid}`) ?? null,
+};
 let root = "";
 let baseUrl = "";
 let app: OrcaTabServer;
@@ -79,7 +97,7 @@ beforeAll(async () => {
   hermes.close();
   app = await createServer({
     port: 0, claudeDir, codexDir, hermesDb, dataDir: join(root, "data"),
-    orcaBin: join(root, "missing-orca"), focusDeps, startTimers: false, quiet: true,
+    orcaBin: join(root, "missing-orca"), focusDeps, sessionLiveReader, startTimers: false, quiet: true,
   });
   baseUrl = `http://127.0.0.1:${app.server.port}`;
 });
@@ -104,10 +122,16 @@ describe("HTTP server", () => {
     expect(sessions.find((row: { agent: string }) => row.agent === "claude"))
       .toMatchObject({ agent: "claude", sid: SID, displayTitle: "课堂树会话", live: null, goals: [] });
     expect(sessions.find((row: { agent: string }) => row.agent === "codex"))
-      .toMatchObject({ agent: "codex", sid: CODEX_SID, displayTitle: "Codex 测试会话", live: null });
+      .toMatchObject({
+        agent: "codex", sid: CODEX_SID, displayTitle: "Codex 测试会话",
+        live: { handle: "term_codex", tabId: "tab_codex", status: "busy" },
+      });
     expect(sessions.find((row: { agent: string }) => row.agent === "hermes"))
-      .toMatchObject({ agent: "hermes", sid: HERMES_SID, displayTitle: "Hermes 服务测试", live: null });
-    expect(await (await fetch(`${baseUrl}/api/sessions?live=1`)).json()).toEqual([]);
+      .toMatchObject({
+        agent: "hermes", sid: HERMES_SID, displayTitle: "Hermes 服务测试",
+        live: { handle: "term_hermes", tabId: "tab_hermes", status: "idle" },
+      });
+    expect(await (await fetch(`${baseUrl}/api/sessions?live=1`)).json()).toHaveLength(2);
   });
 
   test("focuses the latest indexed worktree for a known project", async () => {
@@ -184,6 +208,7 @@ describe("HTTP server", () => {
     expect(html).toContain("codex resume ${row.sid}");
     expect(html).toContain("hermes --resume ${row.sid}");
     expect(html).toContain("agent-hermes");
+    expect(html).toContain('row.live ? "定位" : "恢复"');
     expect(html).toContain("回到 Orca");
     expect(html).toContain("/api/projects/focus");
     expect(html).toContain("新建目标");

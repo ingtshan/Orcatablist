@@ -306,7 +306,7 @@
       }
 
       async function focusSession(row, button, rowElement) {
-        const original = row.agent === "claude" && row.live ? "定位" : "恢复";
+        const original = row.live ? "定位" : "恢复";
         button.disabled = true;
         button.textContent = "处理中…";
         try {
@@ -398,7 +398,7 @@
         element.append(facts);
 
         const actions = make("div", "actions");
-        const focusButton = make("button", "action primary focus-action", row.agent === "claude" && row.live ? "定位" : "恢复");
+        const focusButton = make("button", "action primary focus-action", row.live ? "定位" : "恢复");
         focusButton.type = "button";
         focusButton.addEventListener("click", () => focusSession(row, focusButton, element));
         const copyButton = make("button", "action copy-action", "复制链接");

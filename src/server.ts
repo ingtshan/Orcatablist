@@ -10,9 +10,10 @@ import { GoalsStore, openGoalsDatabase, sessionIdentityKey, type GoalLinkKind } 
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
+import { createSessionLiveReader, mergeSessionLive, type SessionLiveReader } from "./session-live";
 import { handleSppRequest } from "./spp";
 import { suggestSessions } from "./suggest";
-import type { Agent, FocusResult, GoalStatus, LiveInfo, SearchResult, SessionRow } from "./types";
+import type { Agent, FocusResult, GoalStatus, SearchResult, SessionRow } from "./types";
 import { resolveWorktreeFocus } from "./worktree-focus";
 
 const DEFAULT_SESSIONS_LIMIT = 500;
@@ -23,17 +24,14 @@ const MAX_SEARCH_LIMIT = 200;
 const FOCUS_URI_PATTERN = /^orcatab:\/\/(claude|codex|hermes)\/([A-Za-z0-9_-]{1,128})$/;
 const GOAL_STATUSES = new Set<GoalStatus>(["active", "done", "archived"]);
 const GOAL_LINK_KINDS = new Set<GoalLinkKind>(["confirmed", "dismissed"]);
-
 export interface ServerOptions {
   port?: number; claudeDir?: string; codexDir?: string; hermesDb?: string; dataDir?: string; orcaBin?: string;
-  db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; startTimers?: boolean; quiet?: boolean;
+  db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; startTimers?: boolean; quiet?: boolean;
 }
-
 export interface OrcaTabServer {
   server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary;
   stop(): void;
 }
-
 class NotFoundError extends Error { override name = "NotFoundError"; }
 
 function json(value: unknown, status = 200, headers: HeadersInit = {}): Response {
@@ -52,10 +50,6 @@ function boundedLimit(value: string | null, fallback: number, maximum: number): 
   if (value === null) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
-}
-
-function mergeLive<T extends SessionRow>(rows: T[], live: Map<string, LiveInfo>): T[] {
-  return rows.map((row) => ({ ...row, live: row.agent === "claude" ? live.get(row.sid) ?? null : null }));
 }
 
 function attachGoals<T extends SessionRow>(rows: T[], store: GoalsStore): T[] {
@@ -123,9 +117,12 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const indexed = await indexer.indexAll();
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
   await refreshProjectMetadata(db, orcaBin);
-  const liveReader = createLiveReader({ claudeDir });
+  const sessionLiveReader = options.sessionLiveReader ?? createSessionLiveReader({
+    orcaBin, getClaudeLiveMap: createLiveReader({ claudeDir }).getLiveMap,
+    onError: options.quiet ? () => {} : undefined,
+  });
   const focusDeps = options.focusDeps ?? createFocusDeps(db, {
-    claudeDir, codexDir, hermesDb, orcaBin, liveFinder: liveReader.findLive,
+    claudeDir, codexDir, hermesDb, orcaBin, liveFinder: sessionLiveReader.findLive,
   });
   const timers: Array<ReturnType<typeof setInterval>> = [];
   let watcher: WatchHandle = { mode: "timer", close: () => {} };
@@ -140,9 +137,9 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     timers.push(rescanTimer, startProjectMetadataTimer(db, orcaBin));
   }
 
-  const versionedLive = () => {
-    const live = liveReader.getLiveMap();
-    return { live, etag: `"${db.getDataVersion()}-${liveReader.getLiveVersion()}-${goalsStore.goalsVersion}"` };
+  const versionedLive = async () => {
+    const live = await sessionLiveReader.refresh();
+    return { live, etag: `"${db.getDataVersion()}-${sessionLiveReader.getLiveVersion()}-${goalsStore.goalsVersion}"` };
   };
 
   const goalSummaries = () => goalsStore.listGoals().map((goal) => {
@@ -156,7 +153,10 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const handler = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
-      if (url.pathname.startsWith("/spp/")) return handleSppRequest(request, { db, getLiveMap: liveReader.getLiveMap, focusDeps });
+      if (url.pathname.startsWith("/spp/")) {
+        await sessionLiveReader.refresh();
+        return handleSppRequest(request, { db, getLiveMap: sessionLiveReader.getLiveMap, focusDeps });
+      }
       if (request.method === "GET" && url.pathname === "/") {
         return new Response(Bun.file(join(import.meta.dir, "..", "public", "index.html")), {
           headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -171,7 +171,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         });
       }
       if (request.method === "GET" && url.pathname === "/api/projects") {
-        const { etag } = versionedLive();
+        const { etag } = await versionedLive();
         return conditionalJson(request, etag, () => db.listProjects());
       }
       if (request.method === "POST" && url.pathname === "/api/projects/focus") {
@@ -188,19 +188,19 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const limit = boundedLimit(url.searchParams.get("limit"), DEFAULT_SESSIONS_LIMIT, MAX_SESSIONS_LIMIT);
         const projectKey = url.searchParams.get("project") || undefined;
         const liveOnly = url.searchParams.get("live") === "1";
-        const { live, etag } = versionedLive();
+        const { live, etag } = await versionedLive();
         return conditionalJson(request, etag, () => {
           const base = db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit });
-          const rows = attachGoals(mergeLive(base, live), goalsStore);
+          const rows = attachGoals(mergeSessionLive(base, live), goalsStore);
           return liveOnly ? rows.filter((row) => row.live !== null).slice(0, limit) : rows;
         });
       }
       if (request.method === "GET" && url.pathname === "/api/search") {
         const q = url.searchParams.get("q") ?? "";
         const limit = boundedLimit(url.searchParams.get("limit"), DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
-        const { live, etag } = versionedLive();
+        const { live, etag } = await versionedLive();
         return conditionalJson(request, etag, () => {
-          const rows: SearchResult[] = q.trim() ? mergeLive(db.search(q, limit), live) : [];
+          const rows: SearchResult[] = q.trim() ? mergeSessionLive(db.search(q, limit), live) : [];
           return attachGoals(rows, goalsStore);
         });
       }
@@ -221,11 +221,11 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         if (parts.length === 1 && request.method === "GET") {
           const links = goalsStore.confirmedLinks(goalId);
           const base = links.map(({ agent, sid }) => db.getSession(agent, sid)).filter((row): row is SessionRow => row !== null);
-          const live = liveReader.getLiveMap();
-          const sessions = attachGoals(mergeLive(base, live), goalsStore)
+          const live = await sessionLiveReader.refresh();
+          const sessions = attachGoals(mergeSessionLive(base, live), goalsStore)
             .sort((left, right) => (right.lastInputAt ?? -1) - (left.lastInputAt ?? -1));
           const excluded = new Set(goalsStore.excludedLinks(goalId).map(({ agent, sid }) => sessionIdentityKey(agent, sid)));
-          const pool = attachGoals(mergeLive(db.listSessions({ limit: SUGGESTION_POOL_LIMIT }), live), goalsStore);
+          const pool = attachGoals(mergeSessionLive(db.listSessions({ limit: SUGGESTION_POOL_LIMIT }), live), goalsStore);
           return json({ goal, sessions, suggestions: suggestSessions(goal, sessions, excluded, pool) });
         }
         if (parts.length === 1 && request.method === "PATCH") {

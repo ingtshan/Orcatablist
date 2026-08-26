@@ -39,7 +39,7 @@ const switchLive: LiveInfo = {
 };
 
 const focusDeps: FocusDeps = {
-  findLive: (sid) => sid === SWITCH_SID ? switchLive : null,
+  findLive: (agent, sid) => agent === "claude" && sid === SWITCH_SID ? switchLive : null,
   getSessionCwd: (_agent, sid) => {
     if (sid === RESUME_SID) return CONTEXT_CWD;
     if (sid === MANUAL_SID) return MANUAL_CWD;

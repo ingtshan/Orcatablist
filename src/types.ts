@@ -1,7 +1,15 @@
 export type Agent = "claude" | "codex" | "hermes";
 export type LiveStatus = "busy" | "waiting" | "idle" | "shell";
 export type GoalStatus = "active" | "done" | "archived";
-export interface LiveInfo { pid: number; status: LiveStatus; waitingFor: string | null; name: string | null; }
+export interface LiveInfo {
+  pid: number | null;
+  status: LiveStatus;
+  waitingFor: string | null;
+  name: string | null;
+  handle?: string;
+  tabId?: string | null;
+  leafId?: string | null;
+}
 export interface ProjectRow { key: string; name: string; root: string; color: string | null; sessionCount: number; lastInputAt: number | null; }
 export interface Goal {
   id: string; name: string; status: GoalStatus; externalRef: string | null;

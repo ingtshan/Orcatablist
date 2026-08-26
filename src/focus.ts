@@ -4,7 +4,8 @@ import {
   AGENTS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_DATA_DIR, ORCATAB_HERMES_DB, ORCATAB_ORCA_BIN,
 } from "./config";
 import { getDefaultDatabase, openDatabaseReadOnly, type OrcaDatabase } from "./db";
-import { findLive } from "./live";
+import { createLiveReader } from "./live";
+import { createSessionLiveReader } from "./session-live";
 import { findCodexSessionCwd } from "./sources/codex";
 import { findHermesSessionCwd } from "./sources/hermes";
 import type { Agent, FocusResult, LiveInfo } from "./types";
@@ -18,7 +19,7 @@ export class OrcaError extends Error { override name = "OrcaError"; }
 
 export interface OrcaJsonResult { ok: boolean; result?: any; error?: any; }
 export interface FocusDeps {
-  findLive(sid: string): LiveInfo | null;
+  findLive(agent: Agent, sid: string): LiveInfo | null | Promise<LiveInfo | null>;
   getSessionCwd(agent: Agent, sid: string): string | null | undefined;
   psEnv(pid: number): Promise<string>;
   orcaJson(args: string[]): Promise<OrcaJsonResult>;
@@ -83,8 +84,11 @@ export function createFocusDeps(
   const codexDir = options.codexDir ?? ORCATAB_CODEX_DIR;
   const hermesDb = options.hermesDb ?? ORCATAB_HERMES_DB;
   const orcaBin = options.orcaBin ?? ORCATAB_ORCA_BIN;
+  const sessionLiveReader = options.liveFinder ? null : createSessionLiveReader({
+    orcaBin, getClaudeLiveMap: createLiveReader({ claudeDir }).getLiveMap,
+  });
   return {
-    findLive: options.liveFinder ?? findLive,
+    findLive: options.liveFinder ?? sessionLiveReader!.findLive,
     getSessionCwd: (agent, sid) => {
       try {
         const cwd = db?.getSession(agent, sid)?.cwd;
@@ -129,6 +133,26 @@ export async function resolveFocus(
 ): Promise<FocusResult> {
   if (!AGENTS.some((candidate) => candidate === agent)) throw new ValidationError("invalid agent");
   if (!SID_PATTERN.test(sid)) throw new ValidationError("invalid session id");
+  const live = await deps.findLive(agent, sid);
+  if (live !== null) {
+    let handle = live.handle ?? null;
+    let tabId = live.tabId ?? null;
+    if (handle === null && live.pid !== null) {
+      const environment = await deps.psEnv(live.pid);
+      handle = envValue(environment, "ORCA_TERMINAL_HANDLE");
+      tabId = envValue(environment, "ORCA_TAB_ID") ?? tabId;
+    }
+    if (handle === null) return { action: "manual", reason: "running-outside-orca", command: null };
+    if (options.dryRun) {
+      deps.reportPlan?.(["orca", "terminal", "switch", "--terminal", handle, "--json"]);
+      return { action: "switched", handle, tabId };
+    }
+    await deps.openOrca();
+    const switched = await deps.orcaJson(["terminal", "switch", "--terminal", handle, "--json"]);
+    if (!switched.ok) throw new OrcaError(`orca terminal switch failed: ${errorText(switched.error)}`);
+    tabId = switched.result?.focus?.tabId ?? tabId;
+    return { action: "switched", handle, tabId };
+  }
   if (agent === "hermes") {
     const cwd = deps.getSessionCwd(agent, sid);
     if (!cwd) return { action: "manual", reason: "unknown-session", command: null };
@@ -179,23 +203,6 @@ export async function resolveFocus(
     if (!switched.ok) throw new OrcaError(`orca terminal switch failed: ${errorText(switched.error)}`);
     return { action: "resumed", handle };
   }
-  const live = deps.findLive(sid);
-  if (live !== null) {
-    const environment = await deps.psEnv(live.pid);
-    const handle = envValue(environment, "ORCA_TERMINAL_HANDLE");
-    const envTabId = envValue(environment, "ORCA_TAB_ID");
-    if (handle === null) return { action: "manual", reason: "running-outside-orca", command: null };
-    if (options.dryRun) {
-      deps.reportPlan?.(["orca", "terminal", "switch", "--terminal", handle, "--json"]);
-      return { action: "switched", handle, tabId: envTabId };
-    }
-    await deps.openOrca();
-    const switched = await deps.orcaJson(["terminal", "switch", "--terminal", handle, "--json"]);
-    if (!switched.ok) throw new OrcaError(`orca terminal switch failed: ${errorText(switched.error)}`);
-    const tabId = switched.result?.focus?.tabId ?? envTabId ?? null;
-    return { action: "switched", handle, tabId };
-  }
-
   const cwd = deps.getSessionCwd(agent, sid);
   if (!cwd) return { action: "manual", reason: "unknown-session", command: null };
   const worktree = await deps.orcaJson(["worktree", "show", "--worktree", `path:${cwd}`, "--json"]);

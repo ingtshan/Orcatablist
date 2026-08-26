@@ -175,7 +175,7 @@ function statuses(body: Record<string, unknown>, deps: SppDependencies) {
   const live = deps.getLiveMap();
   return refs.map((ref) => {
     const session = deps.db.getSessionBySid(ref.sessionId);
-    const liveInfo = live.get(ref.sessionId);
+    const liveInfo = session ? live.get(sessionIdentityKey(session.agent, session.sid)) : undefined;
     return {
       providerId: PROVIDER_ID,
       sessionId: ref.sessionId,

@@ -51,6 +51,32 @@ describe("resolveFocus", () => {
     expect(calls).toEqual([["terminal", "switch", "--terminal", "term_live", "--json"]]);
   });
 
+  test("switches already-open Codex and Hermes tabs without creating resume terminals", async () => {
+    for (const [agent, sid] of [["codex", SID], ["hermes", HERMES_SID]] as const) {
+      const calls: string[][] = [];
+      let cwdReads = 0;
+      let environmentReads = 0;
+      const direct = deps({
+        live: {
+          pid: null, status: "idle", waitingFor: null, name: `${agent} tab`,
+          handle: `term_${agent}`, tabId: `tab_${agent}`, leafId: `leaf_${agent}`,
+        },
+        opened: () => {},
+        orca: async (args) => {
+          calls.push(args);
+          return { ok: true, result: { focus: { tabId: `focused_${agent}` } } };
+        },
+      });
+      direct.getSessionCwd = () => { cwdReads += 1; return "/must-not-read"; };
+      direct.psEnv = async () => { environmentReads += 1; return ""; };
+      const result = await resolveFocus(agent, sid, direct, { dryRun: false });
+      expect(result).toEqual({ action: "switched", handle: `term_${agent}`, tabId: `focused_${agent}` });
+      expect(calls).toEqual([["terminal", "switch", "--terminal", `term_${agent}`, "--json"]]);
+      expect(cwdReads).toBe(0);
+      expect(environmentReads).toBe(0);
+    }
+  });
+
   test("reports an online process without an Orca handle as manual", async () => {
     const result = await resolveFocus("claude", SID, deps({
       live: { pid: 42, status: "idle", waitingFor: null, name: null },
