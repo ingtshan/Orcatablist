@@ -48,9 +48,9 @@
     .archive-scope { padding: 4px 7px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 11px; }
     .archive-scope:hover, .archive-scope[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
     #project-list { display: grid; gap: 4px; }
-    .project-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; border-radius: 9px; }
+    .project-item { position: relative; border-radius: 9px; }
     .project-item:hover { background: var(--hover); }
-    .project-button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; min-width: 0; padding: 10px 6px 10px 10px; border: 0; border-radius: 9px; background: transparent; text-align: left; }
+    .project-button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; min-width: 0; padding: 10px 38px 10px 10px; border: 0; border-radius: 9px; background: transparent; text-align: left; }
     .project-button.active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
     .project-button .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .project-control { min-width: 0; padding: 5px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; }
@@ -69,10 +69,10 @@
     .worktree-path { min-width: 0; flex: 1 1 160px; overflow: hidden; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .worktree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
     .worktree-focus { flex: 0 0 auto; min-width: 0; padding: 5px 9px; background: transparent; font-size: 12px; }
-    .worktree-archive { flex: 0 0 auto; min-width: 0; padding: 5px 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: 11px; }
+    .worktree-archive { min-width: 0; padding: 6px 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: 11px; text-align: left; }
     .worktree-archive:hover { border-color: var(--waiting); color: var(--waiting); }
     .worktree-archive.restore { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
-    .session-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .session-list { overflow: visible; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
     .session-row { display: grid; grid-template-columns: 12px minmax(180px, 1fr) minmax(90px, auto) auto auto; gap: 12px; align-items: center; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
     .session-row:last-child { border-bottom: 0; }
     .session-row:hover, .session-row.keyboard-active { background: var(--hover); }
@@ -106,15 +106,27 @@
     .focus-jump:hover { border-color: var(--accent); color: var(--surface); filter: brightness(.95); }
     .focus-resume { border-color: var(--resume); background: var(--resume-soft); color: var(--resume); }
     .focus-resume:hover { border-color: var(--resume); color: var(--resume); filter: brightness(.96); }
+    .floating-menu { position: relative; min-width: 0; flex: 0 0 auto; }
+    .floating-menu-toggle { cursor: pointer; list-style: none; user-select: none; }
+    .floating-menu-toggle::-webkit-details-marker { display: none; }
+    .floating-menu:not([open]) > .floating-menu-panel { display: none; }
+    .floating-menu[open] { z-index: 40; }
+    .floating-menu[open] > .floating-menu-toggle { border-color: var(--accent); color: var(--accent); }
+    .floating-menu-panel { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: grid; width: max-content; min-width: 132px; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px #17222A2E; }
+    .floating-menu-action { width: 100%; min-width: 0; text-align: left; }
+    .menu-open { position: relative; z-index: 35; }
+    .project-item-menu { position: absolute; z-index: 2; top: 50%; right: 5px; opacity: 0; transform: translateY(-50%); transition: opacity .12s ease; pointer-events: none; }
+    .project-item:hover .project-item-menu, .project-item:focus-within .project-item-menu, .project-item-menu[open] { opacity: 1; pointer-events: auto; }
+    .project-menu-toggle { display: grid; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; place-items: center; background: var(--surface); color: var(--muted); font-size: 16px; line-height: 1; }
+    .project-item-menu .floating-menu-panel { top: calc(100% + 5px); }
+    .compact-menu-toggle { display: flex; min-width: 54px; align-items: center; justify-content: center; gap: 4px; padding: 5px 8px; color: var(--muted); font-size: 12px; }
+    .compact-menu-toggle::after { content: "⌄"; font-size: 11px; transition: transform .12s ease; }
+    .floating-menu[open] > .compact-menu-toggle::after { transform: rotate(180deg); }
     .action-drawer { min-width: 0; }
     .drawer-toggle { display: flex; min-width: 54px; align-items: center; justify-content: center; gap: 4px; padding: 5px 8px; color: var(--muted); font-size: 12px; list-style: none; }
-    .drawer-toggle::-webkit-details-marker { display: none; }
     .drawer-toggle::after { content: "⌄"; font-size: 11px; transition: transform .12s ease; }
-    .action-drawer[open] .drawer-toggle { border-color: var(--accent); color: var(--accent); }
     .action-drawer[open] .drawer-toggle::after { transform: rotate(180deg); }
-    .action-drawer:not([open]) > .action-drawer-panel { display: none; }
-    .action-drawer-panel { display: grid; gap: 5px; margin-top: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); box-shadow: 0 5px 16px var(--shadow); }
-    .drawer-action { width: 100%; min-width: 92px; padding: 5px 7px; background: var(--surface); font-size: 11px; }
+    .drawer-action { min-width: 112px; padding: 6px 8px; border-color: transparent; background: transparent; font-size: 11px; }
     .goal-picker { width: 112px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
     .manual { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--muted); font-size: 12px; }
     .manual code { overflow: hidden; font: 12px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
@@ -135,7 +147,7 @@
     .project-list-head { display: flex; align-items: baseline; gap: 9px; margin: 0 2px 10px; }
     .project-list-head h2 { margin: 0; font-size: 16px; }
     .project-list-head span { color: var(--muted); font-size: 12px; }
-    .project-management-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .project-management-list { overflow: visible; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
     .managed-project { display: grid; grid-template-columns: minmax(250px, 1.7fr) minmax(110px, .55fr) minmax(120px, .65fr) auto; gap: 16px; align-items: center; min-height: 82px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
     .managed-project:last-child { border-bottom: 0; }
     .managed-project:hover { background: var(--hover); }
@@ -170,7 +182,7 @@
     .goal-section { margin: 0 0 28px; }
     .goal-section-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; }
     .goal-section-head span { color: var(--muted); font-size: 12px; }
-    .goal-session-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .goal-session-list { overflow: visible; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
     dialog { width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 18px 60px #0006; }
     dialog::backdrop { background: #0007; }
     .dialog-form { display: grid; gap: 15px; padding: 22px; }
@@ -218,6 +230,9 @@
       .chips { max-width: 100%; }
       .chip { max-width: 115px; }
       .action { min-width: 54px; padding-inline: 7px; font-size: 12px; }
+    }
+    @media (hover: none) {
+      .project-item-menu { opacity: 1; pointer-events: auto; }
     }
   </style>
 </head>
@@ -454,6 +469,34 @@
         return element;
       }
 
+      function closeFloatingMenus(except = null) {
+        let closed = false;
+        document.querySelectorAll(".floating-menu[open]").forEach((menu) => {
+          if (menu === except) return;
+          menu.removeAttribute("open");
+          closed = true;
+        });
+        return closed;
+      }
+
+      function floatingMenu(ariaLabel, className, toggleClass, label = "更多") {
+        const menu = make("details", `floating-menu ${className}`.trim());
+        const toggle = make("summary", `floating-menu-toggle ${toggleClass}`.trim(), label);
+        const panel = make("div", "floating-menu-panel");
+        toggle.setAttribute("aria-label", ariaLabel);
+        toggle.title = ariaLabel;
+        menu.append(toggle, panel);
+        menu.addEventListener("toggle", () => {
+          const host = menu.closest(".session-row, .project-item, .managed-project, .worktree-header");
+          host?.classList.toggle("menu-open", menu.open);
+          if (menu.open) closeFloatingMenus(menu);
+        });
+        panel.addEventListener("click", (event) => {
+          if (event.target instanceof Element && event.target.closest("button")) menu.open = false;
+        });
+        return { menu, panel };
+      }
+
       function appendHighlighted(parent, snippet) {
         let remaining = snippet;
         while (remaining) {
@@ -605,16 +648,16 @@
         );
         focusButton.type = "button";
         focusButton.addEventListener("click", () => focusSession(row, focusButton, element));
-        const drawer = make("details", "action-drawer");
-        const drawerToggle = make("summary", "action drawer-toggle", "更多");
-        const drawerPanel = make("div", "action-drawer-panel");
-        const copyButton = make("button", "action drawer-action copy-action", "复制链接");
+        const { menu: drawer, panel: drawerPanel } = floatingMenu(
+          `更多会话操作：${row.displayTitle}`, "action-drawer", "action drawer-toggle",
+        );
+        const copyButton = make("button", "action floating-menu-action drawer-action copy-action", "复制链接");
         copyButton.type = "button";
         copyButton.addEventListener("click", async () => {
           await copyText(`orcatab://${row.agent}/${row.sid}`, "已复制链接");
           drawer.open = false;
         });
-        const commandButton = make("button", "action drawer-action command-action", "复制命令");
+        const commandButton = make("button", "action floating-menu-action drawer-action command-action", "复制命令");
         commandButton.type = "button";
         commandButton.addEventListener("click", async () => {
           const command = row.agent === "codex" ? `codex resume ${row.sid}`
@@ -623,13 +666,6 @@
           drawer.open = false;
         });
         drawerPanel.append(copyButton, commandButton);
-        drawer.append(drawerToggle, drawerPanel);
-        drawer.addEventListener("toggle", () => {
-          if (!drawer.open) return;
-          document.querySelectorAll(".action-drawer[open]").forEach((candidate) => {
-            if (candidate !== drawer) candidate.removeAttribute("open");
-          });
-        });
         actions.append(focusButton, drawer);
         if (options.goalPicker) {
           const picker = make("select", "goal-picker");
@@ -710,7 +746,7 @@
             );
             if (!project.archived && worktree.root) {
               const archive = make(
-                "button", `action worktree-archive${worktreeArchived ? " restore" : ""}`,
+                "button", `action floating-menu-action worktree-archive${worktreeArchived ? " restore" : ""}`,
                 worktreeArchived ? "恢复" : "归档",
               );
               archive.type = "button";
@@ -718,7 +754,11 @@
               archive.addEventListener("click", () => updateWorktreePreference(
                 project, worktree.root, !worktreeArchived, archive,
               ));
-              worktreeHeader.append(archive);
+              const { menu, panel } = floatingMenu(
+                `更多 worktree 操作：${worktreeName}`, "worktree-menu", "action compact-menu-toggle",
+              );
+              panel.append(archive);
+              worktreeHeader.append(menu);
             }
             const list = make("div", "session-list");
             worktreeRows.forEach((row) => list.append(sessionRow(row, project, isSearch, { goalPicker: true })));
@@ -751,15 +791,18 @@
           button.type = "button";
           button.append(make("span", "name", project.name), make("span", "count", String(project.sessionCount)));
           button.addEventListener("click", () => selectProject(state.selectedProject === project.key ? "" : project.key));
-          item.append(button);
+          const { menu, panel } = floatingMenu(
+            `项目操作：${project.name}`, "project-item-menu", "project-menu-toggle", "⋯",
+          );
           if (!project.archived) {
-            item.append(projectPreferenceButton(
-              project, project.pinned ? "取消置顶" : "置顶", { pinned: !project.pinned }, `project-control${project.pinned ? " active" : ""}`,
+            panel.append(projectPreferenceButton(
+              project, project.pinned ? "取消置顶" : "置顶", { pinned: !project.pinned }, `project-control floating-menu-action${project.pinned ? " active" : ""}`,
             ));
           }
-          item.append(projectPreferenceButton(
-            project, project.archived ? "恢复" : "归档", { archived: !project.archived }, "project-control",
+          panel.append(projectPreferenceButton(
+            project, project.archived ? "恢复" : "归档", { archived: !project.archived }, "project-control floating-menu-action",
           ));
+          item.append(button, menu);
           projectList.append(item);
           mobileProject.append(new Option(`${project.name} (${project.sessionCount})`, project.key));
         });
@@ -826,15 +869,18 @@
           const focus = make("button", "action", "回到 Orca");
           focus.type = "button";
           focus.addEventListener("click", () => focusProject(project, focus));
-          actions.append(sessions, focus);
+          const { menu, panel } = floatingMenu(
+            `更多项目操作：${project.name}`, "managed-project-menu", "action compact-menu-toggle",
+          );
           if (!project.archived) {
-            actions.append(projectPreferenceButton(
-              project, project.pinned ? "取消置顶" : "置顶", { pinned: !project.pinned }, "action",
+            panel.append(projectPreferenceButton(
+              project, project.pinned ? "取消置顶" : "置顶", { pinned: !project.pinned }, "action floating-menu-action",
             ));
           }
-          actions.append(projectPreferenceButton(
-            project, project.archived ? "恢复" : "归档", { archived: !project.archived }, "action",
+          panel.append(projectPreferenceButton(
+            project, project.archived ? "恢复" : "归档", { archived: !project.archived }, "action floating-menu-action",
           ));
+          actions.append(sessions, focus, menu);
           row.append(
             main,
             managedProjectMetric(String(project.sessionCount), "会话"),
@@ -1292,7 +1338,11 @@
         .catch((error) => showToast(error.message)));
       allMode.addEventListener("click", () => setLiveOnly(false));
       liveMode.addEventListener("click", () => setLiveOnly(true));
+      document.addEventListener("click", (event) => {
+        if (event.target instanceof Element && !event.target.closest(".floating-menu")) closeFloatingMenus();
+      });
       document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && closeFloatingMenus()) { event.preventDefault(); return; }
         const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
         if (event.key === "/" && !typing && state.view === "sessions") { event.preventDefault(); searchInput.focus(); return; }
         if (event.key === "/" && !typing && state.view === "projects") { event.preventDefault(); projectSearchInput.focus(); return; }

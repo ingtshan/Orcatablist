@@ -307,8 +307,10 @@ describe("HTTP server", () => {
     expect(html).toContain("agent-hermes");
     expect(html).toContain('row.live ? "跳转" : "恢复"');
     expect(html).toContain('action focus-action ${row.live ? "focus-jump" : "focus-resume"}');
-    expect(html).toContain('make("details", "action-drawer")');
-    expect(html).toContain('make("summary", "action drawer-toggle", "更多")');
+    expect(html).toContain('make("details", `floating-menu ${className}`.trim())');
+    expect(html).toContain('.floating-menu-panel { position: absolute;');
+    expect(html).toContain('"action-drawer", "action drawer-toggle"');
+    expect(html).toContain('event.key === "Escape" && closeFloatingMenus()');
     expect(html).toContain("drawerPanel.append(copyButton, commandButton)");
     expect(html).toContain("回到 Orca");
     expect(html).toContain("/api/projects/focus");
@@ -325,7 +327,9 @@ describe("HTTP server", () => {
     expect(html).toContain("row.worktreeRoot || row.cwd");
     expect(html).toContain("主 worktree");
     expect(html).toContain('conditionalApi("/api/worktrees", state.worktreeEtag)');
-    expect(html).toContain('"button", `action worktree-archive${worktreeArchived ? " restore" : ""}`');
+    expect(html).toContain('"button", `action floating-menu-action worktree-archive${worktreeArchived ? " restore" : ""}`');
+    expect(html).toContain('"project-item-menu", "project-menu-toggle", "⋯"');
+    expect(html).toContain('"managed-project-menu", "action compact-menu-toggle"');
     expect(html).toContain("updateWorktreePreference(");
     expect(html).toContain("focusWorktreeSession(firstSession, worktreeName, focus)");
     expect(html).toContain("focus.dataset.sid = firstSession.sid");
