@@ -83,6 +83,7 @@ function sessionRow(row: Record<string, unknown>): SessionRow {
     lastInputAt: typeof row.last_input_at === "number" ? row.last_input_at : null,
     promptCount: Number(row.prompt_count),
     live: null,
+    goals: [],
   };
 }
 

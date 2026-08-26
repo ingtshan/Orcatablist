@@ -1,0 +1,85 @@
+import { describe, expect, test } from "bun:test";
+import { sessionIdentityKey } from "../src/goals";
+import { suggestSessions, tokens } from "../src/suggest";
+import type { Goal, SessionRow } from "../src/types";
+
+const goal: Goal = {
+  id: "goal", name: "Agent migration", status: "active", externalRef: null,
+  color: null, createdAt: 1, updatedAt: 1,
+};
+
+function session(id: string, overrides: Partial<SessionRow> = {}): SessionRow {
+  return {
+    agent: "claude", sid: id, projectKey: "/workspace/orcatab", cwd: "/workspace/orcatab",
+    branch: "main", title: null, firstPrompt: "Agent migration plan", lastPrompt: null,
+    displayTitle: "Agent migration", lastInputAt: 1, promptCount: 1, live: null, goals: [],
+    ...overrides,
+  };
+}
+
+describe("suggestSessions", () => {
+  test("scores and labels branch, project, and title evidence", () => {
+    const confirmed = session("confirmed", { displayTitle: "Agent migration baseline" });
+    const candidate = session("candidate", { lastInputAt: 10 });
+    const results = suggestSessions(goal, [confirmed], new Set(), [confirmed, candidate]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.score).toBe(7);
+    expect(results[0]?.reasons).toEqual([
+      { code: "branch", label: "同分支 main" },
+      { code: "project", label: "同项目 orcatab" },
+      { code: "title", label: "标题含 “agent”" },
+    ]);
+  });
+
+  test("excludes both confirmed and dismissed identities", () => {
+    const confirmed = session("confirmed");
+    const dismissed = session("dismissed", { branch: "feature/other" });
+    const eligible = session("eligible", { branch: "main" });
+    const excluded = new Set([sessionIdentityKey(dismissed.agent, dismissed.sid)]);
+    expect(suggestSessions(goal, [confirmed], excluded, [confirmed, dismissed, eligible]).map((row) => row.sid))
+      .toEqual(["eligible"]);
+  });
+
+  test("uses goal name as project, branch, and title seed for a new goal", () => {
+    const newGoal = { ...goal, name: "OrcaTab multi agent" };
+    const candidate = session("seeded", {
+      projectKey: "/workspace/orcatab", branch: "feature/agent-links",
+      displayTitle: "OrcaTab agent evidence", firstPrompt: null,
+    });
+    const result = suggestSessions(newGoal, [], new Set(), [candidate])[0]!;
+    expect(result.score).toBe(7);
+    expect(result.reasons.map((reason) => reason.code)).toEqual(["project", "branch", "title"]);
+    expect(result.reasons.map((reason) => reason.label)).toEqual([
+      "项目含 “orcatab”", "分支含 “agent”", "标题含 “orcatab”",
+    ]);
+  });
+
+  test("finds CJK adjacent bigram intersections", () => {
+    const chineseGoal = { ...goal, name: "课堂目标" };
+    const result = suggestSessions(chineseGoal, [], new Set(), [
+      session("cjk", { projectKey: "/workspace/other", branch: "HEAD", displayTitle: "课堂目标复盘", firstPrompt: null }),
+    ])[0]!;
+    expect(result.score).toBe(3);
+    expect(result.reasons).toEqual([{ code: "title", label: "标题含 “课堂”" }]);
+  });
+
+  test("applies threshold, timestamp ordering, and top-N", () => {
+    const simpleGoal = { ...goal, name: "alpha beta" };
+    const below = session("below", {
+      projectKey: "/workspace/none", branch: null, displayTitle: "alpha only", firstPrompt: null, lastInputAt: 99,
+    });
+    const older = session("older", {
+      projectKey: "/workspace/alpha", branch: null, displayTitle: "none", firstPrompt: null, lastInputAt: 1,
+    });
+    const newer = session("newer", {
+      projectKey: "/workspace/beta", branch: null, displayTitle: "none", firstPrompt: null, lastInputAt: 2,
+    });
+    expect(suggestSessions(simpleGoal, [], new Set(), [below, older, newer], 1).map((row) => row.sid)).toEqual(["newer"]);
+    expect(suggestSessions(simpleGoal, [], new Set(), [below])).toEqual([]);
+    expect(suggestSessions(simpleGoal, [], new Set(), [older], 0)).toEqual([]);
+  });
+
+  test("tokenizes long Latin words and adjacent CJK while dropping short and numeric terms", () => {
+    expect([...tokens("AI Agent agent 123 课堂树!")]).toEqual(["agent", "课堂", "堂树"]);
+  });
+});

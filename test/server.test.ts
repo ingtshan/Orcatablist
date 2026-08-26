@@ -80,7 +80,7 @@ describe("HTTP server", () => {
     const response = await fetch(`${baseUrl}/healthz`);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toMatchObject({
-      ok: true, sessions: 3, agents: ["claude", "codex", "hermes"], version: "p6", dataVersion: 1, watch: "timer",
+      ok: true, sessions: 3, goals: 0, agents: ["claude", "codex", "hermes"], version: "p7", dataVersion: 1, watch: "timer",
     });
   });
 
@@ -91,7 +91,7 @@ describe("HTTP server", () => {
     const sessions = await (await fetch(`${baseUrl}/api/sessions?limit=99999`)).json();
     expect(sessions).toHaveLength(3);
     expect(sessions.find((row: { agent: string }) => row.agent === "claude"))
-      .toMatchObject({ agent: "claude", sid: SID, displayTitle: "课堂树会话", live: null });
+      .toMatchObject({ agent: "claude", sid: SID, displayTitle: "课堂树会话", live: null, goals: [] });
     expect(sessions.find((row: { agent: string }) => row.agent === "codex"))
       .toMatchObject({ agent: "codex", sid: CODEX_SID, displayTitle: "Codex 测试会话", live: null });
     expect(sessions.find((row: { agent: string }) => row.agent === "hermes"))
@@ -117,7 +117,7 @@ describe("HTTP server", () => {
 
     const first = await fetch(`${baseUrl}/api/sessions`);
     const etag = first.headers.get("ETag");
-    expect(etag).toMatch(/^"\d+-\d+"$/);
+    expect(etag).toMatch(/^"\d+-\d+-\d+"$/);
     await first.json();
     const unchanged = await fetch(`${baseUrl}/api/sessions`, { headers: { "If-None-Match": etag! } });
     expect(unchanged.status).toBe(304);
@@ -143,6 +143,101 @@ describe("HTTP server", () => {
     expect(html).toContain("codex resume ${row.sid}");
     expect(html).toContain("hermes --resume ${row.sid}");
     expect(html).toContain("agent-hermes");
+    expect(html).toContain("新建目标");
+    expect(html).toContain("证据");
+  });
+
+  test("serves goal CRUD, links, suggestions, goal refs, validation, and versioned ETags", async () => {
+    const initialSessions = await fetch(`${baseUrl}/api/sessions`);
+    const initialEtag = initialSessions.headers.get("ETag");
+    await initialSessions.json();
+
+    const invalidCreate = await fetch(`${baseUrl}/api/goals`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "  " }),
+    });
+    expect(invalidCreate.status).toBe(400);
+    expect(await invalidCreate.json()).toEqual({ error: "name is required" });
+
+    const create = await fetch(`${baseUrl}/api/goals`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "课堂树目标", externalRef: "gtd:5", color: "#123456" }),
+    });
+    expect(create.status).toBe(201);
+    const goal = await create.json();
+    expect(goal).toMatchObject({ name: "课堂树目标", status: "active", externalRef: "gtd:5", color: "#123456" });
+
+    const afterCreate = await fetch(`${baseUrl}/api/sessions`, { headers: { "If-None-Match": initialEtag! } });
+    expect(afterCreate.status).toBe(200);
+    expect(afterCreate.headers.get("ETag")).not.toBe(initialEtag);
+    await afterCreate.json();
+    expect(await (await fetch(`${baseUrl}/healthz`)).json()).toMatchObject({ goals: 1, version: "p7" });
+
+    let goals = await (await fetch(`${baseUrl}/api/goals`)).json();
+    expect(goals).toHaveLength(1);
+    expect(goals[0]).toMatchObject({ id: goal.id, sessionCount: 0, lastActivityAt: null });
+    let detail = await (await fetch(`${baseUrl}/api/goals/${goal.id}`)).json();
+    expect(detail.goal.id).toBe(goal.id);
+    expect(detail.sessions).toEqual([]);
+    expect(detail.suggestions.some((row: { sid: string }) => row.sid === SID)).toBeTrue();
+
+    const patch = await fetch(`${baseUrl}/api/goals/${goal.id}`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "课堂树完成", status: "done", externalRef: null }),
+    });
+    expect(await patch.json()).toMatchObject({ name: "课堂树完成", status: "done", externalRef: null });
+    const badStatus = await fetch(`${baseUrl}/api/goals/${goal.id}`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "blocked" }),
+    });
+    expect(badStatus.status).toBe(400);
+
+    for (const badBody of [
+      { agent: "other", sid: SID, kind: "confirmed" },
+      { agent: "claude", sid: SID, kind: "maybe" },
+      { agent: "claude", sid: "bad/id", kind: "confirmed" },
+    ]) {
+      const response = await fetch(`${baseUrl}/api/goals/${goal.id}/links`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(badBody),
+      });
+      expect(response.status).toBe(400);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+    }
+
+    const setLink = async (kind: "confirmed" | "dismissed") => {
+      const response = await fetch(`${baseUrl}/api/goals/${goal.id}/links`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent: "claude", sid: SID, kind }),
+      });
+      expect(await response.json()).toEqual({ ok: true });
+    };
+    await setLink("confirmed");
+    let sessions = await (await fetch(`${baseUrl}/api/sessions?limit=3000`)).json();
+    expect(sessions.find((row: { sid: string }) => row.sid === SID).goals).toEqual([{ id: goal.id, name: "课堂树完成" }]);
+    const search = await (await fetch(`${baseUrl}/api/search?q=${encodeURIComponent("课堂树")}`)).json();
+    expect(search[0].goals).toEqual([{ id: goal.id, name: "课堂树完成" }]);
+    detail = await (await fetch(`${baseUrl}/api/goals/${goal.id}`)).json();
+    expect(detail.sessions.map((row: { sid: string }) => row.sid)).toEqual([SID]);
+    expect(detail.suggestions.some((row: { sid: string }) => row.sid === SID)).toBeFalse();
+    goals = await (await fetch(`${baseUrl}/api/goals`)).json();
+    expect(goals[0].sessionCount).toBe(1);
+    expect(goals[0].lastActivityAt).toBe(Date.parse("2026-08-25T09:00:00.000Z"));
+
+    await setLink("dismissed");
+    detail = await (await fetch(`${baseUrl}/api/goals/${goal.id}`)).json();
+    expect(detail.sessions).toEqual([]);
+    expect(detail.suggestions.some((row: { sid: string }) => row.sid === SID)).toBeFalse();
+    await setLink("confirmed");
+
+    const unlink = await fetch(`${baseUrl}/api/goals/${goal.id}/links/claude/${SID}`, { method: "DELETE" });
+    expect(await unlink.json()).toEqual({ ok: true });
+    sessions = await (await fetch(`${baseUrl}/api/sessions`)).json();
+    expect(sessions.find((row: { sid: string }) => row.sid === SID).goals).toEqual([]);
+    await setLink("confirmed");
+
+    const remove = await fetch(`${baseUrl}/api/goals/${goal.id}`, { method: "DELETE" });
+    expect(await remove.json()).toEqual({ ok: true });
+    expect(await (await fetch(`${baseUrl}/api/goals`)).json()).toEqual([]);
+    expect((await fetch(`${baseUrl}/api/goals/${goal.id}`)).status).toBe(404);
+    expect((await fetch(`${baseUrl}/api/goals/missing`, { method: "DELETE" })).status).toBe(404);
   });
 
   test("validates focus URIs and returns JSON 404 errors", async () => {

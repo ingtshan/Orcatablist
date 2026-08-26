@@ -29,6 +29,7 @@
     .topbar { position: sticky; z-index: 10; top: 0; display: flex; align-items: center; gap: 16px; min-height: 68px; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--line); box-shadow: 0 3px 14px var(--shadow); }
     .brand { display: flex; align-items: center; gap: 9px; min-width: 145px; font-weight: 750; letter-spacing: -.02em; }
     .brand-mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--accent); color: var(--surface); }
+    [hidden] { display: none !important; }
     .search-wrap { position: relative; flex: 1; max-width: 780px; }
     .search-wrap::before { position: absolute; top: 50%; left: 14px; color: var(--muted); content: "⌕"; font-size: 20px; transform: translateY(-52%); }
     #search { width: 100%; height: 42px; padding: 0 16px 0 42px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
@@ -55,7 +56,7 @@
     .group-title { margin: 0; font-size: 16px; }
     .group-meta { color: var(--muted); font-size: 13px; }
     .session-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
-    .session-row { display: grid; grid-template-columns: 12px minmax(180px, 1fr) auto auto; gap: 12px; align-items: center; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    .session-row { display: grid; grid-template-columns: 12px minmax(180px, 1fr) minmax(90px, auto) auto auto; gap: 12px; align-items: center; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
     .session-row:last-child { border-bottom: 0; }
     .session-row:hover, .session-row.keyboard-active { background: var(--hover); }
     .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--offline); box-shadow: 0 0 0 3px var(--bg); }
@@ -74,14 +75,45 @@
     .hit strong { color: var(--accent); font-weight: 750; }
     .chips { display: flex; max-width: 360px; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
     .chip { max-width: 160px; overflow: hidden; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    button.goal-chip { background: var(--accent-soft); color: var(--accent); font-family: inherit; }
+    button.goal-chip:hover { border-color: var(--accent); }
+    .reason-chip { background: var(--bg); color: var(--accent); font-family: inherit; }
     .facts { display: grid; min-width: 92px; justify-items: end; gap: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-    .actions { display: flex; gap: 7px; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
     .action { min-width: 62px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); white-space: nowrap; }
     .action:hover { border-color: var(--accent); color: var(--accent); }
     .action.primary { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+    .action.danger { border-color: transparent; background: var(--danger-soft); color: var(--waiting); }
+    .goal-picker { width: 112px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
     .manual { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--muted); font-size: 12px; }
     .manual code { overflow: hidden; font: 12px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .empty { padding: 70px 20px; border: 1px dashed var(--line); border-radius: 13px; color: var(--muted); text-align: center; }
+    .goals-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); width: min(1420px, 100%); min-height: calc(100vh - 68px); margin: 0 auto; }
+    .goal-sidebar { position: sticky; top: 68px; align-self: start; height: calc(100vh - 68px); padding: 22px 16px; border-right: 1px solid var(--line); }
+    .goal-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 6px 14px; }
+    .goal-sidebar-head h2, .goal-section h3 { margin: 0; }
+    .goal-list { display: grid; gap: 7px; }
+    .goal-card { width: 100%; padding: 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; text-align: left; }
+    .goal-card:hover { background: var(--hover); }
+    .goal-card.selected { border-color: var(--line); background: var(--accent-soft); }
+    .goal-card-name { display: block; overflow: hidden; margin-bottom: 7px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .goal-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: var(--muted); font-size: 11px; }
+    .status-pill { display: inline-flex; padding: 2px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 650; }
+    .status-done { background: #DDF3E5; color: #28764A; }
+    .status-archived { background: var(--bg); color: var(--muted); }
+    .goal-detail { min-width: 0; padding: 24px clamp(16px, 3vw, 44px) 60px; }
+    .goal-editor { display: grid; grid-template-columns: minmax(180px, 1fr) 150px minmax(180px, 1fr) auto auto; gap: 12px; align-items: end; margin-bottom: 30px; padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .field { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
+    .field input, .field select, .dialog-form input { min-width: 0; height: 40px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+    .goal-section { margin: 0 0 28px; }
+    .goal-section-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; }
+    .goal-section-head span { color: var(--muted); font-size: 12px; }
+    .goal-session-list { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    dialog { width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 18px 60px #0006; }
+    dialog::backdrop { background: #0007; }
+    .dialog-form { display: grid; gap: 15px; padding: 22px; }
+    .dialog-form h2 { margin: 0; font-size: 19px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; }
     #toast { position: fixed; right: 24px; bottom: 22px; z-index: 20; padding: 10px 14px; border-radius: 9px; background: var(--text); color: var(--surface); box-shadow: 0 5px 20px var(--shadow); opacity: 0; transform: translateY(8px); transition: .16s ease; pointer-events: none; }
     #toast.visible { opacity: 1; transform: translateY(0); }
     @media (max-width: 899px) {
@@ -90,7 +122,13 @@
       .search-wrap { order: 3; min-width: 100%; }
       .top-actions { margin-left: auto; }
       .layout { display: block; }
+      .goals-layout { display: block; }
       .sidebar { display: none; }
+      .goal-sidebar { position: static; width: auto; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .goal-list { display: flex; overflow-x: auto; padding-bottom: 4px; }
+      .goal-card { min-width: 210px; }
+      .goal-detail { padding-top: 18px; }
+      .goal-editor { grid-template-columns: 1fr 1fr; }
       main { padding-top: 18px; }
       .mobile-project { display: block; }
       .session-row { grid-template-columns: 12px minmax(0, 1fr) auto; }
@@ -101,6 +139,8 @@
     }
     @media (max-width: 560px) {
       .brand span:last-child { display: none; }
+      .view-switch button { padding-inline: 9px; }
+      .goal-editor { grid-template-columns: 1fr; }
       .session-row { gap: 9px; padding: 12px 10px; }
       .chips { max-width: 100%; }
       .chip { max-width: 115px; }
@@ -112,22 +152,44 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">O</span><span>OrcaTab</span></div>
-    <div class="search-wrap"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
+    <div class="mode-switch view-switch" aria-label="主视图">
+      <button id="sessions-view-button" type="button" aria-pressed="true">会话</button>
+      <button id="goals-view-button" type="button" aria-pressed="false">目标</button>
+    </div>
+    <div class="search-wrap session-only"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
     <div class="top-actions">
       <span id="index-status">索引更新时间未知</span>
-      <div class="mode-switch" aria-label="会话范围">
+      <div class="mode-switch session-only" aria-label="会话范围">
         <button id="all-mode" type="button" aria-pressed="true">全部</button>
         <button id="live-mode" type="button" aria-pressed="false">在线</button>
       </div>
     </div>
   </header>
-  <div class="layout">
+  <div id="sessions-view" class="layout">
     <aside class="sidebar"><h2>项目</h2><nav id="project-list" aria-label="项目筛选"></nav></aside>
     <main>
       <select id="mobile-project" class="mobile-project" aria-label="项目筛选"><option value="">全部项目</option></select>
       <div id="content" aria-live="polite"></div>
     </main>
   </div>
+  <div id="goals-view" class="goals-layout" hidden>
+    <aside class="goal-sidebar">
+      <div class="goal-sidebar-head"><h2>目标</h2><button id="new-goal" class="action primary" type="button">＋ 新建目标</button></div>
+      <nav id="goal-list" class="goal-list" aria-label="目标列表"></nav>
+    </aside>
+    <main id="goal-detail" class="goal-detail" aria-live="polite"></main>
+  </div>
+  <dialog id="goal-dialog">
+    <form id="goal-dialog-form" class="dialog-form">
+      <h2>新建目标</h2>
+      <label class="field">名称<input id="new-goal-name" name="name" required maxlength="160" autofocus></label>
+      <label class="field">外部引用<input id="new-goal-ref" name="externalRef" placeholder="可选：gtd:5 或备注"></label>
+      <div class="dialog-actions">
+        <button id="cancel-goal" class="action" type="button">取消</button>
+        <button class="action primary" type="submit">创建</button>
+      </div>
+    </form>
+  </dialog>
   <div id="toast" role="status"></div>
   <script>
     (() => {
@@ -136,15 +198,28 @@
       const RESULT_RESET_MS = 2000;
       const state = {
         projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0,
-        activeRow: -1, projectEtag: "", sessionEtag: "",
+        activeRow: -1, projectEtag: "", sessionEtag: "", view: "sessions",
+        goals: [], selectedGoalId: "", goalDetail: null, linkAfterCreate: null,
       };
       const searchInput = document.querySelector("#search");
       const content = document.querySelector("#content");
+      const sessionsView = document.querySelector("#sessions-view");
+      const goalsView = document.querySelector("#goals-view");
+      const sessionsViewButton = document.querySelector("#sessions-view-button");
+      const goalsViewButton = document.querySelector("#goals-view-button");
       const projectList = document.querySelector("#project-list");
       const mobileProject = document.querySelector("#mobile-project");
       const allMode = document.querySelector("#all-mode");
       const liveMode = document.querySelector("#live-mode");
       const indexStatus = document.querySelector("#index-status");
+      const goalList = document.querySelector("#goal-list");
+      const goalDetail = document.querySelector("#goal-detail");
+      const newGoalButton = document.querySelector("#new-goal");
+      const goalDialog = document.querySelector("#goal-dialog");
+      const goalDialogForm = document.querySelector("#goal-dialog-form");
+      const newGoalName = document.querySelector("#new-goal-name");
+      const newGoalRef = document.querySelector("#new-goal-ref");
+      const cancelGoal = document.querySelector("#cancel-goal");
       const toast = document.querySelector("#toast");
       let searchTimer = 0;
       let toastTimer = 0;
@@ -251,7 +326,7 @@
         } finally { button.disabled = false; }
       }
 
-      function sessionRow(row, project, isSearch) {
+      function sessionRow(row, project, isSearch, options = {}) {
         const element = make("article", "session-row");
         element.tabIndex = -1;
         element.dataset.sid = row.sid;
@@ -287,6 +362,14 @@
         const chips = make("div", "chips");
         if (row.cwd && row.cwd !== project.root) chips.append(make("span", "chip", basename(row.cwd)));
         if (row.branch && row.branch !== "HEAD") chips.append(make("span", "chip", row.branch));
+        (row.goals || []).forEach((goal) => {
+          const button = make("button", "chip goal-chip", goal.name);
+          button.type = "button";
+          button.title = "打开目标：" + goal.name;
+          button.addEventListener("click", () => selectGoal(goal.id));
+          chips.append(button);
+        });
+        (options.reasons || []).forEach((reason) => chips.append(make("span", "chip reason-chip", reason.label)));
         element.append(chips);
 
         const facts = make("div", "facts");
@@ -308,6 +391,29 @@
           copyText(command, "已复制命令");
         });
         actions.append(focusButton, copyButton, commandButton);
+        if (options.goalPicker) {
+          const picker = make("select", "goal-picker");
+          picker.setAttribute("aria-label", "添加到目标");
+          picker.append(new Option("＋目标", ""));
+          const linked = new Set((row.goals || []).map((goal) => goal.id));
+          state.goals.filter((goal) => !linked.has(goal.id))
+            .forEach((goal) => picker.append(new Option(goal.name, goal.id)));
+          picker.append(new Option("新建…", "__new__"));
+          picker.addEventListener("change", async () => {
+            const value = picker.value;
+            picker.value = "";
+            if (!value) return;
+            if (value === "__new__") { openGoalDialog(row); return; }
+            await linkSession(value, row, "confirmed", false);
+          });
+          actions.append(picker);
+        }
+        (options.extraActions || []).forEach((item) => {
+          const button = make("button", "action " + (item.className || ""), item.label);
+          button.type = "button";
+          button.addEventListener("click", () => item.run(button));
+          actions.append(button);
+        });
         element.append(actions);
         return element;
       }
@@ -335,7 +441,8 @@
           const latest = rows.reduce((value, row) => Math.max(value, row.lastInputAt || 0), 0) || null;
           header.append(color, make("h2", "group-title", project.name), make("span", "group-meta", `${rows.length} 个会话 · 最近 ${relativeTime(latest)}`));
           const list = make("div", "session-list");
-          rows.sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0)).forEach((row) => list.append(sessionRow(row, project, isSearch)));
+          rows.sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0))
+            .forEach((row) => list.append(sessionRow(row, project, isSearch, { goalPicker: true })));
           section.append(header, list);
           content.append(section);
         });
@@ -355,18 +462,218 @@
         mobileProject.value = state.selectedProject;
       }
 
+      function jsonRequest(method, body) {
+        return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+      }
+
+      function openGoalDialog(row = null) {
+        state.linkAfterCreate = row;
+        goalDialogForm.reset();
+        goalDialog.showModal();
+        newGoalName.focus();
+      }
+
+      async function setView(view, refresh = true) {
+        state.view = view;
+        const sessionsActive = view === "sessions";
+        sessionsView.hidden = !sessionsActive;
+        goalsView.hidden = sessionsActive;
+        document.querySelectorAll(".session-only").forEach((element) => { element.hidden = !sessionsActive; });
+        sessionsViewButton.setAttribute("aria-pressed", String(sessionsActive));
+        goalsViewButton.setAttribute("aria-pressed", String(!sessionsActive));
+        state.activeRow = -1;
+        if (!sessionsActive && refresh) await loadGoals(true);
+      }
+
+      function renderGoalList() {
+        goalList.replaceChildren();
+        if (!state.goals.length) {
+          goalList.append(make("div", "empty", "还没有目标"));
+          return;
+        }
+        state.goals.forEach((goal) => {
+          const button = make("button", "goal-card" + (goal.id === state.selectedGoalId ? " selected" : ""));
+          button.type = "button";
+          button.append(make("span", "goal-card-name", goal.name));
+          const meta = make("span", "goal-card-meta");
+          meta.append(
+            make("span", "status-pill status-" + goal.status, goal.status),
+            make("span", "", String(goal.sessionCount) + " 条证据"),
+            make("span", "", "最近 " + relativeTime(goal.lastActivityAt)),
+          );
+          button.append(meta);
+          button.addEventListener("click", () => selectGoal(goal.id));
+          goalList.append(button);
+        });
+      }
+
+      async function loadGoals(withDetail) {
+        state.goals = await api("/api/goals");
+        if (!state.goals.some((goal) => goal.id === state.selectedGoalId)) {
+          state.selectedGoalId = state.goals[0]?.id || "";
+        }
+        renderGoalList();
+        if (!withDetail) return;
+        if (state.selectedGoalId) await loadGoalDetail();
+        else goalDetail.replaceChildren(make("div", "empty", "新建一个目标，把相关 session 作为证据连接起来。"));
+      }
+
+      async function selectGoal(id) {
+        state.selectedGoalId = id;
+        await setView("goals", false);
+        renderGoalList();
+        await loadGoalDetail();
+      }
+
+      function editorField(label, control) {
+        const field = make("label", "field", label);
+        field.append(control);
+        return field;
+      }
+
+      function section(title, countText) {
+        const wrapper = make("section", "goal-section");
+        const header = make("header", "goal-section-head");
+        header.append(make("h3", "", title), make("span", "", countText));
+        wrapper.append(header);
+        return wrapper;
+      }
+
+      function renderGoalDetail() {
+        const detail = state.goalDetail;
+        goalDetail.replaceChildren();
+        if (!detail) {
+          goalDetail.append(make("div", "empty", "目标不存在或尚未选择"));
+          return;
+        }
+
+        const editor = make("form", "goal-editor");
+        const name = make("input");
+        name.value = detail.goal.name;
+        name.required = true;
+        name.maxLength = 160;
+        const status = make("select");
+        ["active", "done", "archived"].forEach((value) => status.append(new Option(value, value)));
+        status.value = detail.goal.status;
+        const externalRef = make("input");
+        externalRef.value = detail.goal.externalRef || "";
+        externalRef.placeholder = "可选：gtd:5 或备注";
+        const save = make("button", "action primary", "保存");
+        save.type = "submit";
+        const remove = make("button", "action danger", "删除");
+        remove.type = "button";
+        remove.addEventListener("click", async () => {
+          if (!window.confirm("确定删除这个目标及其全部证据连线？")) return;
+          await api("/api/goals/" + encodeURIComponent(detail.goal.id), { method: "DELETE" });
+          state.selectedGoalId = "";
+          state.goalDetail = null;
+          state.sessionEtag = "";
+          await loadGoals(true);
+          showToast("目标已删除");
+        });
+        editor.append(editorField("名称", name), editorField("状态", status), editorField("外部引用", externalRef), save, remove);
+        editor.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          save.disabled = true;
+          try {
+            await api("/api/goals/" + encodeURIComponent(detail.goal.id), jsonRequest("PATCH", {
+              name: name.value, status: status.value, externalRef: externalRef.value || null,
+            }));
+            state.sessionEtag = "";
+            await loadGoals(true);
+            showToast("目标已保存");
+          } catch (error) { showToast("保存失败：" + error.message); }
+          finally { save.disabled = false; }
+        });
+        goalDetail.append(editor);
+
+        const evidence = section("证据 · " + detail.sessions.length + " 条 session", "人工确认");
+        if (!detail.sessions.length) {
+          evidence.append(make("div", "empty", "还没有确认的 session"));
+        } else {
+          const list = make("div", "goal-session-list");
+          detail.sessions.forEach((row) => {
+            const element = sessionRow(row, projectFor(row.projectKey), false, {
+              extraActions: [{
+                label: "移除", className: "danger",
+                run: (button) => removeGoalLink(detail.goal.id, row, button),
+              }],
+            });
+            list.append(element);
+          });
+          evidence.append(list);
+        }
+        goalDetail.append(evidence);
+
+        const suggestions = section("建议", detail.suggestions.length + " 条 · 零 token 启发式");
+        if (!detail.suggestions.length) {
+          suggestions.append(make("div", "empty", "暂无更多建议"));
+        } else {
+          const list = make("div", "goal-session-list");
+          detail.suggestions.forEach((row) => {
+            list.append(sessionRow(row, projectFor(row.projectKey), false, {
+              reasons: row.reasons,
+              extraActions: [
+                { label: "确认", className: "primary", run: (button) => linkSession(detail.goal.id, row, "confirmed", true, button) },
+                { label: "忽略", run: (button) => linkSession(detail.goal.id, row, "dismissed", true, button) },
+              ],
+            }));
+          });
+          suggestions.append(list);
+        }
+        goalDetail.append(suggestions);
+      }
+
+      async function loadGoalDetail() {
+        if (!state.selectedGoalId) return;
+        state.goalDetail = await api("/api/goals/" + encodeURIComponent(state.selectedGoalId));
+        renderGoalDetail();
+      }
+
+      async function linkSession(goalId, row, kind, refreshDetail, button = null) {
+        if (button) button.disabled = true;
+        try {
+          await api("/api/goals/" + encodeURIComponent(goalId) + "/links", jsonRequest("POST", {
+            agent: row.agent, sid: row.sid, kind,
+          }));
+          state.sessionEtag = "";
+          await loadGoals(false);
+          if (refreshDetail || state.view === "goals") await loadGoalDetail();
+          else if (state.query) await runSearch();
+          else await loadList();
+          showToast(kind === "confirmed" ? "已确认为目标证据" : "已忽略该建议");
+        } catch (error) { showToast("更新连线失败：" + error.message); }
+        finally { if (button) button.disabled = false; }
+      }
+
+      async function removeGoalLink(goalId, row, button) {
+        button.disabled = true;
+        try {
+          const path = "/api/goals/" + encodeURIComponent(goalId) + "/links/"
+            + encodeURIComponent(row.agent) + "/" + encodeURIComponent(row.sid);
+          await api(path, { method: "DELETE" });
+          state.sessionEtag = "";
+          await loadGoals(false);
+          await loadGoalDetail();
+          showToast("证据已移除");
+        } catch (error) { showToast("移除失败：" + error.message); }
+        finally { button.disabled = false; }
+      }
+
       async function loadList() {
         const requestId = ++state.requestId;
         const params = new URLSearchParams();
         if (state.selectedProject) params.set("project", state.selectedProject);
         if (state.liveOnly) params.set("live", "1");
-        const [projects, sessions, health] = await Promise.all([
+        const [projects, sessions, health, goals] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
           conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
           api("/healthz"),
+          api("/api/goals"),
         ]);
         if (requestId !== state.requestId || state.query) return;
         indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
+        state.goals = goals;
         let changed = false;
         if (!projects.unchanged) {
           state.projects = projects.body;
@@ -422,6 +729,44 @@
         rows[state.activeRow].scrollIntoView({ block: "nearest" });
       }
 
+      sessionsViewButton.addEventListener("click", async () => {
+        await setView("sessions", false);
+        state.sessionEtag = "";
+        if (state.query) await runSearch();
+        else await loadList();
+      });
+      goalsViewButton.addEventListener("click", () => {
+        setView("goals").catch((error) => showToast("加载目标失败：" + error.message));
+      });
+      newGoalButton.addEventListener("click", () => openGoalDialog());
+      cancelGoal.addEventListener("click", () => goalDialog.close());
+      goalDialog.addEventListener("close", () => { state.linkAfterCreate = null; });
+      goalDialogForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const name = newGoalName.value.trim();
+        if (!name) { newGoalName.focus(); return; }
+        const submit = goalDialogForm.querySelector("[type=submit]");
+        submit.disabled = true;
+        const pending = state.linkAfterCreate;
+        try {
+          const created = await api("/api/goals", jsonRequest("POST", {
+            name, externalRef: newGoalRef.value.trim() || null,
+          }));
+          if (pending) {
+            await api("/api/goals/" + encodeURIComponent(created.id) + "/links", jsonRequest("POST", {
+              agent: pending.agent, sid: pending.sid, kind: "confirmed",
+            }));
+          }
+          state.selectedGoalId = created.id;
+          state.sessionEtag = "";
+          goalDialog.close();
+          await setView("goals", false);
+          await loadGoals(true);
+          showToast(pending ? "目标已创建并连接证据" : "目标已创建");
+        } catch (error) { showToast("创建失败：" + error.message); }
+        finally { submit.disabled = false; }
+      });
+
       searchInput.addEventListener("input", () => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
@@ -431,7 +776,7 @@
       liveMode.addEventListener("click", () => setLiveOnly(true));
       document.addEventListener("keydown", (event) => {
         const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
-        if (event.key === "/" && !typing) { event.preventDefault(); searchInput.focus(); return; }
+        if (event.key === "/" && !typing && state.view === "sessions") { event.preventDefault(); searchInput.focus(); return; }
         if (typing) return;
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); moveRow(event.key === "ArrowDown" ? 1 : -1); return; }
         const row = document.querySelectorAll(".session-row")[state.activeRow];
@@ -441,7 +786,9 @@
       });
 
       loadList().catch((error) => showToast(`加载失败：${error.message}`));
-      setInterval(() => { if (!state.query) loadList().catch((error) => showToast(error.message)); }, POLL_MS);
+      setInterval(() => {
+        if (state.view === "sessions" && !state.query) loadList().catch((error) => showToast(error.message));
+      }, POLL_MS);
     })();
   </script>
 </body>

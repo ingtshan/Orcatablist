@@ -5,27 +5,34 @@ import {
   ORCATAB_HERMES_DB, ORCATAB_HOST, ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
 } from "./config";
 import { OrcaDatabase } from "./db";
-import { createFocusDeps, OrcaError, resolveFocus, ValidationError, type FocusDeps } from "./focus";
+import { createFocusDeps, resolveFocus, SID_PATTERN, ValidationError, type FocusDeps } from "./focus";
+import { GoalsStore, openGoalsDatabase, sessionIdentityKey, type GoalLinkKind } from "./goals";
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
-import type { Agent, FocusResult, LiveInfo, SearchResult, SessionRow } from "./types";
+import { suggestSessions } from "./suggest";
+import type { Agent, FocusResult, GoalStatus, LiveInfo, SearchResult, SessionRow } from "./types";
 
 const DEFAULT_SESSIONS_LIMIT = 500;
-const MAX_SESSIONS_LIMIT = 2_000;
+const MAX_SESSIONS_LIMIT = 5_000;
+const SUGGESTION_POOL_LIMIT = 5_000;
 const DEFAULT_SEARCH_LIMIT = 50;
 const MAX_SEARCH_LIMIT = 200;
-const URI_PATTERN = /^orcatab:\/\/(claude|codex|hermes)\/([A-Za-z0-9_-]{1,128})$/;
+const FOCUS_URI_PATTERN = /^orcatab:\/\/(claude|codex|hermes)\/([A-Za-z0-9_-]{1,128})$/;
+const GOAL_STATUSES = new Set<GoalStatus>(["active", "done", "archived"]);
+const GOAL_LINK_KINDS = new Set<GoalLinkKind>(["confirmed", "dismissed"]);
 
 export interface ServerOptions {
   port?: number; claudeDir?: string; codexDir?: string; hermesDb?: string; dataDir?: string; orcaBin?: string;
-  db?: OrcaDatabase; focusDeps?: FocusDeps; startTimers?: boolean; quiet?: boolean;
+  db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; startTimers?: boolean; quiet?: boolean;
 }
 
 export interface OrcaTabServer {
-  server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; indexed: IndexSummary;
+  server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary;
   stop(): void;
 }
+
+class NotFoundError extends Error { override name = "NotFoundError"; }
 
 function json(value: unknown, status = 200, headers: HeadersInit = {}): Response {
   const responseHeaders = new Headers(headers);
@@ -49,8 +56,38 @@ function mergeLive<T extends SessionRow>(rows: T[], live: Map<string, LiveInfo>)
   return rows.map((row) => ({ ...row, live: row.agent === "claude" ? live.get(row.sid) ?? null : null }));
 }
 
+function attachGoals<T extends SessionRow>(rows: T[], store: GoalsStore): T[] {
+  const goals = store.goalsForSessions(rows.map(({ agent, sid }) => ({ agent, sid })));
+  return rows.map((row) => ({ ...row, goals: goals.get(sessionIdentityKey(row.agent, row.sid)) ?? [] }));
+}
+
 function enabledAgent(value: string): value is Agent {
   return AGENTS.some((agent) => agent === value);
+}
+
+async function jsonObject(request: Request): Promise<Record<string, unknown>> {
+  let value: unknown;
+  try { value = await request.json(); }
+  catch { throw new ValidationError("invalid JSON body"); }
+  if (value === null || Array.isArray(value) || typeof value !== "object") throw new ValidationError("JSON body must be an object");
+  return value as Record<string, unknown>;
+}
+
+function requiredName(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) throw new ValidationError("name is required");
+  return value.trim();
+}
+
+function nullableText(value: unknown, field: string): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string") throw new ValidationError(`${field} must be a string or null`);
+  return value.trim() || null;
+}
+
+function decodeParts(pathname: string, prefix: string): string[] {
+  try { return pathname.slice(prefix.length).split("/").map(decodeURIComponent); }
+  catch { throw new ValidationError("invalid path encoding"); }
 }
 
 function focusText(result: FocusResult): string {
@@ -60,7 +97,7 @@ function focusText(result: FocusResult): string {
 }
 
 function errorResponse(error: unknown, request: Request): Response {
-  const status = error instanceof ValidationError ? 400 : error instanceof OrcaError ? 500 : 500;
+  const status = error instanceof ValidationError ? 400 : error instanceof NotFoundError ? 404 : 500;
   const message = error instanceof Error ? error.message : String(error);
   if (status === 500) console.error(`orcatab ${request.method} ${new URL(request.url).pathname}`, error instanceof Error ? error.stack : error);
   return json({ error: message }, status);
@@ -74,6 +111,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const orcaBin = options.orcaBin ?? ORCATAB_ORCA_BIN;
   mkdirSync(join(dataDir, "logs"), { recursive: true });
   const db = options.db ?? new OrcaDatabase(join(dataDir, "index.db"));
+  const goalsStore = options.goalsStore ?? new GoalsStore(openGoalsDatabase(join(dataDir, "goals.db")));
   const indexer = createIndexer({ claudeDir, codexDir, hermesDb, db });
   const indexed = await indexer.indexAll();
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
@@ -97,8 +135,16 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
 
   const versionedLive = () => {
     const live = liveReader.getLiveMap();
-    return { live, etag: `"${db.getDataVersion()}-${liveReader.getLiveVersion()}"` };
+    return { live, etag: `"${db.getDataVersion()}-${liveReader.getLiveVersion()}-${goalsStore.goalsVersion}"` };
   };
+
+  const goalSummaries = () => goalsStore.listGoals().map((goal) => {
+    const links = goalsStore.confirmedLinks(goal.id);
+    const timestamps = links.map(({ agent, sid }) => db.getSession(agent, sid)?.lastInputAt ?? null)
+      .filter((value): value is number => value !== null);
+    return { ...goal, sessionCount: links.length, lastActivityAt: timestamps.length ? Math.max(...timestamps) : null };
+  }).sort((left, right) => Number(right.lastActivityAt !== null) - Number(left.lastActivityAt !== null)
+    || (right.lastActivityAt ?? -1) - (left.lastActivityAt ?? -1));
 
   const handler = async (request: Request): Promise<Response> => {
     try {
@@ -111,8 +157,9 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       if (request.method === "GET" && url.pathname === "/healthz") {
         const rawIndexedAt = db.getMeta("indexed_at");
         return json({
-          ok: true, sessions: db.countSessions(), indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt),
-          dataVersion: db.getDataVersion(), watch: watcher.mode, agents: [...AGENTS], version: "p6",
+          ok: true, sessions: db.countSessions(), goals: goalsStore.countGoals(),
+          indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt), dataVersion: db.getDataVersion(),
+          watch: watcher.mode, agents: [...AGENTS], version: "p7",
         });
       }
       if (request.method === "GET" && url.pathname === "/api/projects") {
@@ -125,15 +172,76 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const liveOnly = url.searchParams.get("live") === "1";
         const { live, etag } = versionedLive();
         return conditionalJson(request, etag, () => {
-          const rows = mergeLive(db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit }), live);
+          const base = db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit });
+          const rows = attachGoals(mergeLive(base, live), goalsStore);
           return liveOnly ? rows.filter((row) => row.live !== null).slice(0, limit) : rows;
         });
       }
       if (request.method === "GET" && url.pathname === "/api/search") {
         const q = url.searchParams.get("q") ?? "";
         const limit = boundedLimit(url.searchParams.get("limit"), DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
-        const rows: SearchResult[] = q.trim() ? mergeLive(db.search(q, limit), liveReader.getLiveMap()) : [];
-        return json(rows);
+        const { live, etag } = versionedLive();
+        return conditionalJson(request, etag, () => {
+          const rows: SearchResult[] = q.trim() ? mergeLive(db.search(q, limit), live) : [];
+          return attachGoals(rows, goalsStore);
+        });
+      }
+      if (url.pathname === "/api/goals" && request.method === "GET") return json(goalSummaries());
+      if (url.pathname === "/api/goals" && request.method === "POST") {
+        const body = await jsonObject(request);
+        const goal = goalsStore.createGoal({
+          name: requiredName(body.name), externalRef: nullableText(body.externalRef, "externalRef"),
+          color: nullableText(body.color, "color"),
+        });
+        return json(goal, 201);
+      }
+      if (url.pathname.startsWith("/api/goals/")) {
+        const parts = decodeParts(url.pathname, "/api/goals/");
+        const goalId = parts[0] ?? "";
+        const goal = goalsStore.getGoal(goalId);
+        if (goal === null) throw new NotFoundError("goal not found");
+        if (parts.length === 1 && request.method === "GET") {
+          const links = goalsStore.confirmedLinks(goalId);
+          const base = links.map(({ agent, sid }) => db.getSession(agent, sid)).filter((row): row is SessionRow => row !== null);
+          const live = liveReader.getLiveMap();
+          const sessions = attachGoals(mergeLive(base, live), goalsStore)
+            .sort((left, right) => (right.lastInputAt ?? -1) - (left.lastInputAt ?? -1));
+          const excluded = new Set(goalsStore.excludedLinks(goalId).map(({ agent, sid }) => sessionIdentityKey(agent, sid)));
+          const pool = attachGoals(mergeLive(db.listSessions({ limit: SUGGESTION_POOL_LIMIT }), live), goalsStore);
+          return json({ goal, sessions, suggestions: suggestSessions(goal, sessions, excluded, pool) });
+        }
+        if (parts.length === 1 && request.method === "PATCH") {
+          const body = await jsonObject(request);
+          const name = body.name === undefined ? undefined : requiredName(body.name);
+          const status = body.status;
+          if (status !== undefined && (typeof status !== "string" || !GOAL_STATUSES.has(status as GoalStatus))) {
+            throw new ValidationError("invalid goal status");
+          }
+          return json(goalsStore.updateGoal(goalId, {
+            name, status: status as GoalStatus | undefined,
+            externalRef: nullableText(body.externalRef, "externalRef"), color: nullableText(body.color, "color"),
+          })!);
+        }
+        if (parts.length === 1 && request.method === "DELETE") {
+          goalsStore.deleteGoal(goalId);
+          return json({ ok: true });
+        }
+        if (parts.length === 2 && parts[1] === "links" && request.method === "POST") {
+          const body = await jsonObject(request);
+          if (typeof body.agent !== "string" || !enabledAgent(body.agent)) throw new ValidationError("invalid agent");
+          if (typeof body.sid !== "string" || !SID_PATTERN.test(body.sid)) throw new ValidationError("invalid session id");
+          if (typeof body.kind !== "string" || !GOAL_LINK_KINDS.has(body.kind as GoalLinkKind)) throw new ValidationError("invalid link kind");
+          goalsStore.setLink(goalId, body.agent, body.sid, body.kind as GoalLinkKind);
+          return json({ ok: true });
+        }
+        if (parts.length === 4 && parts[1] === "links" && request.method === "DELETE") {
+          const agent = parts[2]!;
+          const sid = parts[3]!;
+          if (!enabledAgent(agent)) throw new ValidationError("invalid agent");
+          if (!SID_PATTERN.test(sid)) throw new ValidationError("invalid session id");
+          goalsStore.removeLink(goalId, agent, sid);
+          return json({ ok: true });
+        }
       }
       if (request.method === "POST" && url.pathname.startsWith("/api/focus/")) {
         let parts: string[];
@@ -145,7 +253,8 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         return json(await resolveFocus(agent, sid, focusDeps, { dryRun: false }));
       }
       if (request.method === "GET" && url.pathname === "/focus") {
-        const match = URI_PATTERN.exec(url.searchParams.get("uri") ?? "");
+        const candidate = url.searchParams.get("uri") ?? "";
+        const match = FOCUS_URI_PATTERN.exec(candidate);
         if (!match) throw new ValidationError("invalid orcatab uri");
         const agent = match[1]!;
         if (!enabledAgent(agent)) throw new ValidationError("invalid agent");
@@ -161,8 +270,14 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const server = Bun.serve({ hostname: ORCATAB_HOST, port: options.port ?? ORCATAB_PORT, fetch: handler });
   if (!options.quiet) console.log(`orcatab listening on http://${ORCATAB_HOST}:${server.port}`);
   return {
-    server, db, indexed,
-    stop: () => { watcher.close(); for (const timer of timers) clearInterval(timer); server.stop(true); db.close(); },
+    server, db, goalsStore, indexed,
+    stop: () => {
+      watcher.close();
+      for (const timer of timers) clearInterval(timer);
+      server.stop(true);
+      goalsStore.close();
+      db.close();
+    },
   };
 }
 

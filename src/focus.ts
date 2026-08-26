@@ -9,7 +9,7 @@ import { findCodexSessionCwd } from "./sources/codex";
 import { findHermesSessionCwd } from "./sources/hermes";
 import type { Agent, FocusResult, LiveInfo } from "./types";
 
-const SID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+export const SID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const URI_PATTERN = /^orcatab:\/\/([^/]+)\/(.+)$/;
 const CLI_SCAN_MAX_BYTES = 256 * 1_024;
 
