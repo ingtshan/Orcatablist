@@ -20,7 +20,7 @@ function git(...args: string[]): void {
 }
 function stored(projectKey: string): StoredSession {
   return {
-    sid: "11111111-1111-1111-1111-111111111111", projectKey, cwd: "/tmp/wt", branch: null,
+    agent: "claude", sid: "11111111-1111-1111-1111-111111111111", projectKey, cwd: "/tmp/wt", branch: null,
     title: null, firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0, filePath: "/tmp/a", fileSize: 0,
     fileMtime: 0, parsedOffset: 0,
   };
@@ -94,7 +94,7 @@ describe("project post-processing", () => {
     db.upsertSession(stored("orca-workspaces:lumina"));
     db.setCachedProjectKey("/tmp/wt", "orca-workspaces:lumina");
     expect(mergeOrcaWorkspaceProjects(db)).toBe(1);
-    expect(db.getSession("11111111-1111-1111-1111-111111111111")!.projectKey).toBe("/repo/lumina");
+    expect(db.getSession("claude", "11111111-1111-1111-1111-111111111111")!.projectKey).toBe("/repo/lumina");
     expect(db.getCachedProjectKey("/tmp/wt")).toBe("/repo/lumina");
     expect(db.listProjectRecords()).toHaveLength(1);
     db.close();
@@ -127,7 +127,7 @@ describe("project post-processing", () => {
     db.upsertProject({ key: deleted, name: "lumina-deleted-worktree", root: deleted, color: null });
     db.upsertSession(stored(deleted));
     expect(mergeDeletedWorktreeProjects(db)).toBe(1);
-    expect(db.getSession("11111111-1111-1111-1111-111111111111")!.projectKey).toBe(repo);
+    expect(db.getSession("claude", "11111111-1111-1111-1111-111111111111")!.projectKey).toBe(repo);
     expect(db.listProjectRecords().some((project) => project.key === deleted)).toBeFalse();
     expect(db.getDataVersion()).toBe(1);
     db.close();

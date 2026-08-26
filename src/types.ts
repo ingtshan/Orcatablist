@@ -1,7 +1,9 @@
+export type Agent = "claude" | "codex" | "hermes";
 export type LiveStatus = "busy" | "waiting" | "idle" | "shell";
 export interface LiveInfo { pid: number; status: LiveStatus; waitingFor: string | null; name: string | null; }
 export interface ProjectRow { key: string; name: string; root: string; color: string | null; sessionCount: number; lastInputAt: number | null; }
 export interface SessionRow {
+  agent: Agent;
   sid: string; projectKey: string; cwd: string | null; branch: string | null;
   title: string | null;
   firstPrompt: string | null;

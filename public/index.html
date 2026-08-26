@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OrcaTab · Claude 会话</title>
+  <title>OrcaTab · Agent 会话</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -62,7 +62,9 @@
     .status-busy { background: var(--busy); } .status-waiting { background: var(--waiting); }
     .status-idle, .status-shell { background: var(--idle); } .status-offline { background: var(--offline); }
     .session-main { min-width: 0; }
-    .session-title { overflow: hidden; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .session-title-line { display: flex; min-width: 0; align-items: center; gap: 7px; }
+    .session-title { min-width: 0; overflow: hidden; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .agent-badge { flex: 0 0 auto; padding: 2px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font: 10px ui-monospace, Menlo, monospace; letter-spacing: .02em; }
     .row-last-input { overflow: hidden; margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
     .hits { display: grid; gap: 3px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
     .hit { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -225,11 +227,11 @@
       }
 
       async function focusSession(row, button, rowElement) {
-        const original = row.live ? "定位" : "恢复";
+        const original = row.agent === "claude" && row.live ? "定位" : "恢复";
         button.disabled = true;
         button.textContent = "处理中…";
         try {
-          const result = await api(`/api/focus/${encodeURIComponent(row.sid)}`, { method: "POST" });
+          const result = await api(`/api/focus/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`, { method: "POST" });
           if (result.action === "switched") {
             button.textContent = "已切到 tab";
             setTimeout(() => { button.textContent = original; }, RESULT_RESET_MS);
@@ -250,15 +252,19 @@
         const element = make("article", "session-row");
         element.tabIndex = -1;
         element.dataset.sid = row.sid;
+        element.dataset.agent = row.agent;
         const status = row.live?.status || "offline";
         const dot = make("span", `status-dot status-${status}`);
         dot.title = row.live ? `${status}${row.live.name ? ` · ${row.live.name}` : ""}` : "offline";
         element.append(dot);
 
         const main = make("div", "session-main");
+        const titleLine = make("div", "session-title-line");
+        titleLine.append(make("span", "agent-badge", row.agent));
         const title = make("div", "session-title", row.displayTitle);
         if (row.title && row.firstPrompt) title.title = row.firstPrompt;
-        main.append(title);
+        titleLine.append(title);
+        main.append(titleLine);
         if (!isSearch && row.lastPrompt && row.lastPrompt !== row.displayTitle) {
           const lastInput = make("div", "row-last-input", row.lastPrompt);
           lastInput.title = row.lastPrompt;
@@ -285,15 +291,18 @@
         element.append(facts);
 
         const actions = make("div", "actions");
-        const focusButton = make("button", "action primary focus-action", row.live ? "定位" : "恢复");
+        const focusButton = make("button", "action primary focus-action", row.agent === "claude" && row.live ? "定位" : "恢复");
         focusButton.type = "button";
         focusButton.addEventListener("click", () => focusSession(row, focusButton, element));
         const copyButton = make("button", "action copy-action", "复制链接");
         copyButton.type = "button";
-        copyButton.addEventListener("click", () => copyText(`orcatab://claude/${row.sid}`, "已复制"));
+        copyButton.addEventListener("click", () => copyText(`orcatab://${row.agent}/${row.sid}`, "已复制"));
         const commandButton = make("button", "action command-action", "复制命令");
         commandButton.type = "button";
-        commandButton.addEventListener("click", () => copyText(`claude --resume ${row.sid}`, "已复制命令"));
+        commandButton.addEventListener("click", () => {
+          const command = row.agent === "codex" ? `codex resume ${row.sid}` : `claude --resume ${row.sid}`;
+          copyText(command, "已复制命令");
+        });
         actions.append(focusButton, copyButton, commandButton);
         element.append(actions);
         return element;

@@ -33,6 +33,57 @@ afterEach(() => {
 });
 
 describe("incremental indexer", () => {
+  test("indexes mixed Claude and Codex sources by (agent, sid) with Codex offsets", async () => {
+    const root = temporaryDirectory();
+    const claudeDir = join(root, "claude");
+    const codexDir = join(root, "codex");
+    const claudeProject = join(claudeDir, "projects", "fixture");
+    const codexSessions = join(codexDir, "sessions", "2026", "08", "25");
+    mkdirSync(claudeProject, { recursive: true });
+    mkdirSync(codexSessions, { recursive: true });
+    writeFileSync(join(claudeProject, `${SID}.jsonl`), `${prompt("Claude 同号", "2026-08-25T08:00:00.000Z")}\n`);
+    const codexPath = join(codexSessions, `rollout-2026-08-25T09-00-00-${SID}.jsonl`);
+    writeFileSync(join(codexSessions, `rollout-2026-08-25T08-00-00-22222222-2222-2222-2222-222222222222.jsonl`), [
+      JSON.stringify({ timestamp: "2026-08-25T08:00:00.000Z", type: "session_meta", payload: { session_id: SID, cwd: "/obsolete" } }),
+      JSON.stringify({ timestamp: "2026-08-25T08:00:01.000Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "旧 rollout 不应覆盖最新文件" }] } }),
+    ].join("\n") + "\n");
+    const codexInitial = [
+      JSON.stringify({ timestamp: "2026-08-25T09:00:00.000Z", type: "session_meta", payload: { session_id: SID, cwd: "/fixture/repo/worktree", git: { branch: "codex" } } }),
+      JSON.stringify({ timestamp: "2026-08-25T09:00:01.000Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Codex 同号" }] } }),
+    ].join("\n") + "\n";
+    writeFileSync(codexPath, codexInitial);
+    writeFileSync(join(codexDir, "session_index.jsonl"), `${JSON.stringify({ id: SID, thread_name: "Codex 标题" })}\n`);
+    const db = new OrcaDatabase(join(root, "data", "index.db"));
+    const indexer = createIndexer({
+      claudeDir, codexDir, db,
+      resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
+    });
+
+    expect(await indexer.indexAll()).toMatchObject({ files: 2, changed: 2 });
+    expect(db.getStoredSession("claude", SID)).toMatchObject({ agent: "claude", firstPrompt: "Claude 同号" });
+    expect(db.getStoredSession("codex", SID)).toMatchObject({
+      agent: "codex", title: "Codex 标题", firstPrompt: "Codex 同号", lastPrompt: "Codex 同号",
+      branch: "codex", parsedOffset: Buffer.byteLength(codexInitial),
+    });
+    expect(db.countSessionFts("claude", SID)).toBe(1);
+    expect(db.countSessionFts("codex", SID)).toBe(1);
+    expect((await indexer.indexAll()).changed).toBe(0);
+
+    const appended = `${JSON.stringify({
+      timestamp: "2026-08-25T10:00:00.000Z", type: "response_item",
+      payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Codex 增量回答" }] },
+    })}\n`;
+    appendFileSync(codexPath, appended);
+    expect((await indexer.indexAll()).changed).toBe(1);
+    expect(db.getStoredSession("codex", SID)?.parsedOffset).toBe(Buffer.byteLength(codexInitial + appended));
+    expect(db.countSessionFts("codex", SID)).toBe(2);
+
+    writeFileSync(join(codexDir, "session_index.jsonl"), `${JSON.stringify({ id: SID, thread_name: "更新后的标题" })}\n`);
+    expect((await indexer.indexAll()).changed).toBe(1);
+    expect(db.getSession("codex", SID)?.title).toBe("更新后的标题");
+    db.close();
+  });
+
   test("discovers only direct UUID files and incrementally maintains offsets and FTS", async () => {
     const root = temporaryDirectory();
     const projectDir = join(root, "projects", "-tmp-a");
@@ -45,6 +96,7 @@ describe("incremental indexer", () => {
     const db = new OrcaDatabase(join(root, "data", "index.db"));
     const indexer = createIndexer({
       claudeDir: root,
+      codexDir: join(root, "codex"),
       db,
       resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
     });
@@ -52,42 +104,42 @@ describe("incremental indexer", () => {
     const first = await indexer.indexAll();
     expect(first).toMatchObject({ files: 1, changed: 1 });
     expect(db.getDataVersion()).toBe(1);
-    expect(db.getStoredSession(SID)).toMatchObject({
+    expect(db.getStoredSession("claude", SID)).toMatchObject({
       title: "Orca tab linking",
       firstPrompt: "orca 是否有链接可以打开对应的 tab，比如 uri_tab(claude, sessionId)",
       lastPrompt: "orca 是否有链接可以打开对应的 tab，比如 uri_tab(claude, sessionId)",
       lastInputAt: Date.parse("2026-08-25T08:08:39.177Z"), promptCount: 1,
       parsedOffset: Buffer.byteLength(initial),
     });
-    expect(db.countSessionFts(SID)).toBe(2);
+    expect(db.countSessionFts("claude", SID)).toBe(2);
     expect((await indexer.indexAll()).changed).toBe(0);
     expect(db.getDataVersion()).toBe(1);
 
     const appended = `${prompt("第二个问题", "2026-08-25T09:00:00.000Z")}\n${assistant("第二个回答", "2026-08-25T09:00:01.000Z")}\n`;
     appendFileSync(path, appended);
     expect((await indexer.indexAll()).changed).toBe(1);
-    const afterAppend = db.getStoredSession(SID)!;
+    const afterAppend = db.getStoredSession("claude", SID)!;
     expect(afterAppend.promptCount).toBe(2);
     expect(afterAppend.lastPrompt).toBe("第二个问题");
     expect(afterAppend.parsedOffset).toBe(Buffer.byteLength(initial + appended));
-    expect(db.countSessionFts(SID)).toBe(4);
+    expect(db.countSessionFts("claude", SID)).toBe(4);
 
     const beforeHalfLine = afterAppend.parsedOffset;
     appendFileSync(path, '{"type":"user"');
     await indexer.indexAll();
-    expect(db.getStoredSession(SID)!.parsedOffset).toBe(beforeHalfLine);
+    expect(db.getStoredSession("claude", SID)!.parsedOffset).toBe(beforeHalfLine);
     appendFileSync(path, ',"message":{"content":"半行完成"},"timestamp":"2026-08-25T10:00:00.000Z"}\n');
     await indexer.indexAll();
-    expect(db.getStoredSession(SID)!.promptCount).toBe(3);
-    expect(db.getStoredSession(SID)!.lastPrompt).toBe("半行完成");
-    expect(db.getStoredSession(SID)!.parsedOffset).toBe(readFileSync(path).byteLength);
-    expect(db.countSessionFts(SID)).toBe(5);
+    expect(db.getStoredSession("claude", SID)!.promptCount).toBe(3);
+    expect(db.getStoredSession("claude", SID)!.lastPrompt).toBe("半行完成");
+    expect(db.getStoredSession("claude", SID)!.parsedOffset).toBe(readFileSync(path).byteLength);
+    expect(db.countSessionFts("claude", SID)).toBe(5);
 
     const replacement = `${prompt("截断后问题", "2026-08-26T00:00:00.000Z")}\n`;
     writeFileSync(path, replacement);
     await indexer.indexAll();
-    expect(db.getStoredSession(SID)).toMatchObject({ title: null, firstPrompt: "截断后问题", lastPrompt: "截断后问题", promptCount: 1, parsedOffset: Buffer.byteLength(replacement) });
-    expect(db.countSessionFts(SID)).toBe(1);
+    expect(db.getStoredSession("claude", SID)).toMatchObject({ title: null, firstPrompt: "截断后问题", lastPrompt: "截断后问题", promptCount: 1, parsedOffset: Buffer.byteLength(replacement) });
+    expect(db.countSessionFts("claude", SID)).toBe(1);
     db.close();
   });
 
@@ -97,11 +149,11 @@ describe("incremental indexer", () => {
     mkdirSync(projectDir, { recursive: true });
     writeFileSync(join(projectDir, `${SID}.jsonl`), AI_TITLE_LINE);
     const db = new OrcaDatabase(join(root, "index.db"));
-    const indexer = createIndexer({ claudeDir: root, db, resolveProject: async () => ({ key: "unknown", name: "未知", root: "", color: null }) });
+    const indexer = createIndexer({ claudeDir: root, codexDir: join(root, "codex"), db, resolveProject: async () => ({ key: "unknown", name: "未知", root: "", color: null }) });
     await indexer.indexAll();
-    expect(db.getStoredSession(SID)!.parsedOffset).toBe(0);
-    expect(db.getStoredSession(SID)!.title).toBeNull();
-    expect(db.getStoredSession(SID)!.lastPrompt).toBeNull();
+    expect(db.getStoredSession("claude", SID)!.parsedOffset).toBe(0);
+    expect(db.getStoredSession("claude", SID)!.title).toBeNull();
+    expect(db.getStoredSession("claude", SID)!.lastPrompt).toBeNull();
     db.close();
   });
 
@@ -117,12 +169,12 @@ describe("incremental indexer", () => {
     ].join("\n") + "\n");
     const db = new OrcaDatabase(join(root, "index.db"));
     const indexer = createIndexer({
-      claudeDir: root, db,
+      claudeDir: root, codexDir: join(root, "codex"), db,
       resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
     });
 
     await indexer.indexAll();
-    expect(db.getStoredSession(SID)).toMatchObject({
+    expect(db.getStoredSession("claude", SID)).toMatchObject({
       firstPrompt: "第一条 忽略标签",
       lastPrompt: "第二条 最近问题",
       promptCount: 3,
@@ -137,19 +189,19 @@ describe("incremental indexer", () => {
     writeFileSync(join(projectDir, `${SID}.jsonl`), `${AI_TITLE_LINE}\n`);
     const db = new OrcaDatabase(join(root, "index.db"));
     const indexer = createIndexer({
-      claudeDir: root, db,
+      claudeDir: root, codexDir: join(root, "codex"), db,
       resolveProject: async () => ({ key: "unknown", name: "未知", root: "", color: null }),
     });
 
     await indexer.indexAll();
-    expect(db.getStoredSession(SID)).toMatchObject({ title: "Orca tab linking", lastPrompt: null, promptCount: 0 });
+    expect(db.getStoredSession("claude", SID)).toMatchObject({ title: "Orca tab linking", lastPrompt: null, promptCount: 0 });
     db.close();
   });
 
   test("fails with context when projects directory is missing", async () => {
     const root = temporaryDirectory();
     const db = new OrcaDatabase(join(root, "index.db"));
-    const indexer = createIndexer({ claudeDir: root, db });
+    const indexer = createIndexer({ claudeDir: root, codexDir: join(root, "codex"), db });
     await expect(indexer.indexAll()).rejects.toThrow("failed to read Claude projects directory");
     db.close();
   });
@@ -162,19 +214,20 @@ describe("incremental indexer", () => {
     writeFileSync(path, `${prompt("watch 初始", "2026-08-25T08:00:00.000Z")}\n`);
     const db = new OrcaDatabase(join(root, "index.db"));
     const indexer = createIndexer({
-      claudeDir: root, db,
+      claudeDir: root, codexDir: join(root, "codex"), db,
       resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
     });
     await indexer.indexAll();
     const watcher = indexer.startWatcher();
     expect(watcher.mode).toBe("fs.watch");
+    await Bun.sleep(50);
     const startedAt = Date.now();
     appendFileSync(path, `${prompt("watch 新增", "2026-08-25T08:01:00.000Z")}\n`);
     try {
-      while (db.getStoredSession(SID)!.promptCount < 2 && Date.now() - startedAt < 3_000) {
+      while (db.getStoredSession("claude", SID)!.promptCount < 2 && Date.now() - startedAt < 3_000) {
         await Bun.sleep(50);
       }
-      expect(db.getStoredSession(SID)!.promptCount).toBe(2);
+      expect(db.getStoredSession("claude", SID)!.promptCount).toBe(2);
       expect(Date.now() - startedAt).toBeLessThanOrEqual(1_500);
     } finally {
       watcher.close();

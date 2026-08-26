@@ -1,24 +1,24 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  FALLBACK_RESCAN_INTERVAL_MS, ORCATAB_CLAUDE_DIR, ORCATAB_DATA_DIR, ORCATAB_HOST,
-  ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
+  AGENTS, FALLBACK_RESCAN_INTERVAL_MS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_DATA_DIR,
+  ORCATAB_HOST, ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
 } from "./config";
 import { OrcaDatabase } from "./db";
 import { createFocusDeps, OrcaError, resolveFocus, ValidationError, type FocusDeps } from "./focus";
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
-import type { FocusResult, LiveInfo, SearchResult, SessionRow } from "./types";
+import type { Agent, FocusResult, LiveInfo, SearchResult, SessionRow } from "./types";
 
 const DEFAULT_SESSIONS_LIMIT = 500;
 const MAX_SESSIONS_LIMIT = 2_000;
 const DEFAULT_SEARCH_LIMIT = 50;
 const MAX_SEARCH_LIMIT = 200;
-const URI_PATTERN = /^orcatab:\/\/claude\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const URI_PATTERN = /^orcatab:\/\/(claude|codex|hermes)\/([A-Za-z0-9_-]{1,128})$/;
 
 export interface ServerOptions {
-  port?: number; claudeDir?: string; dataDir?: string; orcaBin?: string;
+  port?: number; claudeDir?: string; codexDir?: string; dataDir?: string; orcaBin?: string;
   db?: OrcaDatabase; focusDeps?: FocusDeps; startTimers?: boolean; quiet?: boolean;
 }
 
@@ -46,7 +46,11 @@ function boundedLimit(value: string | null, fallback: number, maximum: number): 
 }
 
 function mergeLive<T extends SessionRow>(rows: T[], live: Map<string, LiveInfo>): T[] {
-  return rows.map((row) => ({ ...row, live: live.get(row.sid) ?? null }));
+  return rows.map((row) => ({ ...row, live: row.agent === "claude" ? live.get(row.sid) ?? null : null }));
+}
+
+function enabledAgent(value: string): value is Agent {
+  return AGENTS.some((agent) => agent === value);
 }
 
 function focusText(result: FocusResult): string {
@@ -65,16 +69,17 @@ function errorResponse(error: unknown, request: Request): Response {
 export async function createServer(options: ServerOptions = {}): Promise<OrcaTabServer> {
   const dataDir = options.dataDir ?? ORCATAB_DATA_DIR;
   const claudeDir = options.claudeDir ?? ORCATAB_CLAUDE_DIR;
+  const codexDir = options.codexDir ?? ORCATAB_CODEX_DIR;
   const orcaBin = options.orcaBin ?? ORCATAB_ORCA_BIN;
   mkdirSync(join(dataDir, "logs"), { recursive: true });
   const db = options.db ?? new OrcaDatabase(join(dataDir, "index.db"));
-  const indexer = createIndexer({ claudeDir, db });
+  const indexer = createIndexer({ claudeDir, codexDir, db });
   const indexed = await indexer.indexAll();
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
   await refreshProjectMetadata(db, orcaBin);
   const liveReader = createLiveReader({ claudeDir });
   const focusDeps = options.focusDeps ?? createFocusDeps(db, {
-    claudeDir, orcaBin, liveFinder: liveReader.findLive,
+    claudeDir, codexDir, orcaBin, liveFinder: liveReader.findLive,
   });
   const timers: Array<ReturnType<typeof setInterval>> = [];
   let watcher: WatchHandle = { mode: "timer", close: () => {} };
@@ -106,7 +111,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const rawIndexedAt = db.getMeta("indexed_at");
         return json({
           ok: true, sessions: db.countSessions(), indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt),
-          dataVersion: db.getDataVersion(), watch: watcher.mode, version: "p2",
+          dataVersion: db.getDataVersion(), watch: watcher.mode, agents: [...AGENTS], version: "p5",
         });
       }
       if (request.method === "GET" && url.pathname === "/api/projects") {
@@ -130,15 +135,20 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         return json(rows);
       }
       if (request.method === "POST" && url.pathname.startsWith("/api/focus/")) {
-        let sid: string;
-        try { sid = decodeURIComponent(url.pathname.slice("/api/focus/".length)); }
+        let parts: string[];
+        try { parts = url.pathname.slice("/api/focus/".length).split("/").map(decodeURIComponent); }
         catch { throw new ValidationError("invalid session id encoding"); }
-        return json(await resolveFocus(sid, focusDeps, { dryRun: false }));
+        const agent = parts.length === 1 ? "claude" : parts[0]!;
+        const sid = parts.length === 1 ? parts[0]! : parts[1]!;
+        if (parts.length < 1 || parts.length > 2 || !enabledAgent(agent)) throw new ValidationError("invalid agent");
+        return json(await resolveFocus(agent, sid, focusDeps, { dryRun: false }));
       }
       if (request.method === "GET" && url.pathname === "/focus") {
         const match = URI_PATTERN.exec(url.searchParams.get("uri") ?? "");
         if (!match) throw new ValidationError("invalid orcatab uri");
-        const result = await resolveFocus(match[1]!, focusDeps, { dryRun: false });
+        const agent = match[1]!;
+        if (!enabledAgent(agent)) throw new ValidationError("invalid agent");
+        const result = await resolveFocus(agent, match[2]!, focusDeps, { dryRun: false });
         return new Response(`${focusText(result)}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       }
       return json({ error: "not found" }, 404);

@@ -38,7 +38,7 @@ describe("resolveFocus", () => {
   test("switches an online Orca terminal and uses returned focus tab id", async () => {
     let opens = 0;
     const calls: string[][] = [];
-    const result = await resolveFocus(SID, deps({
+    const result = await resolveFocus("claude", SID, deps({
       live: { pid: 42, status: "busy", waitingFor: null, name: "test" },
       environment: "claude --effort max TERM_PROGRAM=Orca ORCA_TERMINAL_HANDLE=term_live ORCA_TAB_ID=tab_env",
       opened: () => { opens += 1; },
@@ -50,7 +50,7 @@ describe("resolveFocus", () => {
   });
 
   test("reports an online process without an Orca handle as manual", async () => {
-    const result = await resolveFocus(SID, deps({
+    const result = await resolveFocus("claude", SID, deps({
       live: { pid: 42, status: "idle", waitingFor: null, name: null },
       environment: "claude TERM_PROGRAM=Apple_Terminal",
     }), { dryRun: false });
@@ -59,7 +59,7 @@ describe("resolveFocus", () => {
 
   test("creates and switches a terminal for an offline Orca worktree", async () => {
     const calls: string[][] = [];
-    const result = await resolveFocus(SID, deps({
+    const result = await resolveFocus("claude", SID, deps({
       cwd: "/repo/worktree",
       orca: async (args) => {
         calls.push(args);
@@ -75,7 +75,7 @@ describe("resolveFocus", () => {
 
   test("returns a safely quoted manual command for a non-Orca worktree", async () => {
     const cwd = "/tmp/user's folder";
-    const result = await resolveFocus(SID, deps({ cwd }), { dryRun: false });
+    const result = await resolveFocus("claude", SID, deps({ cwd }), { dryRun: false });
     expect(result).toEqual({
       action: "manual", reason: "not-orca-worktree",
       command: `cd ${shellQuote(cwd)} && claude --resume ${SID}`,
@@ -85,19 +85,19 @@ describe("resolveFocus", () => {
   });
 
   test("returns unknown-session when no indexed cwd exists", async () => {
-    expect(await resolveFocus(SID, deps({ cwd: undefined }), { dryRun: false }))
+    expect(await resolveFocus("claude", SID, deps({ cwd: undefined }), { dryRun: false }))
       .toEqual({ action: "manual", reason: "unknown-session", command: null });
   });
 
   test("rejects invalid session ids", async () => {
-    await expect(resolveFocus("bad", deps(), { dryRun: true })).rejects.toBeInstanceOf(ValidationError);
+    await expect(resolveFocus("claude", "bad", deps(), { dryRun: true })).rejects.toBeInstanceOf(ValidationError);
   });
 
   test("dry-run online does not open or call switch", async () => {
     let opens = 0;
     let calls = 0;
     const plans: string[][] = [];
-    const result = await resolveFocus(SID, deps({
+    const result = await resolveFocus("claude", SID, deps({
       live: { pid: 42, status: "busy", waitingFor: null, name: null },
       environment: "claude ORCA_TERMINAL_HANDLE=term_dry ORCA_TAB_ID=tab_dry",
       opened: () => { opens += 1; }, orca: async () => { calls += 1; return { ok: true }; }, plans,
@@ -111,7 +111,7 @@ describe("resolveFocus", () => {
   test("dry-run offline only performs read-only worktree show", async () => {
     const calls: string[][] = [];
     const plans: string[][] = [];
-    const result = await resolveFocus(SID, deps({
+    const result = await resolveFocus("claude", SID, deps({
       cwd: "/repo/worktree", orca: async (args) => { calls.push(args); return { ok: true }; }, plans,
     }), { dryRun: true });
     expect(result).toEqual({ action: "resumed", handle: "(dry-run)" });
@@ -120,11 +120,11 @@ describe("resolveFocus", () => {
   });
 
   test("turns Orca switch and missing-handle failures into OrcaError", async () => {
-    await expect(resolveFocus(SID, deps({
+    await expect(resolveFocus("claude", SID, deps({
       live: { pid: 42, status: "busy", waitingFor: null, name: null },
       environment: "ORCA_TERMINAL_HANDLE=term_bad", orca: async () => ({ ok: false, error: { code: "stale" } }),
     }), { dryRun: false })).rejects.toBeInstanceOf(OrcaError);
-    await expect(resolveFocus(SID, deps({
+    await expect(resolveFocus("claude", SID, deps({
       cwd: "/repo", orca: async (args) => args[0] === "worktree" ? { ok: true } : { ok: true, result: {} },
     }), { dryRun: false })).rejects.toThrow("returned no handle");
   });
@@ -143,7 +143,58 @@ describe("resolveFocus", () => {
     mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, `${SID}.jsonl`), `not-json\n${JSON.stringify({ type: "user", cwd: "/fixture/workspace" })}\n`);
     expect(findSessionCwdInClaudeDir(SID, root)).toBe("/fixture/workspace");
-    expect(createFocusDeps(null, { claudeDir: root }).getSessionCwd(SID)).toBe("/fixture/workspace");
+    expect(createFocusDeps(null, { claudeDir: root }).getSessionCwd("claude", SID)).toBe("/fixture/workspace");
+  });
+
+  test("resumes Codex in an Orca worktree and switches the created terminal", async () => {
+    const calls: string[][] = [];
+    const result = await resolveFocus("codex", SID, deps({
+      cwd: "/repo/codex-worktree",
+      orca: async (args) => {
+        calls.push(args);
+        if (args[0] === "worktree") return { ok: true };
+        if (args[1] === "create") return { ok: true, result: { terminal: { handle: "codex_term" } } };
+        return { ok: true };
+      },
+    }), { dryRun: false });
+    expect(result).toEqual({ action: "resumed", handle: "codex_term" });
+    expect(calls[1]).toEqual([
+      "terminal", "create", "--worktree", "path:/repo/codex-worktree", "--title", "codex resume",
+      "--command", `codex resume ${SID}`, "--json",
+    ]);
+    expect(calls[2]).toEqual(["terminal", "switch", "--terminal", "codex_term", "--json"]);
+  });
+
+  test("Codex dry-run only checks the worktree and reports codex resume", async () => {
+    const calls: string[][] = [];
+    const plans: string[][] = [];
+    const result = await resolveFocus("codex", SID, deps({
+      cwd: "/repo/codex-worktree", plans,
+      orca: async (args) => { calls.push(args); return { ok: true }; },
+    }), { dryRun: true });
+    expect(result).toEqual({ action: "resumed", handle: "(dry-run)" });
+    expect(calls).toEqual([["worktree", "show", "--worktree", "path:/repo/codex-worktree", "--json"]]);
+    expect(plans).toEqual([["codex", "resume", SID]]);
+  });
+
+  test("Codex returns manual outside Orca and unknown without cwd", async () => {
+    const cwd = "/tmp/codex user's repo";
+    expect(await resolveFocus("codex", SID, deps({ cwd }), { dryRun: false })).toEqual({
+      action: "manual", reason: "not-orca-worktree", command: `cd ${shellQuote(cwd)} && codex resume ${SID}`,
+    });
+    expect(await resolveFocus("codex", SID, deps({ cwd: null }), { dryRun: false }))
+      .toEqual({ action: "manual", reason: "unknown-session", command: null });
+  });
+
+  test("Codex cwd falls back to rollout session_meta", () => {
+    const root = mkdtempSync(join(tmpdir(), "orcatab-focus-codex-"));
+    temporaryDirectories.push(root);
+    const directory = join(root, "sessions", "2026", "08", "25");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, `rollout-2026-08-25T00-00-00-${SID}.jsonl`), `${JSON.stringify({
+      type: "session_meta", payload: { session_id: SID, cwd: "/fixture/codex-workspace" },
+    })}\n`);
+    expect(createFocusDeps(null, { codexDir: root }).getSessionCwd("codex", SID)).toBe("/fixture/codex-workspace");
   });
 
   test("CLI without a database falls back to JSONL and writes a dry-run plan to stderr", () => {

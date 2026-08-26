@@ -2,34 +2,35 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DISPLAY_TITLE_MAX_CHARS, ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
-import type { ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
+import type { Agent, ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
 
-const SCHEMA_VERSION = "4"; // bump whenever parse/derivation rules change so stale caches rebuild
+const SCHEMA_VERSION = "5"; // bump whenever parse/derivation rules change so stale caches rebuild
 const SEARCH_ROWS_MULTIPLIER = 3;
 const MAX_HITS_PER_SESSION = 3;
 const LIKE_CONTEXT_CHARS = 40;
 
 export interface StoredSession {
-  sid: string; projectKey: string; cwd: string | null; branch: string | null;
+  agent: Agent; sid: string; projectKey: string; cwd: string | null; branch: string | null;
   title: string | null; firstPrompt: string | null; lastPrompt: string | null; lastInputAt: number | null;
   promptCount: number; filePath: string; fileSize: number; fileMtime: number; parsedOffset: number;
 }
 
-export interface FtsRow { text: string; sid: string; role: "user" | "assistant"; ts: number | null; }
+export interface FtsRow { text: string; agent: Agent; sid: string; role: "user" | "assistant"; ts: number | null; }
 export interface ProjectRecord { key: string; name: string; root: string; color: string | null; }
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS sessions (
-  sid TEXT PRIMARY KEY, project_key TEXT NOT NULL, cwd TEXT, git_branch TEXT,
+  agent TEXT NOT NULL, sid TEXT NOT NULL, project_key TEXT NOT NULL, cwd TEXT, git_branch TEXT,
   title TEXT, first_prompt TEXT,
   last_prompt TEXT, last_input_at INTEGER, prompt_count INTEGER NOT NULL DEFAULT 0,
   file_path TEXT NOT NULL, file_size INTEGER NOT NULL DEFAULT 0, file_mtime INTEGER NOT NULL DEFAULT 0,
-  parsed_offset INTEGER NOT NULL DEFAULT 0
+  parsed_offset INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (agent, sid)
 );
 CREATE INDEX IF NOT EXISTS sessions_last ON sessions(last_input_at DESC);
 CREATE TABLE IF NOT EXISTS projects (key TEXT PRIMARY KEY, name TEXT NOT NULL, root TEXT NOT NULL, color TEXT);
 CREATE TABLE IF NOT EXISTS cwd_cache (cwd TEXT PRIMARY KEY, project_key TEXT NOT NULL);
-CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(text, sid UNINDEXED, role UNINDEXED, ts UNINDEXED, tokenize='trigram');`;
+CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(text, agent UNINDEXED, sid UNINDEXED, role UNINDEXED, ts UNINDEXED, tokenize='trigram');`;
 
 function removeDatabaseFiles(path: string): void {
   for (const candidate of [path, `${path}-wal`, `${path}-shm`]) {
@@ -64,11 +65,13 @@ function openDatabase(path: string): Database {
 }
 
 function sessionRow(row: Record<string, unknown>): SessionRow {
+  const agent: Agent = row.agent === "codex" || row.agent === "hermes" ? row.agent : "claude";
   const sid = String(row.sid);
   const title = typeof row.title === "string" && row.title ? row.title : null;
   const firstPrompt = typeof row.first_prompt === "string" && row.first_prompt ? row.first_prompt : null;
   const lastPrompt = typeof row.last_prompt === "string" && row.last_prompt ? row.last_prompt : null;
   return {
+    agent,
     sid,
     projectKey: String(row.project_key),
     cwd: typeof row.cwd === "string" ? row.cwd : null,
@@ -134,33 +137,35 @@ export class OrcaDatabase {
   }
   upsertSession(row: StoredSession): void {
     this.raw.query(`INSERT INTO sessions
-      (sid, project_key, cwd, git_branch, title, first_prompt, last_prompt, last_input_at, prompt_count, file_path, file_size, file_mtime, parsed_offset)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(sid) DO UPDATE SET project_key=excluded.project_key, cwd=excluded.cwd,
+      (agent, sid, project_key, cwd, git_branch, title, first_prompt, last_prompt, last_input_at, prompt_count, file_path, file_size, file_mtime, parsed_offset)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(agent, sid) DO UPDATE SET project_key=excluded.project_key, cwd=excluded.cwd,
       git_branch=excluded.git_branch, title=excluded.title, first_prompt=excluded.first_prompt,
       last_prompt=excluded.last_prompt, last_input_at=excluded.last_input_at, prompt_count=excluded.prompt_count, file_path=excluded.file_path,
       file_size=excluded.file_size, file_mtime=excluded.file_mtime, parsed_offset=excluded.parsed_offset`)
-      .run(row.sid, row.projectKey, row.cwd, row.branch, row.title, row.firstPrompt, row.lastPrompt,
+      .run(row.agent, row.sid, row.projectKey, row.cwd, row.branch, row.title, row.firstPrompt, row.lastPrompt,
         row.lastInputAt, row.promptCount, row.filePath, row.fileSize, row.fileMtime, row.parsedOffset);
   }
-  getStoredSession(sid: string): StoredSession | null {
-    const row = this.raw.query("SELECT * FROM sessions WHERE sid = ?").get(sid) as Record<string, unknown> | null;
+  getStoredSession(agent: Agent, sid: string): StoredSession | null {
+    const row = this.raw.query("SELECT * FROM sessions WHERE agent = ? AND sid = ?").get(agent, sid) as Record<string, unknown> | null;
     return row ? storedSession(row) : null;
   }
-  getSession(sid: string): SessionRow | null {
-    const row = this.raw.query("SELECT * FROM sessions WHERE sid = ?").get(sid) as Record<string, unknown> | null;
+  getSession(agent: Agent, sid: string): SessionRow | null {
+    const row = this.raw.query("SELECT * FROM sessions WHERE agent = ? AND sid = ?").get(agent, sid) as Record<string, unknown> | null;
     return row ? sessionRow(row) : null;
   }
-  replaceSessionFts(sid: string, rows: FtsRow[]): void {
-    this.deleteSessionFts(sid); this.appendSessionFts(rows);
+  replaceSessionFts(agent: Agent, sid: string, rows: FtsRow[]): void {
+    this.deleteSessionFts(agent, sid); this.appendSessionFts(rows);
   }
   appendSessionFts(rows: FtsRow[]): void {
-    const insert = this.raw.query("INSERT INTO msg_fts(text, sid, role, ts) VALUES (?, ?, ?, ?)");
-    for (const row of rows) insert.run(row.text, row.sid, row.role, row.ts);
+    const insert = this.raw.query("INSERT INTO msg_fts(text, agent, sid, role, ts) VALUES (?, ?, ?, ?, ?)");
+    for (const row of rows) insert.run(row.text, row.agent, row.sid, row.role, row.ts);
   }
-  deleteSessionFts(sid: string): void { this.raw.query("DELETE FROM msg_fts WHERE sid = ?").run(sid); }
-  countSessionFts(sid: string): number {
-    return Number((this.raw.query("SELECT COUNT(*) AS count FROM msg_fts WHERE sid = ?").get(sid) as { count: number }).count);
+  deleteSessionFts(agent: Agent, sid: string): void {
+    this.raw.query("DELETE FROM msg_fts WHERE agent = ? AND sid = ?").run(agent, sid);
+  }
+  countSessionFts(agent: Agent, sid: string): number {
+    return Number((this.raw.query("SELECT COUNT(*) AS count FROM msg_fts WHERE agent = ? AND sid = ?").get(agent, sid) as { count: number }).count);
   }
   upsertProject(project: ProjectRecord): void {
     this.raw.query(`INSERT INTO projects(key, name, root, color) VALUES (?, ?, ?, ?)
@@ -204,29 +209,30 @@ export class OrcaDatabase {
     const q = query.trim();
     if (!q) return [];
     const rowLimit = limit * SEARCH_ROWS_MULTIPLIER;
-    type MatchRow = { sid: string; role: "user" | "assistant"; ts: number | null; snippet: string; score: number };
+    type MatchRow = { agent: Agent; sid: string; role: "user" | "assistant"; ts: number | null; snippet: string; score: number };
     let rows: MatchRow[];
     if (q.length >= SEARCH_MIN_FTS_CHARS) {
       const match = `"${q.replace(/"/g, '""')}"`;
-      rows = this.raw.query(`SELECT sid, role, CAST(ts AS INTEGER) AS ts,
+      rows = this.raw.query(`SELECT agent, sid, role, CAST(ts AS INTEGER) AS ts,
         snippet(msg_fts, 0, '‹', '›', '…', 20) AS snippet, -rank AS score
         FROM msg_fts WHERE msg_fts MATCH ? ORDER BY rank LIMIT ?`).all(match, rowLimit) as MatchRow[];
     } else {
-      const matches = this.raw.query("SELECT text, sid, role, CAST(ts AS INTEGER) AS ts FROM msg_fts WHERE text LIKE ? ESCAPE '\\' LIMIT ?")
+      const matches = this.raw.query("SELECT text, agent, sid, role, CAST(ts AS INTEGER) AS ts FROM msg_fts WHERE text LIKE ? ESCAPE '\\' LIMIT ?")
         .all(`%${escapeLike(q)}%`, rowLimit) as Array<Omit<MatchRow, "snippet" | "score"> & { text: string }>;
       rows = matches.map((row) => ({ ...row, snippet: likeSnippet(row.text, q), score: 1 }));
     }
-    const grouped = new Map<string, { hits: SearchHit[]; score: number }>();
+    const grouped = new Map<string, { agent: Agent; sid: string; hits: SearchHit[]; score: number }>();
     for (const row of rows) {
-      const entry = grouped.get(row.sid) ?? { hits: [], score: row.score };
+      const key = `${row.agent}/${row.sid}`;
+      const entry = grouped.get(key) ?? { agent: row.agent, sid: row.sid, hits: [], score: row.score };
       if (entry.hits.length < MAX_HITS_PER_SESSION) entry.hits.push({ role: row.role, ts: row.ts, snippet: row.snippet });
       entry.score = Math.max(entry.score, row.score);
-      grouped.set(row.sid, entry);
+      grouped.set(key, entry);
     }
-    return [...grouped.entries()]
-      .map(([sid, entry]) => {
-        const session = this.getSession(sid);
-        return session ? { ...session, ...entry } : null;
+    return [...grouped.values()]
+      .map((entry) => {
+        const session = this.getSession(entry.agent, entry.sid);
+        return session ? { ...session, hits: entry.hits, score: entry.score } : null;
       })
       .filter((row): row is SearchResult => row !== null)
       .sort((a, b) => b.score - a.score || (b.lastInputAt ?? -1) - (a.lastInputAt ?? -1))
@@ -237,12 +243,12 @@ export class OrcaDatabase {
 let defaultDatabase: OrcaDatabase | null = null;
 export function getDefaultDatabase(): OrcaDatabase { return defaultDatabase ??= new OrcaDatabase(); }
 export function upsertSession(row: StoredSession): void { getDefaultDatabase().upsertSession(row); }
-export function replaceSessionFts(sid: string, rows: FtsRow[]): void { getDefaultDatabase().replaceSessionFts(sid, rows); }
-export function deleteSessionFts(sid: string): void { getDefaultDatabase().deleteSessionFts(sid); }
+export function replaceSessionFts(agent: Agent, sid: string, rows: FtsRow[]): void { getDefaultDatabase().replaceSessionFts(agent, sid, rows); }
+export function deleteSessionFts(agent: Agent, sid: string): void { getDefaultDatabase().deleteSessionFts(agent, sid); }
 export function listProjects(): ProjectRow[] { return getDefaultDatabase().listProjects(); }
 export function listSessions(options: { projectKey?: string; limit: number }): SessionRow[] { return getDefaultDatabase().listSessions(options); }
 export function search(q: string, limit: number): SearchResult[] { return getDefaultDatabase().search(q, limit); }
-export function getSession(sid: string): SessionRow | null { return getDefaultDatabase().getSession(sid); }
+export function getSession(agent: Agent, sid: string): SessionRow | null { return getDefaultDatabase().getSession(agent, sid); }
 export function openDatabaseReadOnly(path: string): OrcaDatabase | null {
   return existsSync(path) ? new OrcaDatabase(path, { readonly: true }) : null;
 }

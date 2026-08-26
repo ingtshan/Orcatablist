@@ -11,9 +11,11 @@ function readPort(value: string | undefined): number {
 
 export const ORCATAB_PORT = readPort(process.env.ORCATAB_PORT);
 export const ORCATAB_CLAUDE_DIR = process.env.ORCATAB_CLAUDE_DIR ?? join(homedir(), ".claude");
+export const ORCATAB_CODEX_DIR = process.env.ORCATAB_CODEX_DIR ?? join(homedir(), ".codex");
 export const ORCATAB_DATA_DIR = process.env.ORCATAB_DATA_DIR ?? join(homedir(), ".orcatab");
 export const ORCATAB_ORCA_BIN = process.env.ORCATAB_ORCA_BIN ?? "orca";
 export const ORCATAB_HOST = "127.0.0.1";
+export const AGENTS = ["claude", "codex"] as const;
 
 export const RESCAN_INTERVAL_MS = 60_000;
 export const FALLBACK_RESCAN_INTERVAL_MS = 10_000;

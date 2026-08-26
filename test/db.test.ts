@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabaseReadOnly, OrcaDatabase, type FtsRow, type StoredSession } from "../src/db";
+import type { Agent } from "../src/types";
 
 const databases: OrcaDatabase[] = [];
 const temporaryDirectories: string[] = [];
@@ -13,9 +14,9 @@ function makeDb(): OrcaDatabase {
   return db;
 }
 
-function session(sid: string, lastInputAt = 1): StoredSession {
+function session(sid: string, lastInputAt = 1, agent: Agent = "claude"): StoredSession {
   return {
-    sid, projectKey: "/repo", cwd: "/repo/wt", branch: "main", title: null,
+    agent, sid, projectKey: "/repo", cwd: "/repo/wt", branch: "main", title: null,
     firstPrompt: "首条问题", lastPrompt: "最近问题", lastInputAt, promptCount: 1, filePath: `/tmp/${sid}.jsonl`,
     fileSize: 10, fileMtime: 20, parsedOffset: 10,
   };
@@ -31,7 +32,7 @@ describe("OrcaDatabase", () => {
     const db = makeDb();
     db.upsertProject({ key: "/repo", name: "repo", root: "/repo", color: null });
     db.upsertSession(session("11111111-1111-1111-1111-111111111111"));
-    const row = db.getSession("11111111-1111-1111-1111-111111111111");
+    const row = db.getSession("claude", "11111111-1111-1111-1111-111111111111");
     expect(row?.displayTitle).toBe("首条问题");
     expect(row?.lastPrompt).toBe("最近问题");
     expect(db.listProjects()[0]).toMatchObject({ name: "repo", sessionCount: 1, lastInputAt: 1 });
@@ -42,7 +43,7 @@ describe("OrcaDatabase", () => {
     const db = makeDb();
     const sid = "11111111-1111-1111-1111-111111111111";
     db.upsertSession(session(sid));
-    db.replaceSessionFts(sid, [{ text: "这里展示课堂树的结构", sid, role: "assistant", ts: 3 }]);
+    db.replaceSessionFts("claude", sid, [{ text: "这里展示课堂树的结构", agent: "claude", sid, role: "assistant", ts: 3 }]);
     const results = db.search("课堂树", 10);
     expect(results).toHaveLength(1);
     expect(results[0]!.hits[0]).toMatchObject({ role: "assistant", ts: 3 });
@@ -54,7 +55,7 @@ describe("OrcaDatabase", () => {
     const db = makeDb();
     const sid = "22222222-2222-2222-2222-222222222222";
     db.upsertSession(session(sid));
-    db.appendSessionFts([{ text: '前文他说"你好"后文', sid, role: "user", ts: null }]);
+    db.appendSessionFts([{ text: '前文他说"你好"后文', agent: "claude", sid, role: "user", ts: null }]);
     expect(db.search('他说"你好"', 10)).toHaveLength(1);
   });
 
@@ -63,8 +64,8 @@ describe("OrcaDatabase", () => {
     const sid = "33333333-3333-3333-3333-333333333333";
     db.upsertSession(session(sid));
     db.appendSessionFts([
-      { text: "短词课可以命中", sid, role: "user", ts: 4 },
-      { text: "literal % and _ and \\ markers", sid, role: "assistant", ts: 5 },
+      { text: "短词课可以命中", agent: "claude", sid, role: "user", ts: 4 },
+      { text: "literal % and _ and \\ markers", agent: "claude", sid, role: "assistant", ts: 5 },
     ]);
     expect(db.search("课", 10)[0]!.hits[0]!.snippet).toContain("‹课›");
     expect(db.search("%", 10)).toHaveLength(1);
@@ -78,12 +79,30 @@ describe("OrcaDatabase", () => {
     for (let index = 1; index <= 3; index += 1) {
       const sid = `${String(index).repeat(8)}-${String(index).repeat(4)}-${String(index).repeat(4)}-${String(index).repeat(4)}-${String(index).repeat(12)}`;
       db.upsertSession(session(sid, index));
-      const rows: FtsRow[] = Array.from({ length: 5 }, (_, row) => ({ text: `共同关键字 第${row}条`, sid, role: "user", ts: row }));
+      const rows: FtsRow[] = Array.from({ length: 5 }, (_, row) => ({ text: `共同关键字 第${row}条`, agent: "claude", sid, role: "user", ts: row }));
       db.appendSessionFts(rows);
     }
     const results = db.search("共同关键字", 2);
     expect(results).toHaveLength(2);
     expect(results.every((result) => result.hits.length <= 3)).toBeTrue();
+  });
+
+  test("uses (agent, sid) as the session and FTS identity", () => {
+    const db = makeDb();
+    const sid = "77777777-7777-7777-7777-777777777777";
+    db.upsertSession(session(sid, 1, "claude"));
+    db.upsertSession({ ...session(sid, 2, "codex"), title: "Codex 同号会话" });
+    db.appendSessionFts([
+      { text: "跨 agent 聚合测试", agent: "claude", sid, role: "user", ts: 1 },
+      { text: "跨 agent 聚合测试", agent: "codex", sid, role: "assistant", ts: 2 },
+    ]);
+
+    expect(db.countSessions()).toBe(2);
+    expect(db.getStoredSession("claude", sid)?.agent).toBe("claude");
+    expect(db.getSession("codex", sid)?.displayTitle).toBe("Codex 同号会话");
+    expect(db.countSessionFts("claude", sid)).toBe(1);
+    expect(db.countSessionFts("codex", sid)).toBe(1);
+    expect(db.search("跨 agent 聚合", 10).map((row) => row.agent).sort()).toEqual(["claude", "codex"]);
   });
 
   test("uses a 5 second busy timeout and permits reads during another connection's write", () => {
@@ -115,7 +134,7 @@ describe("OrcaDatabase", () => {
     writable.close();
     const readonly = openDatabaseReadOnly(path)!;
     databases.push(readonly);
-    expect(readonly.getSession("55555555-5555-5555-5555-555555555555")?.cwd).toBe("/repo/wt");
+    expect(readonly.getSession("claude", "55555555-5555-5555-5555-555555555555")?.cwd).toBe("/repo/wt");
     expect(openDatabaseReadOnly(join(root, "missing.db"))).toBeNull();
   });
 

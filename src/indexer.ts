@@ -1,47 +1,48 @@
-import { closeSync, openSync, readSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import { FTS_TEXT_MAX_CHARS, ORCATAB_CLAUDE_DIR, RESCAN_INTERVAL_MS, WATCH_DEBOUNCE_MS } from "./config";
+import {
+  FTS_TEXT_MAX_CHARS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, RESCAN_INTERVAL_MS, WATCH_DEBOUNCE_MS,
+} from "./config";
 import { getDefaultDatabase, type FtsRow, type OrcaDatabase, type StoredSession } from "./db";
-import { cleanPromptForDisplay, parseLine } from "./parse";
+import { cleanPromptForDisplay } from "./parse";
 import {
   createProjectDeps, mergeDeletedWorktreeProjects, mergeOrcaWorkspaceProjects, resolveProjectKey,
 } from "./projects";
+import { createClaudeSource } from "./sources/claude";
+import { createCodexSource } from "./sources/codex";
+import type { Agent, ParsedEvent } from "./types";
 
-const SESSION_FILE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/;
 const BYTE_NEWLINE = 0x0a;
 
 export interface IndexSummary { files: number; changed: number; ms: number; }
 export interface WatchHandle { mode: "fs.watch" | "timer"; close(): void; }
+export interface SessionFileInfo { agent: Agent; sid: string; path: string; size: number; mtime: number; }
+export interface SessionSource {
+  agent: Agent;
+  discover(): SessionFileInfo[];
+  parseLine(line: string): ParsedEvent;
+  prepare?(): void;
+  titleFor?(sid: string): string | null;
+}
 export interface IndexerOptions {
   claudeDir?: string;
+  codexDir?: string;
+  sources?: SessionSource[];
   db?: OrcaDatabase;
   resolveProject?: typeof resolveProjectKey;
   now?: () => number;
 }
 
-interface FileInfo { path: string; sid: string; size: number; mtime: number; }
 interface CompleteRead { lines: string[]; consumedBytes: number; }
 
-function discoverSessionFiles(claudeDir: string): FileInfo[] {
-  const projectsDir = join(claudeDir, "projects");
-  let projectEntries;
-  try {
-    projectEntries = readdirSync(projectsDir, { withFileTypes: true });
-  } catch (error) {
-    throw new Error(`failed to read Claude projects directory ${projectsDir}: ${String(error)}`);
+function uniqueSessionFiles(files: SessionFileInfo[]): SessionFileInfo[] {
+  const latestBySession = new Map<string, SessionFileInfo>();
+  for (const file of files) {
+    const key = `${file.agent}/${file.sid}`;
+    const current = latestBySession.get(key);
+    if (current === undefined || file.path.localeCompare(current.path) > 0) latestBySession.set(key, file);
   }
-  const files: FileInfo[] = [];
-  for (const projectEntry of projectEntries) {
-    if (!projectEntry.isDirectory()) continue;
-    const directory = join(projectsDir, projectEntry.name);
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (!entry.isFile() || !SESSION_FILE_PATTERN.test(entry.name)) continue;
-      const path = join(directory, entry.name);
-      const stat = statSync(path);
-      files.push({ path, sid: entry.name.slice(0, -6), size: stat.size, mtime: Math.trunc(stat.mtimeMs) });
-    }
-  }
-  return files.sort((a, b) => a.path.localeCompare(b.path));
+  return [...latestBySession.values()];
 }
 
 function readCompleteLines(path: string, offset: number, size: number): CompleteRead {
@@ -66,19 +67,19 @@ function readCompleteLines(path: string, offset: number, size: number): Complete
   return { lines: text ? text.split("\n") : [], consumedBytes: finalNewline + 1 };
 }
 
-function emptySession(file: FileInfo): StoredSession {
+function emptySession(file: SessionFileInfo): StoredSession {
   return {
-    sid: file.sid, projectKey: "unknown", cwd: null, branch: null, title: null,
+    agent: file.agent, sid: file.sid, projectKey: "unknown", cwd: null, branch: null, title: null,
     firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0, filePath: file.path,
     fileSize: 0, fileMtime: 0, parsedOffset: 0,
   };
 }
 
-function applyLines(base: StoredSession, lines: string[]): { session: StoredSession; fts: FtsRow[] } {
+function applyLines(base: StoredSession, lines: string[], source: SessionSource): { session: StoredSession; fts: FtsRow[] } {
   let session = { ...base };
   const fts: FtsRow[] = [];
   for (const line of lines) {
-    const event = parseLine(line);
+    const event = source.parseLine(line);
     if (session.cwd === null && event.cwd) {
       session = { ...session, cwd: event.cwd, branch: event.branch ?? session.branch };
     }
@@ -93,10 +94,10 @@ function applyLines(base: StoredSession, lines: string[]): { session: StoredSess
           ? session.lastInputAt : Math.max(session.lastInputAt ?? event.ts, event.ts),
         promptCount: session.promptCount + 1,
       };
-      fts.push({ text: event.text.slice(0, FTS_TEXT_MAX_CHARS), sid: session.sid, role: "user", ts: event.ts ?? null });
+      fts.push({ text: event.text.slice(0, FTS_TEXT_MAX_CHARS), agent: session.agent, sid: session.sid, role: "user", ts: event.ts ?? null });
     }
     if (event.kind === "assistant-text" && event.text !== undefined) {
-      fts.push({ text: event.text.slice(0, FTS_TEXT_MAX_CHARS), sid: session.sid, role: "assistant", ts: event.ts ?? null });
+      fts.push({ text: event.text.slice(0, FTS_TEXT_MAX_CHARS), agent: session.agent, sid: session.sid, role: "assistant", ts: event.ts ?? null });
     }
   }
   return { session, fts };
@@ -104,6 +105,10 @@ function applyLines(base: StoredSession, lines: string[]): { session: StoredSess
 
 export function createIndexer(options: IndexerOptions = {}) {
   const claudeDir = options.claudeDir ?? ORCATAB_CLAUDE_DIR;
+  const codexDir = options.codexDir ?? ORCATAB_CODEX_DIR;
+  const sources = options.sources ?? [createClaudeSource(claudeDir), createCodexSource(codexDir)];
+  const sourcesByAgent = new Map(sources.map((source) => [source.agent, source]));
+  const watchPaths = [join(claudeDir, "projects"), join(codexDir, "sessions")];
   const db = options.db ?? getDefaultDatabase();
   const projectDeps = createProjectDeps(db);
   const projectResolver = options.resolveProject ?? resolveProjectKey;
@@ -111,22 +116,30 @@ export function createIndexer(options: IndexerOptions = {}) {
   let activeRun: Promise<IndexSummary> | null = null;
   let rerunRequested = false;
 
-  async function indexFile(file: FileInfo): Promise<boolean> {
-    const stored = db.getStoredSession(file.sid);
-    if (stored && stored.filePath === file.path && stored.fileSize === file.size && stored.fileMtime === file.mtime) return false;
+  async function indexFile(file: SessionFileInfo): Promise<boolean> {
+    const source = sourcesByAgent.get(file.agent);
+    if (source === undefined) throw new Error(`missing session source for ${file.agent}`);
+    const stored = db.getStoredSession(file.agent, file.sid);
+    const sourceTitle = source.titleFor?.(file.sid);
+    if (stored && stored.filePath === file.path && stored.fileSize === file.size && stored.fileMtime === file.mtime) {
+      if (source.titleFor === undefined || stored.title === sourceTitle) return false;
+      db.upsertSession({ ...stored, title: sourceTitle ?? null });
+      return true;
+    }
     const rebuild = stored === null || stored.filePath !== file.path || file.size < stored.fileSize
       || (file.size === stored.fileSize && file.mtime !== stored.fileMtime);
     const base = rebuild ? emptySession(file) : stored;
+    const parseBase = source.titleFor === undefined ? base : { ...base, title: null };
     const offset = rebuild ? 0 : base.parsedOffset;
     const read = readCompleteLines(file.path, offset, file.size);
-    const parsed = applyLines(base, read.lines);
+    const parsed = applyLines(parseBase, read.lines, source);
     const project = await projectResolver(parsed.session.cwd, projectDeps);
     const session: StoredSession = {
-      ...parsed.session, projectKey: project.key, filePath: file.path,
+      ...parsed.session, title: sourceTitle ?? parsed.session.title, projectKey: project.key, filePath: file.path,
       fileSize: file.size, fileMtime: file.mtime, parsedOffset: offset + read.consumedBytes,
     };
     db.transaction(() => {
-      if (rebuild) db.deleteSessionFts(file.sid);
+      if (rebuild) db.deleteSessionFts(file.agent, file.sid);
       db.upsertProject(project);
       db.appendSessionFts(parsed.fts);
       db.upsertSession(session);
@@ -136,7 +149,8 @@ export function createIndexer(options: IndexerOptions = {}) {
 
   async function performIndexAll(): Promise<IndexSummary> {
     const startedAt = now();
-    const files = discoverSessionFiles(claudeDir);
+    for (const source of sources) source.prepare?.();
+    const files = uniqueSessionFiles(sources.flatMap((source) => source.discover()));
     let changed = 0;
     for (const file of files) if (await indexFile(file)) changed += 1;
     if (changed > 0) db.bumpDataVersion();
@@ -167,31 +181,37 @@ export function createIndexer(options: IndexerOptions = {}) {
   }
 
   function startWatcher(onFailure?: () => void): WatchHandle {
-    let watcher: FSWatcher | null = null;
+    const watchers: FSWatcher[] = [];
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let failed = false;
     const close = () => {
       if (debounceTimer !== null) clearTimeout(debounceTimer);
-      watcher?.close();
+      for (const watcher of watchers) watcher.close();
     };
     try {
-      watcher = watch(join(claudeDir, "projects"), { recursive: true }, () => {
-        if (debounceTimer !== null) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => runBackground("watch"), WATCH_DEBOUNCE_MS);
-        debounceTimer.unref?.();
-      });
+      for (const path of watchPaths.filter(existsSync)) {
+        watchers.push(watch(path, { recursive: true }, () => {
+          if (debounceTimer !== null) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => runBackground("watch"), WATCH_DEBOUNCE_MS);
+          debounceTimer.unref?.();
+        }));
+      }
+      if (watchers.length === 0) throw new Error("no session directories available to watch");
       const handle: WatchHandle = { mode: "fs.watch", close };
-      watcher.on("error", (error) => {
-        if (failed) return;
-        failed = true;
-        handle.mode = "timer";
-        console.error("orcatab fs.watch failed; using timer fallback", error);
-        close();
-        onFailure?.();
-      });
+      for (const watcher of watchers) {
+        watcher.on("error", (error) => {
+          if (failed) return;
+          failed = true;
+          handle.mode = "timer";
+          console.error("orcatab fs.watch failed; using timer fallback", error);
+          close();
+          onFailure?.();
+        });
+      }
       return handle;
     } catch (error) {
       console.error("orcatab fs.watch failed; using timer fallback", error);
+      close();
       return { mode: "timer", close: () => {} };
     }
   }
