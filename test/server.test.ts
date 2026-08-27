@@ -327,7 +327,9 @@ describe("HTTP server", () => {
     expect(html).toContain("groupedWorktrees");
     expect(html).toContain("row.worktreeRoot || row.cwd");
     expect(html).toContain("主 worktree");
-    expect(html).toContain('conditionalApi("/api/worktrees", state.worktreeEtag)');
+    expect(html).toContain('optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])');
+    expect(html).toContain("if (response.status === 404)");
+    expect(html).toContain("state.worktreesSupported = false");
     expect(html).toContain('"button", `action floating-menu-action worktree-archive${worktreeArchived ? " restore" : ""}`');
     expect(html).toContain('"project-item-menu", "project-menu-toggle", "⋯"');
     expect(html).toContain('"managed-project-menu", "action compact-menu-toggle"');

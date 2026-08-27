@@ -313,7 +313,7 @@
         activeRow: -1, projectEtag: "", sessionEtag: "", view: "sessions",
         goals: [], selectedGoalId: "", goalDetail: null, linkAfterCreate: null,
         sourceSessions: [], liveBySession: {}, liveEtag: "", worktreeEtag: "",
-        archivedWorktrees: new Map(), showArchived: false,
+        archivedWorktrees: new Map(), worktreesSupported: true, showArchived: false,
         projectScope: "active", projectQuery: "",
       };
       const searchInput = document.querySelector("#search");
@@ -363,6 +363,18 @@
         const headers = etag ? { "If-None-Match": etag } : {};
         const response = await fetch(path, { headers });
         if (response.status === 304) return { unchanged: true, etag };
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        return { unchanged: false, etag: response.headers.get("ETag") || "", body };
+      }
+
+      async function optionalConditionalApi(path, etag, fallback) {
+        const headers = etag ? { "If-None-Match": etag } : {};
+        const response = await fetch(path, { headers });
+        if (response.status === 304) return { unchanged: true, etag };
+        if (response.status === 404) {
+          return { unchanged: false, etag: "", body: fallback, unsupported: true };
+        }
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
         return { unchanged: false, etag: response.headers.get("ETag") || "", body };
@@ -759,7 +771,7 @@
               make("span", "worktree-meta", `${worktree.rows.length} 个会话 · 最近 ${relativeTime(worktree.latest || null)}`),
               focus,
             );
-            if (!project.archived && worktree.root) {
+            if (state.worktreesSupported && !project.archived && worktree.root) {
               const archive = make(
                 "button", `action floating-menu-action worktree-archive${worktreeArchived ? " restore" : ""}`,
                 worktreeArchived ? "恢复" : "归档",
@@ -1192,10 +1204,13 @@
         if (state.selectedProject) params.set("project", state.selectedProject);
         params.set("includeLive", "0");
         if (state.liveOnly || state.showArchived) params.set("limit", String(LIVE_POOL_LIMIT));
+        const worktreesRequest = state.worktreesSupported
+          ? optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])
+          : Promise.resolve({ unchanged: true, etag: state.worktreeEtag, body: [] });
         const [projects, sessions, worktrees, health, goals, live] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
           conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
-          conditionalApi("/api/worktrees", state.worktreeEtag),
+          worktreesRequest,
           api("/healthz"),
           api("/api/goals"),
           conditionalApi("/api/live", state.liveEtag),
@@ -1207,6 +1222,7 @@
         const sessionsChanged = !sessions.unchanged;
         const worktreesChanged = !worktrees.unchanged;
         const liveChanged = !live.unchanged;
+        if (worktrees.unsupported) state.worktreesSupported = false;
         if (!projects.unchanged) {
           state.projects = projects.body;
           state.projectEtag = projects.etag;
