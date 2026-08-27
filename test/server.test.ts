@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type OrcaTabServer } from "../src/server";
+import type { DiscoveryReaders } from "../src/discovery";
 import { createIndexer } from "../src/indexer";
 import type { FocusDeps } from "../src/focus";
 import type { SessionLiveReader } from "../src/session-live";
@@ -39,6 +40,39 @@ let sessionPath = "";
 let fixtureCwd = "";
 let focusOpens = 0;
 const focusCalls: string[][] = [];
+let resourceRoots: string[] = [];
+
+const discovery: DiscoveryReaders = {
+  gateway: {
+    getVersion: () => 1,
+    refresh: async () => ({
+      scannedAt: 1, cacheTtlMs: 30_000, sources: ["fixture-nginx"], warnings: [],
+      files: [{
+        source: "fixture-nginx", path: "/etc/nginx/routes/fixture.conf",
+        sourcePath: "/tmp/fixture.conf", content: "server { listen 80; }",
+      }],
+      routes: [{
+        source: "fixture-nginx", file: "/etc/nginx/routes/fixture.conf",
+        serverNames: ["fixture.localhost"], listen: ["80"], location: "/",
+        proxyPass: "http://host.docker.internal:4321", upstreamPort: 4321,
+        urls: ["http://fixture.localhost"],
+      }],
+    }),
+  },
+  resources: {
+    getVersion: () => 1,
+    refresh: async (roots) => {
+      resourceRoots = roots;
+      return {
+        scannedAt: 1, cacheTtlMs: 15_000, warnings: [],
+        resources: fixtureCwd ? { [fixtureCwd]: [{
+          worktreeRoot: fixtureCwd, appName: "fixture-web", pid: 123, port: 4321,
+          links: [{ kind: "gateway", url: "http://fixture.localhost/", status: 200 }],
+        }] } : {},
+      };
+    },
+  },
+};
 
 const focusDeps: FocusDeps = {
   findLive: () => null,
@@ -102,7 +136,7 @@ beforeAll(async () => {
   hermes.close();
   app = await createServer({
     port: 0, claudeDir, codexDir, hermesDb, dataDir: join(root, "data"),
-    orcaBin: join(root, "missing-orca"), focusDeps, sessionLiveReader, startTimers: false, quiet: true,
+    orcaBin: join(root, "missing-orca"), focusDeps, sessionLiveReader, discovery, startTimers: false, quiet: true,
   });
   baseUrl = `http://127.0.0.1:${app.server.port}`;
 });
@@ -116,7 +150,30 @@ describe("HTTP server", () => {
     expect(await response.json()).toMatchObject({
       ok: true, sessions: 3, goals: 0, agents: ["claude", "codex", "hermes"], version: "p7",
       dataVersion: 1, listVersion: 1, watch: "timer",
+      capabilities: ["worktree-resources", "nginx-gateway"],
     });
+  });
+
+  test("serves read-only gateway and accessible worktree resources with ETags", async () => {
+    const gateway = await fetch(`${baseUrl}/api/gateway`);
+    expect(gateway.headers.get("ETag")).toBe('"g-1"');
+    expect(await gateway.json()).toMatchObject({
+      sources: ["fixture-nginx"], routes: [{ upstreamPort: 4321, urls: ["http://fixture.localhost"] }],
+      files: [{ content: "server { listen 80; }" }],
+    });
+    expect((await fetch(`${baseUrl}/api/gateway`, {
+      headers: { "If-None-Match": '"g-1"' },
+    })).status).toBe(304);
+
+    const resources = await fetch(`${baseUrl}/api/worktree-resources`);
+    expect(resources.headers.get("ETag")).toBe('"r-1"');
+    expect(await resources.json()).toMatchObject({
+      resources: { [fixtureCwd]: [{ appName: "fixture-web", port: 4321 }] },
+    });
+    expect(resourceRoots).toContain(fixtureCwd);
+    expect((await fetch(`${baseUrl}/api/worktree-resources`, {
+      headers: { "If-None-Match": '"r-1"' },
+    })).status).toBe(304);
   });
 
   test("serves projects and sessions", async () => {
@@ -330,6 +387,14 @@ describe("HTTP server", () => {
     expect(html).toContain('optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])');
     expect(html).toContain("if (response.status === 404)");
     expect(html).toContain("state.worktreesSupported = false");
+    expect(html).toContain('id="gateway-view-button"');
+    expect(html).toContain('id="gateway-content"');
+    expect(html).toContain('optionalConditionalApi("/api/worktree-resources"');
+    expect(html).toContain('optionalConditionalApi("/api/gateway"');
+    expect(html).toContain("worktreeResourceDrawer(worktree.root, worktreeName)");
+    expect(html).toContain('"resource-drawer", "action compact-menu-toggle"');
+    expect(html).toContain("只读展示本机与容器 nginx 配置");
+    expect(html).toContain("file.content");
     expect(html).toContain('"button", `action floating-menu-action worktree-archive${worktreeArchived ? " restore" : ""}`');
     expect(html).toContain('"project-item-menu", "project-menu-toggle", "⋯"');
     expect(html).toContain('"managed-project-menu", "action compact-menu-toggle"');

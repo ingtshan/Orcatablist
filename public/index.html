@@ -112,7 +112,7 @@
     .floating-menu:not([open]) > .floating-menu-panel { display: none; }
     .floating-menu[open] { z-index: 40; }
     .floating-menu[open] > .floating-menu-toggle { border-color: var(--accent); color: var(--accent); }
-    .floating-menu-panel { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: grid; width: max-content; min-width: 132px; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px #17222A2E; }
+    .floating-menu-panel { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: grid; width: max-content; max-width: calc(100vw - 16px); min-width: 132px; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px #17222A2E; transform: translateX(var(--floating-menu-shift-x, 0)); }
     .floating-menu.open-up > .floating-menu-panel { top: auto; bottom: calc(100% + 6px); }
     .floating-menu-action { width: 100%; min-width: 0; text-align: left; }
     .menu-open { position: relative; z-index: 35; }
@@ -128,6 +128,15 @@
     .drawer-toggle::after { content: "⌄"; font-size: 11px; transition: transform .12s ease; }
     .action-drawer[open] .drawer-toggle::after { transform: rotate(180deg); }
     .drawer-action { min-width: 112px; padding: 6px 8px; border-color: transparent; background: transparent; font-size: 11px; }
+    .resource-drawer .floating-menu-panel { width: min(420px, calc(100vw - 16px)); min-width: 300px; gap: 8px; padding: 9px; }
+    .resource-card { display: grid; gap: 7px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+    .resource-card-head { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .resource-app { overflow: hidden; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .resource-port { flex: 0 0 auto; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; }
+    .resource-links { display: flex; flex-wrap: wrap; gap: 6px; }
+    .resource-link { display: inline-flex; min-width: 0; align-items: center; gap: 5px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 7px; color: var(--accent); font-size: 11px; text-decoration: none; }
+    .resource-link:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .resource-status { color: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
     .goal-picker { width: 112px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
     .manual { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--muted); font-size: 12px; }
     .manual code { overflow: hidden; font: 12px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
@@ -163,6 +172,28 @@
     .managed-project-metric { display: grid; gap: 3px; color: var(--muted); font-size: 11px; }
     .managed-project-metric strong { color: var(--text); font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
     .managed-project-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .gateway-view { width: min(1240px, 100%); margin: 0 auto; padding: 32px clamp(16px, 4vw, 54px) 64px; }
+    .gateway-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+    .gateway-head h1 { margin: 0 0 6px; font-size: 25px; letter-spacing: -.02em; }
+    .gateway-head p, .gateway-scan { margin: 0; color: var(--muted); font-size: 12px; }
+    .gateway-section { margin: 0 0 30px; }
+    .gateway-section-head { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 10px; }
+    .gateway-section-head h2 { margin: 0; font-size: 16px; }
+    .gateway-section-head span { color: var(--muted); font-size: 12px; }
+    .gateway-route-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+    .gateway-route { display: grid; gap: 9px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 5px 18px var(--shadow); }
+    .gateway-route-title { overflow: hidden; font: 700 14px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .gateway-route code { overflow-wrap: anywhere; color: var(--muted); font: 11px/1.45 ui-monospace, Menlo, monospace; }
+    .gateway-route-links { display: flex; flex-wrap: wrap; gap: 6px; }
+    .gateway-route-links a { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--accent); font-size: 11px; text-decoration: none; }
+    .gateway-route-links a:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .gateway-configs { display: grid; gap: 9px; }
+    .gateway-config { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+    .gateway-config summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 12px 14px; cursor: pointer; }
+    .gateway-config-path { overflow: hidden; font: 12px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .gateway-config-source { color: var(--muted); font-size: 11px; }
+    .gateway-config pre { overflow: auto; max-height: 520px; margin: 0; padding: 16px; border-top: 1px solid var(--line); background: var(--bg); font: 11px/1.55 ui-monospace, Menlo, monospace; tab-size: 2; }
+    .gateway-warnings { display: grid; gap: 5px; margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--waiting); border-radius: 10px; background: var(--danger-soft); color: var(--muted); font-size: 12px; }
     .goals-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); width: min(1420px, 100%); min-height: calc(100vh - 68px); margin: 0 auto; }
     .goal-sidebar { position: sticky; top: 68px; align-self: start; height: calc(100vh - 68px); padding: 22px 16px; border-right: 1px solid var(--line); }
     .goal-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 6px 14px; }
@@ -205,6 +236,7 @@
       .goal-detail { padding-top: 18px; }
       .goal-editor { grid-template-columns: 1fr 1fr; }
       .project-management { padding-top: 22px; }
+      .gateway-view { padding-top: 22px; }
       .project-management-head { align-items: stretch; flex-direction: column; gap: 14px; }
       .project-management-search { width: 100%; }
       .managed-project { grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; }
@@ -244,6 +276,7 @@
       <button id="sessions-view-button" type="button" aria-pressed="true">会话</button>
       <button id="projects-view-button" type="button" aria-pressed="false">项目</button>
       <button id="goals-view-button" type="button" aria-pressed="false">目标</button>
+      <button id="gateway-view-button" type="button" aria-pressed="false">网关</button>
     </div>
     <div class="search-wrap session-only"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
     <div class="top-actions">
@@ -288,6 +321,9 @@
     </aside>
     <main id="goal-detail" class="goal-detail" aria-live="polite"></main>
   </div>
+  <div id="gateway-view" class="gateway-view" hidden>
+    <div id="gateway-content" aria-live="polite"></div>
+  </div>
   <dialog id="goal-dialog">
     <form id="goal-dialog-form" class="dialog-form">
       <h2>新建目标</h2>
@@ -314,6 +350,8 @@
         goals: [], selectedGoalId: "", goalDetail: null, linkAfterCreate: null,
         sourceSessions: [], liveBySession: {}, liveEtag: "", worktreeEtag: "",
         archivedWorktrees: new Map(), worktreesSupported: true, showArchived: false,
+        worktreeResources: new Map(), resourceEtag: "", resourcesSupported: true,
+        gateway: null, gatewayEtag: "", gatewaySupported: true,
         projectScope: "active", projectQuery: "",
       };
       const searchInput = document.querySelector("#search");
@@ -321,9 +359,11 @@
       const sessionsView = document.querySelector("#sessions-view");
       const projectsView = document.querySelector("#projects-view");
       const goalsView = document.querySelector("#goals-view");
+      const gatewayView = document.querySelector("#gateway-view");
       const sessionsViewButton = document.querySelector("#sessions-view-button");
       const projectsViewButton = document.querySelector("#projects-view-button");
       const goalsViewButton = document.querySelector("#goals-view-button");
+      const gatewayViewButton = document.querySelector("#gateway-view-button");
       const projectSearchInput = document.querySelector("#project-search");
       const projectSummary = document.querySelector("#project-summary");
       const projectManagementList = document.querySelector("#project-management-list");
@@ -348,6 +388,7 @@
       const newGoalName = document.querySelector("#new-goal-name");
       const newGoalRef = document.querySelector("#new-goal-ref");
       const cancelGoal = document.querySelector("#cancel-goal");
+      const gatewayContent = document.querySelector("#gateway-content");
       const toast = document.querySelector("#toast");
       let searchTimer = 0;
       let toastTimer = 0;
@@ -420,6 +461,10 @@
         state.archivedWorktrees = new Map(preferences
           .filter((preference) => preference.archived)
           .map((preference) => [preference.root, preference.projectKey]));
+      }
+
+      function applyWorktreeResources(snapshot) {
+        state.worktreeResources = new Map(Object.entries(snapshot?.resources || {}));
       }
 
       function groupedWorktrees(rows, project) {
@@ -495,7 +540,17 @@
 
       function positionFloatingMenu(menu, panel) {
         menu.classList.remove("open-up");
-        const panelRect = panel.getBoundingClientRect();
+        panel.style.removeProperty("--floating-menu-shift-x");
+        let panelRect = panel.getBoundingClientRect();
+        let shiftX = 0;
+        if (panelRect.left < FLOATING_MENU_VIEWPORT_GAP) shiftX += FLOATING_MENU_VIEWPORT_GAP - panelRect.left;
+        if (panelRect.right + shiftX > window.innerWidth - FLOATING_MENU_VIEWPORT_GAP) {
+          shiftX -= panelRect.right + shiftX - (window.innerWidth - FLOATING_MENU_VIEWPORT_GAP);
+        }
+        if (shiftX) {
+          panel.style.setProperty("--floating-menu-shift-x", `${shiftX}px`);
+          panelRect = panel.getBoundingClientRect();
+        }
         const menuRect = menu.getBoundingClientRect();
         const shouldOpenUp = panelRect.bottom > window.innerHeight - FLOATING_MENU_VIEWPORT_GAP
           && menuRect.top > panelRect.height + FLOATING_MENU_VIEWPORT_GAP;
@@ -512,7 +567,11 @@
         menu.addEventListener("toggle", () => {
           const host = menu.closest(".session-row, .project-item, .managed-project, .worktree-header");
           host?.classList.toggle("menu-open", menu.open);
-          if (!menu.open) { menu.classList.remove("open-up"); return; }
+          if (!menu.open) {
+            menu.classList.remove("open-up");
+            panel.style.removeProperty("--floating-menu-shift-x");
+            return;
+          }
           closeFloatingMenus(menu);
           requestAnimationFrame(() => {
             requestAnimationFrame(() => { if (menu.open) positionFloatingMenu(menu, panel); });
@@ -721,6 +780,38 @@
         return element;
       }
 
+      function worktreeResourceDrawer(root, name) {
+        const resources = state.worktreeResources.get(root) || [];
+        if (!resources.length) return null;
+        const { menu, panel } = floatingMenu(
+          `可访问资源：${name}`, "resource-drawer", "action compact-menu-toggle", `资源 ${resources.length}`,
+        );
+        resources.forEach((resource) => {
+          const card = make("section", "resource-card");
+          const head = make("div", "resource-card-head");
+          const app = make("span", "resource-app", resource.appName);
+          app.title = resource.appName;
+          head.append(app, make("span", "resource-port", `:${resource.port}`));
+          const links = make("div", "resource-links");
+          resource.links.forEach((item) => {
+            const link = make("a", "resource-link");
+            link.href = item.url;
+            link.target = "_blank";
+            link.rel = "noreferrer";
+            link.title = `${item.kind === "gateway" ? "通过 nginx 网关打开" : "直接打开监听端口"}：${item.url}`;
+            link.append(
+              document.createTextNode(item.kind === "gateway" ? "网关" : "直连"),
+              make("span", "resource-status", `HTTP ${item.status}`),
+            );
+            link.addEventListener("click", () => menu.removeAttribute("open"));
+            links.append(link);
+          });
+          card.append(head, links);
+          panel.append(card);
+        });
+        return menu;
+      }
+
       function render() {
         state.activeRow = -1;
         const isSearch = Boolean(state.query);
@@ -769,8 +860,10 @@
               make("span", "worktree-kind", worktreeKind(worktree, project)),
               path,
               make("span", "worktree-meta", `${worktree.rows.length} 个会话 · 最近 ${relativeTime(worktree.latest || null)}`),
-              focus,
             );
+            const resourceDrawer = worktreeResourceDrawer(worktree.root, worktreeName);
+            if (resourceDrawer) worktreeHeader.append(resourceDrawer);
+            worktreeHeader.append(focus);
             if (state.worktreesSupported && !project.archived && worktree.root) {
               const archive = make(
                 "button", `action floating-menu-action worktree-archive${worktreeArchived ? " restore" : ""}`,
@@ -992,21 +1085,120 @@
         newGoalName.focus();
       }
 
+      function renderGateway() {
+        gatewayContent.replaceChildren();
+        if (!state.gatewaySupported) {
+          gatewayContent.append(make("div", "empty", "当前后端版本尚未提供网关发现，服务更新后刷新页面即可。"));
+          return;
+        }
+        if (!state.gateway) {
+          gatewayContent.append(make("div", "empty", "正在只读发现 nginx 配置…"));
+          return;
+        }
+        const snapshot = state.gateway;
+        const head = make("header", "gateway-head");
+        const title = make("div");
+        title.append(make("h1", "", "网关"), make("p", "", "只读展示本机与容器 nginx 配置，不执行 reload 或写入。"));
+        head.append(title, make(
+          "span", "gateway-scan",
+          `${snapshot.sources.length} 个来源 · ${snapshot.routes.length} 条路由 · 扫描于 ${relativeTime(snapshot.scannedAt)}`,
+        ));
+        gatewayContent.append(head);
+        if (snapshot.warnings.length) {
+          const warnings = make("div", "gateway-warnings");
+          snapshot.warnings.forEach((warning) => warnings.append(make("span", "", warning)));
+          gatewayContent.append(warnings);
+        }
+
+        const routes = make("section", "gateway-section");
+        const routeHead = make("header", "gateway-section-head");
+        routeHead.append(make("h2", "", "反向代理"), make("span", "", `${snapshot.routes.length} 条`));
+        routes.append(routeHead);
+        if (!snapshot.routes.length) routes.append(make("div", "empty", "没有解析到 proxy_pass 路由"));
+        else {
+          const list = make("div", "gateway-route-list");
+          snapshot.routes.forEach((route) => {
+            const card = make("article", "gateway-route");
+            const names = route.serverNames.join(", ") || "未声明 server_name";
+            const name = make("div", "gateway-route-title", names);
+            name.title = names;
+            card.append(
+              name,
+              make("code", "", `${route.listen.join(", ") || "listen 80"} · ${route.location} → ${route.proxyPass}`),
+              make("code", "", `${route.source} · ${route.file}`),
+            );
+            if (route.urls.length) {
+              const links = make("div", "gateway-route-links");
+              route.urls.forEach((url) => {
+                const link = make("a", "", url);
+                link.href = url;
+                link.target = "_blank";
+                link.rel = "noreferrer";
+                links.append(link);
+              });
+              card.append(links);
+            }
+            list.append(card);
+          });
+          routes.append(list);
+        }
+        gatewayContent.append(routes);
+
+        const configs = make("section", "gateway-section");
+        const configHead = make("header", "gateway-section-head");
+        configHead.append(make("h2", "", "只读配置"), make("span", "", `${snapshot.files.length} 个文件`));
+        configs.append(configHead);
+        if (!snapshot.files.length) configs.append(make("div", "empty", "没有发现可读取的 nginx 配置"));
+        else {
+          const list = make("div", "gateway-configs");
+          snapshot.files.forEach((file) => {
+            const details = make("details", "gateway-config");
+            const summary = make("summary");
+            const path = make("span", "gateway-config-path", file.path);
+            path.title = file.sourcePath;
+            summary.append(path, make("span", "gateway-config-source", file.source));
+            const code = make("pre", "", file.content);
+            details.append(summary, code);
+            list.append(details);
+          });
+          configs.append(list);
+        }
+        gatewayContent.append(configs);
+      }
+
+      async function loadGateway() {
+        if (!state.gatewaySupported) { renderGateway(); return; }
+        if (!state.gateway) renderGateway();
+        const result = await optionalConditionalApi("/api/gateway", state.gatewayEtag, {
+          scannedAt: Date.now(), cacheTtlMs: 0, sources: [], files: [], routes: [], warnings: [],
+        });
+        if (result.unsupported) state.gatewaySupported = false;
+        if (!result.unchanged) {
+          state.gateway = result.body;
+          state.gatewayEtag = result.etag;
+          renderGateway();
+        }
+      }
+
       async function setView(view, refresh = true) {
         state.view = view;
         const sessionsActive = view === "sessions";
         const projectsActive = view === "projects";
         const goalsActive = view === "goals";
+        const gatewayActive = view === "gateway";
         sessionsView.hidden = !sessionsActive;
         projectsView.hidden = !projectsActive;
         goalsView.hidden = !goalsActive;
+        gatewayView.hidden = !gatewayActive;
         document.querySelectorAll(".session-only").forEach((element) => { element.hidden = !sessionsActive; });
         sessionsViewButton.setAttribute("aria-pressed", String(sessionsActive));
         projectsViewButton.setAttribute("aria-pressed", String(projectsActive));
         goalsViewButton.setAttribute("aria-pressed", String(goalsActive));
+        gatewayViewButton.setAttribute("aria-pressed", String(gatewayActive));
         state.activeRow = -1;
         if (projectsActive && refresh) await loadProjectManagement();
         if (goalsActive && refresh) await loadGoals(true);
+        if (gatewayActive && refresh) await loadGateway();
       }
 
       function renderGoalList() {
@@ -1207,10 +1399,14 @@
         const worktreesRequest = state.worktreesSupported
           ? optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])
           : Promise.resolve({ unchanged: true, etag: state.worktreeEtag, body: [] });
-        const [projects, sessions, worktrees, health, goals, live] = await Promise.all([
+        const resourcesRequest = state.resourcesSupported
+          ? optionalConditionalApi("/api/worktree-resources", state.resourceEtag, { resources: {} })
+          : Promise.resolve({ unchanged: true, etag: state.resourceEtag, body: { resources: {} } });
+        const [projects, sessions, worktrees, resources, health, goals, live] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
           conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
           worktreesRequest,
+          resourcesRequest,
           api("/healthz"),
           api("/api/goals"),
           conditionalApi("/api/live", state.liveEtag),
@@ -1221,8 +1417,10 @@
         const projectsChanged = !projects.unchanged;
         const sessionsChanged = !sessions.unchanged;
         const worktreesChanged = !worktrees.unchanged;
+        const resourcesChanged = !resources.unchanged;
         const liveChanged = !live.unchanged;
         if (worktrees.unsupported) state.worktreesSupported = false;
+        if (resources.unsupported) state.resourcesSupported = false;
         if (!projects.unchanged) {
           state.projects = projects.body;
           state.projectEtag = projects.etag;
@@ -1235,6 +1433,10 @@
           applyWorktreePreferences(worktrees.body);
           state.worktreeEtag = worktrees.etag;
         }
+        if (!resources.unchanged) {
+          applyWorktreeResources(resources.body);
+          state.resourceEtag = resources.etag;
+        }
         if (!live.unchanged) {
           state.liveBySession = live.body;
           state.liveEtag = live.etag;
@@ -1242,7 +1444,7 @@
         syncSessionLive();
         if (projectsChanged || worktreesChanged) renderProjects();
         if (projectsChanged) renderProjectManagement();
-        if (projectsChanged || sessionsChanged || worktreesChanged || (liveChanged && state.liveOnly)) render();
+        if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || (liveChanged && state.liveOnly)) render();
         else if (liveChanged) patchSessionLive();
       }
 
@@ -1318,6 +1520,9 @@
       });
       goalsViewButton.addEventListener("click", () => {
         setView("goals").catch((error) => showToast("加载目标失败：" + error.message));
+      });
+      gatewayViewButton.addEventListener("click", () => {
+        setView("gateway").catch((error) => showToast("加载网关失败：" + error.message));
       });
       newGoalButton.addEventListener("click", () => openGoalDialog());
       cancelGoal.addEventListener("click", () => goalDialog.close());
@@ -1398,6 +1603,10 @@
       setInterval(() => {
         if (state.view === "projects") {
           loadProjectManagement().catch((error) => showToast(error.message));
+          return;
+        }
+        if (state.view === "gateway") {
+          loadGateway().catch((error) => showToast(error.message));
           return;
         }
         if (state.view !== "sessions") return;

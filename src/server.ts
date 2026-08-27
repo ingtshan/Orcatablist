@@ -5,6 +5,7 @@ import {
   ORCATAB_HERMES_DB, ORCATAB_HOST, ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
 } from "./config";
 import { OrcaDatabase } from "./db";
+import { createDiscoveryReaders, handleDiscoveryRequest, type DiscoveryReaders } from "./discovery";
 import { createFocusDeps, resolveFocus, SID_PATTERN, ValidationError, type FocusDeps } from "./focus";
 import { GoalsStore, openGoalsDatabase, sessionIdentityKey, type GoalLinkKind } from "./goals";
 import {
@@ -29,7 +30,7 @@ const GOAL_STATUSES = new Set<GoalStatus>(["active", "done", "archived"]);
 const GOAL_LINK_KINDS = new Set<GoalLinkKind>(["confirmed", "dismissed"]);
 export interface ServerOptions {
   port?: number; claudeDir?: string; codexDir?: string; hermesDb?: string; dataDir?: string; orcaBin?: string;
-  db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; startTimers?: boolean; quiet?: boolean;
+  db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; discovery?: DiscoveryReaders; startTimers?: boolean; quiet?: boolean;
 }
 export interface OrcaTabServer {
   server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary;
@@ -59,6 +60,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const db = options.db ?? new OrcaDatabase(join(dataDir, "index.db"));
   const goalsStore = options.goalsStore ?? new GoalsStore(openGoalsDatabase(join(dataDir, "goals.db")));
   const projectPreferences = new ProjectPreferencesStore(openProjectPreferencesDatabase(join(dataDir, "project-preferences.db")));
+  const discovery = options.discovery ?? createDiscoveryReaders();
   const indexer = createIndexer({ claudeDir, codexDir, hermesDb, db });
   const indexed = await indexer.indexAll();
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
@@ -96,6 +98,8 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const handler = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
+      const discoveryResponse = await handleDiscoveryRequest(request, url, db, discovery);
+      if (discoveryResponse !== null) return discoveryResponse;
       if (url.pathname.startsWith("/spp/")) {
         await sessionLiveReader.refresh();
         return handleSppRequest(request, { db, getLiveMap: sessionLiveReader.getLiveMap, focusDeps });
@@ -112,6 +116,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt), dataVersion: db.getDataVersion(),
           listVersion: db.getListVersion(),
           watch: watcher.mode, agents: [...AGENTS], version: "p7",
+          capabilities: ["worktree-resources", "nginx-gateway"],
         });
       }
       if (request.method === "GET" && url.pathname === "/api/projects") {
