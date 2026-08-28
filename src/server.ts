@@ -5,19 +5,26 @@ import {
   ORCATAB_HERMES_DB, ORCATAB_HOST, ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
 } from "./config";
 import { OrcaDatabase } from "./db";
+import { createDiscoveryReaders, handleDiscoveryRequest, type DiscoveryReaders } from "./discovery";
 import { createFocusDeps, resolveFocus, SID_PATTERN, ValidationError, type FocusDeps } from "./focus";
 import { GoalsStore, openGoalsDatabase, sessionIdentityKey, type GoalLinkKind } from "./goals";
+import { handleGovernanceRequest } from "./governance";
 import {
   boundedLimit, conditionalJson, decodeParts, focusText, json, jsonObject, nullableText, requiredName, requiredString,
 } from "./http";
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
+import { handleOrcaAuditRequest } from "./orca-audit-route";
+import { createOrcaWorktreeAuditReader, type OrcaWorktreeAuditReader } from "./orca-worktree-audit";
 import { openProjectPreferencesDatabase, ProjectPreferencesStore } from "./project-preferences";
+import { handleProjectRequest, NotFoundError } from "./project-routes";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
+import { handleSessionInputsRequest } from "./session-input-routes";
 import { createSessionLiveReader, mergeSessionLive, type SessionLiveReader } from "./session-live";
 import { handleSppRequest } from "./spp";
 import { suggestSessions } from "./suggest";
 import type { Agent, GoalStatus, SearchResult, SessionRow } from "./types";
+import { appendUnindexedLiveSessions, liveSessionsWithProjectKeys } from "./unindexed-live";
 import { resolveWorktreeFocus } from "./worktree-focus";
 const DEFAULT_SESSIONS_LIMIT = 500;
 const MAX_SESSIONS_LIMIT = 5_000;
@@ -29,13 +36,14 @@ const GOAL_STATUSES = new Set<GoalStatus>(["active", "done", "archived"]);
 const GOAL_LINK_KINDS = new Set<GoalLinkKind>(["confirmed", "dismissed"]);
 export interface ServerOptions {
   port?: number; claudeDir?: string; codexDir?: string; hermesDb?: string; dataDir?: string; orcaBin?: string;
-  db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; startTimers?: boolean; quiet?: boolean;
+  db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; discovery?: DiscoveryReaders; startTimers?: boolean; quiet?: boolean;
+  directoryPathExists?(path: string): boolean;
+  orcaAuditReader?: OrcaWorktreeAuditReader;
 }
 export interface OrcaTabServer {
   server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary;
   stop(): void;
 }
-class NotFoundError extends Error { override name = "NotFoundError"; }
 function attachGoals<T extends SessionRow>(rows: T[], store: GoalsStore): T[] {
   const goals = store.goalsForSessions(rows.map(({ agent, sid }) => ({ agent, sid })));
   return rows.map((row) => ({ ...row, goals: goals.get(sessionIdentityKey(row.agent, row.sid)) ?? [] }));
@@ -59,6 +67,8 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const db = options.db ?? new OrcaDatabase(join(dataDir, "index.db"));
   const goalsStore = options.goalsStore ?? new GoalsStore(openGoalsDatabase(join(dataDir, "goals.db")));
   const projectPreferences = new ProjectPreferencesStore(openProjectPreferencesDatabase(join(dataDir, "project-preferences.db")));
+  const discovery = options.discovery ?? createDiscoveryReaders();
+  const orcaAuditReader = options.orcaAuditReader ?? createOrcaWorktreeAuditReader({ orcaBin });
   const indexer = createIndexer({ claudeDir, codexDir, hermesDb, db });
   const indexed = await indexer.indexAll();
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
@@ -86,16 +96,31 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     const live = await sessionLiveReader.refresh();
     return { live, etag: `"${contentVersion}-${sessionLiveReader.getLiveVersion()}-${goalsStore.goalsVersion}"` };
   };
-  const goalSummaries = () => goalsStore.listGoals().map((goal) => {
-    const links = goalsStore.confirmedLinks(goal.id);
-    const timestamps = links.map(({ agent, sid }) => db.getSession(agent, sid)?.lastInputAt ?? null)
-      .filter((value): value is number => value !== null);
-    return { ...goal, sessionCount: links.length, lastActivityAt: timestamps.length ? Math.max(...timestamps) : null };
-  }).sort((left, right) => Number(right.lastActivityAt !== null) - Number(left.lastActivityAt !== null)
-    || (right.lastActivityAt ?? -1) - (left.lastActivityAt ?? -1));
+  const goalSummaries = () => {
+    const goals = goalsStore.listGoals();
+    const linksByGoal = goalsStore.confirmedLinksByGoal();
+    const sessions = db.getSessionsByIdentity([...linksByGoal.values()].flat());
+    return goals.map((goal) => {
+      const links = linksByGoal.get(goal.id) ?? [];
+      const timestamps = links.map(({ agent, sid }) => sessions.get(sessionIdentityKey(agent, sid))?.lastInputAt ?? null)
+        .filter((value): value is number => value !== null);
+      return { ...goal, sessionCount: links.length, lastActivityAt: timestamps.length ? Math.max(...timestamps) : null };
+    }).sort((left, right) => Number(right.lastActivityAt !== null) - Number(left.lastActivityAt !== null)
+      || (right.lastActivityAt ?? -1) - (left.lastActivityAt ?? -1));
+  };
   const handler = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
+      const discoveryResponse = await handleDiscoveryRequest(request, url, db, discovery);
+      if (discoveryResponse !== null) return discoveryResponse;
+      const governanceResponse = await handleGovernanceRequest(request, url, db, projectPreferences, {
+        pathExists: options.directoryPathExists,
+      });
+      if (governanceResponse !== null) return governanceResponse;
+      const orcaAuditResponse = await handleOrcaAuditRequest(request, url, orcaAuditReader);
+      if (orcaAuditResponse !== null) return orcaAuditResponse;
+      const projectResponse = await handleProjectRequest(request, url, db, projectPreferences);
+      if (projectResponse !== null) return projectResponse;
       if (url.pathname.startsWith("/spp/")) {
         await sessionLiveReader.refresh();
         return handleSppRequest(request, { db, getLiveMap: sessionLiveReader.getLiveMap, focusDeps });
@@ -112,44 +137,18 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt), dataVersion: db.getDataVersion(),
           listVersion: db.getListVersion(),
           watch: watcher.mode, agents: [...AGENTS], version: "p7",
+          capabilities: [
+            "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
+          ],
         });
-      }
-      if (request.method === "GET" && url.pathname === "/api/projects") {
-        const etag = `"p-${db.getListVersion()}-${projectPreferences.preferencesVersion}"`;
-        return conditionalJson(request, etag, () => projectPreferences.apply(db.listProjects()));
-      }
-      if (request.method === "PATCH" && url.pathname === "/api/projects") {
-        const body = await jsonObject(request);
-        const projectKey = requiredString(body.projectKey, "projectKey");
-        if (body.pinned !== undefined && typeof body.pinned !== "boolean") throw new ValidationError("pinned must be a boolean");
-        if (body.archived !== undefined && typeof body.archived !== "boolean") throw new ValidationError("archived must be a boolean");
-        if (body.pinned === undefined && body.archived === undefined) throw new ValidationError("pinned or archived is required");
-        if (body.pinned === true && body.archived === true) throw new ValidationError("project cannot be pinned and archived");
-        const project = db.listProjects().find((candidate) => candidate.key === projectKey);
-        if (!project) throw new NotFoundError("project not found");
-        projectPreferences.update(projectKey, { pinned: body.pinned, archived: body.archived });
-        return json(projectPreferences.apply([project])[0]);
-      }
-      if (request.method === "GET" && url.pathname === "/api/worktrees") {
-        const etag = `"w-${projectPreferences.worktreePreferencesVersion}"`;
-        return conditionalJson(request, etag, () => projectPreferences.listWorktreePreferences());
-      }
-      if (request.method === "PATCH" && url.pathname === "/api/worktrees") {
-        const body = await jsonObject(request);
-        const projectKey = requiredString(body.projectKey, "projectKey");
-        const root = requiredString(body.root, "root");
-        if (typeof body.archived !== "boolean") throw new ValidationError("archived must be a boolean");
-        const project = db.listProjects().find((candidate) => candidate.key === projectKey);
-        if (!project) throw new NotFoundError("project not found");
-        const preference = projectPreferences.getWorktreePreference(root);
-        const canRestoreStale = body.archived === false && preference?.projectKey === projectKey;
-        if (!db.hasWorktree(projectKey, root) && !canRestoreStale) throw new NotFoundError("worktree not found");
-        return json(projectPreferences.updateWorktree(projectKey, root, body.archived));
       }
       if (request.method === "GET" && url.pathname === "/api/live") {
         const live = await sessionLiveReader.refresh();
-        return conditionalJson(request, `"l-${sessionLiveReader.getLiveVersion()}"`, () => Object.fromEntries(live));
+        const etag = `"l-${sessionLiveReader.getLiveVersion()}-${db.getListVersion()}"`;
+        return conditionalJson(request, etag, () => liveSessionsWithProjectKeys(db, live));
       }
+      const sessionInputsResponse = await handleSessionInputsRequest(request, url, db);
+      if (sessionInputsResponse !== null) return sessionInputsResponse;
       if (request.method === "POST" && url.pathname === "/api/projects/focus") {
         const body = await jsonObject(request);
         const projectKey = requiredString(body.projectKey, "projectKey");
@@ -175,8 +174,9 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const { live, etag } = await versionedLive(db.getListVersion());
         return conditionalJson(request, etag, () => {
           const base = db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit });
-          const rows = attachGoals(mergeSessionLive(base, live), goalsStore);
-          return liveOnly ? rows.filter((row) => row.live !== null).slice(0, limit) : rows;
+          const indexedRows = attachGoals(mergeSessionLive(base, live), goalsStore);
+          const rows = projectKey ? indexedRows : appendUnindexedLiveSessions(indexedRows, live);
+          return liveOnly ? rows.filter((row) => row.live !== null).slice(0, limit) : rows.slice(0, limit);
         });
       }
       if (request.method === "GET" && url.pathname === "/api/search") {
@@ -208,7 +208,9 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         if (goal === null) throw new NotFoundError("goal not found");
         if (parts.length === 1 && request.method === "GET") {
           const links = goalsStore.confirmedLinks(goalId);
-          const base = links.map(({ agent, sid }) => db.getSession(agent, sid)).filter((row): row is SessionRow => row !== null);
+          const sessionsByIdentity = db.getSessionsByIdentity(links);
+          const base = links.map(({ agent, sid }) => sessionsByIdentity.get(sessionIdentityKey(agent, sid)))
+            .filter((row): row is SessionRow => row !== undefined);
           const live = await sessionLiveReader.refresh();
           const sessions = attachGoals(mergeSessionLive(base, live), goalsStore)
             .sort((left, right) => (right.lastInputAt ?? -1) - (left.lastInputAt ?? -1));

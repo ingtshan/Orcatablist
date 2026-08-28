@@ -133,6 +133,19 @@ export class GoalsStore {
     return this.links(goalId, "WHERE goal_id = ? AND kind = 'confirmed'");
   }
 
+  confirmedLinksByGoal(): Map<string, SessionIdentity[]> {
+    const rows = this.database.query(`SELECT goal_id, agent, sid FROM goal_links
+      WHERE kind = 'confirmed' ORDER BY created_at DESC`)
+      .all() as Array<{ goal_id: string; agent: Agent; sid: string }>;
+    const result = new Map<string, SessionIdentity[]>();
+    for (const row of rows) {
+      const links = result.get(row.goal_id) ?? [];
+      links.push({ agent: row.agent, sid: row.sid });
+      result.set(row.goal_id, links);
+    }
+    return result;
+  }
+
   excludedLinks(goalId: string): SessionIdentity[] {
     return this.links(goalId, "WHERE goal_id = ?");
   }

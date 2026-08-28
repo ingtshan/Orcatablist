@@ -1,12 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LIVE_CACHE_MS, ORCATAB_CLAUDE_DIR } from "./config";
-import type { LiveInfo, LiveStatus } from "./types";
-
-const LIVE_STATUSES = new Set<LiveStatus>(["busy", "waiting", "idle", "shell"]);
+import type { LiveInfo } from "./types";
 
 interface LiveFile {
   sessionId?: unknown; pid?: unknown; status?: unknown; waitingFor?: unknown; name?: unknown;
+}
+
+function rawStatus(value: unknown): string {
+  return typeof value === "string" && value.length > 0 ? value : "unknown";
 }
 
 export interface LiveReaderDeps {
@@ -67,7 +69,7 @@ export function createLiveReader(overrides: Partial<LiveReaderDeps> = {}) {
         if (typeof value.sessionId !== "string" || !Number.isInteger(value.pid)) continue;
         const pid = value.pid as number;
         if (!deps.isPidAlive(pid)) continue;
-        const status = LIVE_STATUSES.has(value.status as LiveStatus) ? value.status as LiveStatus : "idle";
+        const status = rawStatus(value.status);
         next.set(value.sessionId, {
           pid, status,
           waitingFor: typeof value.waitingFor === "string" ? value.waitingFor : null,

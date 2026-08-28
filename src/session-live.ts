@@ -6,7 +6,7 @@ import { HERMES_PROCESS_CACHE_MS, LIVE_CACHE_MS, ORCATAB_ORCA_BIN } from "./conf
 import { sessionIdentityKey } from "./goals";
 import { getLiveMap as getClaudeLiveMap } from "./live";
 import { listHermesProcessEnvironments } from "./process-environments";
-import type { Agent, LiveInfo, LiveStatus, SessionRow } from "./types";
+import type { Agent, LiveInfo, SessionRow } from "./types";
 
 const ACTIVE_FILE_PATTERN = /^hermes-tui-active-session-[A-Za-z0-9._-]+\.json$/;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -93,16 +93,15 @@ function asAgent(value: unknown): Agent | null {
   return value === "claude" || value === "codex" || value === "hermes" ? value : null;
 }
 
-function liveStatus(value: unknown): LiveStatus {
-  if (value === "working") return "busy";
-  if (value === "waiting") return "waiting";
-  if (value === "shell") return "shell";
-  return "idle";
+function rawLiveStatus(value: unknown): string {
+  return typeof value === "string" && value.length > 0 ? value : "unknown";
 }
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
 }
+
+function numericTimestamp(value: unknown): number | null { return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null; }
 
 function runtimeTabs(value: unknown): RuntimeTab[] {
   const response = value as RuntimeResponse;
@@ -121,7 +120,8 @@ function toLiveInfo(tab: RuntimeTab): LiveInfo | null {
   if (tab.type !== "terminal" || status === null || status === undefined || handle === null) return null;
   return {
     pid: null,
-    status: liveStatus(status.state),
+    status: rawLiveStatus(status.state),
+    updatedAt: numericTimestamp(status.updatedAt),
     waitingFor: status.state === "waiting" ? stringValue(status.toolName) : null,
     name: stringValue(tab.title),
     handle,
@@ -132,8 +132,8 @@ function toLiveInfo(tab: RuntimeTab): LiveInfo | null {
 
 function preferredTab(current: RuntimeTab | undefined, candidate: RuntimeTab): RuntimeTab {
   if (current === undefined) return candidate;
-  const left = Number(current.agentStatus?.updatedAt ?? 0);
-  const right = Number(candidate.agentStatus?.updatedAt ?? 0);
+  const left = numericTimestamp(current.agentStatus?.updatedAt) ?? 0;
+  const right = numericTimestamp(candidate.agentStatus?.updatedAt) ?? 0;
   return right > left ? candidate : current;
 }
 
@@ -220,7 +220,8 @@ function liveMapsEqual(left: Map<string, LiveInfo>, right: Map<string, LiveInfo>
   if (left.size !== right.size) return false;
   for (const [key, value] of left) {
     const other = right.get(key);
-    if (!other || value.pid !== other.pid || value.status !== other.status || value.waitingFor !== other.waitingFor ||
+    if (!other || value.pid !== other.pid || value.status !== other.status || value.updatedAt !== other.updatedAt ||
+      value.waitingFor !== other.waitingFor || value.name !== other.name ||
       value.handle !== other.handle || value.tabId !== other.tabId || value.leafId !== other.leafId) return false;
   }
   return true;

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -86,6 +86,89 @@ describe("OrcaDatabase", () => {
     const results = db.search("共同关键字", 2);
     expect(results).toHaveLength(2);
     expect(results.every((result) => result.hits.length <= 3)).toBeTrue();
+    const getSession = spyOn(db, "getSession");
+    expect(db.search("共同关键字", 2)).toHaveLength(2);
+    expect(getSession).not.toHaveBeenCalled();
+    getSession.mockRestore();
+  });
+
+  test("batch-loads sessions by composite identity", () => {
+    const db = makeDb();
+    const sid = "66666666-6666-6666-6666-666666666666";
+    db.upsertSession(session(sid, 1, "claude"));
+    db.upsertSession({ ...session(sid, 2, "codex"), title: "Codex 同号会话" });
+
+    const sessions = db.getSessionsByIdentity([
+      { agent: "claude", sid }, { agent: "claude", sid }, { agent: "codex", sid },
+      { agent: "hermes", sid: "missing" },
+    ]);
+    expect([...sessions.keys()].sort()).toEqual([`claude/${sid}`, `codex/${sid}`]);
+    expect(sessions.get(`codex/${sid}`)?.displayTitle).toBe("Codex 同号会话");
+    expect(db.getSessionsByIdentity([]).size).toBe(0);
+    expect(db.getSessionsBySid([sid, sid, "missing"]).get(sid)?.agent).toBe("claude");
+    expect(db.getSessionsBySid([]).size).toBe(0);
+  });
+
+  test("batch-counts user activity since a timestamp", () => {
+    const db = makeDb();
+    const first = "88888888-8888-8888-8888-888888888888";
+    const second = "99999999-9999-9999-9999-999999999999";
+    db.appendSessionFts([
+      { text: "old", agent: "claude", sid: first, role: "user", ts: 1 },
+      { text: "new", agent: "claude", sid: first, role: "user", ts: 3 },
+      { text: "assistant", agent: "claude", sid: first, role: "assistant", ts: 4 },
+    ]);
+    expect(db.countUserActivitySinceBySid([first, second, first], 2)).toEqual(new Map([
+      [first, 1], [second, 0],
+    ]));
+    expect(db.countUserActivitySinceBySid([], 2).size).toBe(0);
+  });
+
+  test("batch-loads at most five recent user inputs per composite identity", () => {
+    const db = makeDb();
+    const sid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const noTimeSid = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    db.appendSessionFts([
+      ...Array.from({ length: 7 }, (_, index): FtsRow => ({
+        text: `Claude 输入 ${index + 1}`, agent: "claude", sid, role: "user", ts: index + 1,
+      })),
+      { text: "不应展示的 assistant 内容", agent: "claude", sid, role: "assistant", ts: 8 },
+      { text: "Codex 同 SID 输入", agent: "codex", sid, role: "user", ts: 9 },
+      { text: "长".repeat(400), agent: "codex", sid, role: "user", ts: 10 },
+      { text: "无时间输入", agent: "hermes", sid: noTimeSid, role: "user", ts: null },
+    ]);
+
+    const inputs = db.getRecentUserInputs([
+      { agent: "claude", sid }, { agent: "claude", sid }, { agent: "codex", sid },
+      { agent: "hermes", sid: noTimeSid }, { agent: "hermes", sid: "missing" },
+    ]);
+    expect(inputs.get(`claude/${sid}`)).toEqual([
+      { text: "Claude 输入 7", ts: 7 }, { text: "Claude 输入 6", ts: 6 },
+      { text: "Claude 输入 5", ts: 5 }, { text: "Claude 输入 4", ts: 4 },
+      { text: "Claude 输入 3", ts: 3 },
+    ]);
+    expect(inputs.get(`codex/${sid}`)?.[0]?.text).toEndWith("…");
+    expect(inputs.get(`codex/${sid}`)?.[0]?.text.length).toBeLessThanOrEqual(320);
+    expect(inputs.get(`codex/${sid}`)?.[0]?.ts).toBe(10);
+    expect(inputs.get(`codex/${sid}`)?.[1]).toEqual({ text: "Codex 同 SID 输入", ts: 9 });
+    expect(inputs.get(`hermes/${noTimeSid}`)).toEqual([{ text: "无时间输入", ts: null }]);
+    expect(inputs.get("hermes/missing")).toEqual([]);
+    expect(db.getRecentUserInputs([]).size).toBe(0);
+
+    const firstPage = db.getRecentUserInputPages([{ agent: "claude", sid }], { limit: 5 });
+    expect(firstPage.get(`claude/${sid}`)).toEqual({
+      inputs: [
+        { text: "Claude 输入 7", ts: 7 }, { text: "Claude 输入 6", ts: 6 },
+        { text: "Claude 输入 5", ts: 5 }, { text: "Claude 输入 4", ts: 4 },
+        { text: "Claude 输入 3", ts: 3 },
+      ],
+      hasMore: true,
+    });
+    expect(db.getRecentUserInputPages([{ agent: "claude", sid }], { limit: 5, offset: 5 })
+      .get(`claude/${sid}`)).toEqual({
+        inputs: [{ text: "Claude 输入 2", ts: 2 }, { text: "Claude 输入 1", ts: 1 }],
+        hasMore: false,
+      });
   });
 
   test("uses (agent, sid) as the session and FTS identity", () => {

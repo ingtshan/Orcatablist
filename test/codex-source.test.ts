@@ -87,6 +87,27 @@ describe("Codex session source", () => {
     expect(discoverCodexSessionFiles(join(root, "missing"))).toEqual([]);
   });
 
+  test("keeps only the resumable parent rollout when child agents share its session id", () => {
+    const root = temporaryDirectory();
+    const sessions = join(root, "sessions", "2026", "08", "26");
+    mkdirSync(sessions, { recursive: true });
+    const childId = "33333333-3333-3333-3333-333333333333";
+    const parentPath = join(sessions, `rollout-2026-08-26T08-00-00-${CODEX_SID}.jsonl`);
+    const childPath = join(sessions, `rollout-2026-08-26T09-00-00-${childId}.jsonl`);
+    writeFileSync(parentPath, `${JSON.stringify({
+      type: "session_meta", payload: { id: CODEX_SID, session_id: CODEX_SID, cwd: "/parent" },
+    })}\n`);
+    writeFileSync(childPath, `${JSON.stringify({
+      type: "session_meta", payload: {
+        id: childId, session_id: CODEX_SID, cwd: "/parent", source: { subagent: "worker" },
+      },
+    })}\n`);
+
+    expect(discoverCodexSessionFiles(root)).toEqual([
+      expect.objectContaining({ agent: "codex", sid: CODEX_SID, path: parentPath }),
+    ]);
+  });
+
   test("loads thread names on prepare and returns null for missing titles", () => {
     const root = temporaryDirectory();
     writeFileSync(join(root, "session_index.jsonl"), [
