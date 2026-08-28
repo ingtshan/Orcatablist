@@ -33,6 +33,30 @@ Orca 报告为 `done`（已就绪、等待用户输入）的在线会话，卡�
   卡片上保留「复制上次输入」把原文取回来重发。
 - 写操作校验 `Sec-Fetch-Site` / `Origin`，只接受同源请求。
 
+## 挂在会话上的想法队列
+
+会话卡上的「＋想法」把一句话直接变成任务板上的一个任务，并挂回这个会话——想法不打断心流地
+落到板子上，卡片上留一条「待落地」，等有空再落地。
+
+- 任务真身在**任务板**上；OrcaTab 只存链接和一份快照（`~/.orcatab/boards.db`），
+  板子离线时队列照常显示，只是标题可能是旧的。
+- 一个仓库第一次捕捉时选一次任务板项目，之后这个仓库下所有会话都记住它。
+  卡片上的项目名可以点开重选。
+- 「移除」只解除与这个会话的关联，不删除板子上的任务。
+- 接 kansession 时，捕捉成功后还会反向调它的 `POST /api/agent-session/link`，
+  把这个会话作为证据挂到刚建的任务上——于是同一次捕捉在两边都留痕。反写失败不影响任务本身。
+
+不配任何任务板也能用：默认落到 OrcaTab 自带的本地板子，项目就是 OrcaTab 自己的项目列表。
+接外部板子用 `ORCATAB_BOARDS`：
+
+```sh
+export ORCATAB_BOARDS='[{"id":"kansession","name":"kansession","kind":"kansession",
+  "baseUrl":"http://127.0.0.1:1337","webUrl":"http://localhost:5173","apiKey":"<API key>"}]'
+```
+
+`apiKey` 在 kansession 的 Settings → Account → Developer 里签发，走 `x-api-key`。
+接口契约与新增适配器的写法见 [`docs/TBP.md`](docs/TBP.md)。
+
 ## 注册 orcatab://
 
 在仓库根目录运行安装脚本，它会生成 `~/Applications/OrcaTab.app` 并注册 URL scheme：
@@ -66,5 +90,6 @@ pm2 start ecosystem.config.cjs && pm2 save
 | `ORCATAB_CLAUDE_DIR` | `~/.claude` | Claude Code 只读数据目录 |
 | `ORCATAB_DATA_DIR` | `~/.orcatab` | SQLite 索引数据目录 |
 | `ORCATAB_ORCA_BIN` | `orca` | Orca CLI 可执行文件名或路径 |
+| `ORCATAB_BOARDS` | 空 | 任务板适配器配置（JSON 数组），见 `docs/TBP.md` |
 
 详细设计与数据契约见 [`docs/PLAN.md`](docs/PLAN.md)。

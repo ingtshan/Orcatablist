@@ -9,7 +9,7 @@
       color-scheme: light dark;
       --bg: #F4F7F6; --surface: #FFFFFF; --text: #17222A; --muted: #5C6B75;
       --line: #D5DEE1; --accent: #0E6C75; --accent-soft: #E1F0F1; --hover: #EDF3F2;
-      --busy: #B45309; --waiting: #B91C1C; --idle: #2F855A; --offline: #8A97A0;
+      --busy: #B45309; --waiting: #B91C1C; --idle: #2F855A; --success-soft: #E6F4EC; --offline: #8A97A0;
       --resume: #9A4E0A; --resume-soft: #FFF0DC;
       --focus-ring: #0E6C75; --danger-soft: #FCE8E8; --shadow: #17222A1A;
       --topbar-height: 68px; --focus-monitor-gap: 16px; --focus-monitor-inset: 32px; --focus-monitor-width: 340px;
@@ -19,7 +19,7 @@
       :root {
         --bg: #0E1417; --surface: #151C21; --text: #E4E9EC; --muted: #93A1AB;
         --line: #263039; --accent: #62C6CD; --accent-soft: #18343A; --hover: #1C272D;
-        --busy: #F5A524; --waiting: #F87171; --idle: #4ADE80; --offline: #6B7A85;
+        --busy: #F5A524; --waiting: #F87171; --idle: #4ADE80; --success-soft: #173324; --offline: #6B7A85;
         --resume: #F5A524; --resume-soft: #3A2815;
         --focus-ring: #62C6CD; --danger-soft: #3A2024; --shadow: #00000040;
       }
@@ -126,20 +126,56 @@
     .focus-jump:hover { border-color: var(--accent); color: var(--surface); filter: brightness(.95); }
     .focus-resume { border-color: var(--resume); background: var(--resume-soft); color: var(--resume); }
     .focus-resume:hover { border-color: var(--resume); color: var(--resume); filter: brightness(.96); }
-    .session-send { display: flex; grid-column: 2 / -1; align-items: center; gap: 7px; margin-top: 8px; }
-    .session-send-input { min-width: 0; flex: 1; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
-    .session-send-input:focus { border-color: var(--accent); outline: none; }
-    .session-send-button { min-width: 54px; border-color: var(--accent); background: var(--accent); color: var(--surface); font-weight: 700; }
+    .session-send { --session-send-height: 36px; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-column: 2 / -1; min-width: 0; height: var(--session-send-height); overflow: hidden; margin-top: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); transition: border-color .12s ease, box-shadow .12s ease, background .12s ease; }
+    .session-send:focus-within { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .session-send-input { width: 100%; min-width: 0; height: 100%; padding: 0 11px; border: 0; border-radius: 0; appearance: none; background: transparent; color: var(--text); font: 12px/1.2 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; }
+    .session-send-input:focus { outline: none; }
+    .session-send-input::placeholder { color: var(--muted); opacity: .82; }
+    .session-send-button { display: grid; min-width: 60px; height: 100%; padding: 0 13px; border: 0; border-left: 1px solid var(--accent); border-radius: 0; appearance: none; place-items: center; background: var(--accent); color: var(--surface); cursor: pointer; font-size: 12px; font-weight: 700; line-height: 1; }
+    .session-send-button:hover { filter: brightness(.96); }
+    .session-send-button:focus-visible { outline: 2px solid var(--surface); outline-offset: -4px; }
     .session-send-button:disabled { cursor: wait; opacity: .62; }
-    .session-send-note { display: flex; grid-column: 2 / -1; align-items: center; gap: 7px; margin-top: 6px; color: var(--muted); font-size: 11px; }
-    .session-send-state { flex: 0 0 auto; padding: 2px 6px; border-radius: 999px; background: var(--bg); font: 10px ui-monospace, Menlo, monospace; }
-    .session-send-note[data-state="stalled"] .session-send-state { background: var(--danger-soft); color: var(--waiting); }
+    .session-send-note { display: flex; grid-column: 2 / -1; min-width: 0; align-items: center; gap: 4px; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .session-send-state, .session-send-icon-button { display: grid; flex: 0 0 auto; padding: 0; border-radius: 6px; place-items: center; }
+    .session-send-state { width: 20px; height: 20px; background: var(--bg); color: var(--muted); }
+    .session-send-state svg, .session-send-icon-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
     .session-send-note[data-state="verifying"] .session-send-state { background: var(--resume-soft); color: var(--busy); }
-    .session-send-note[data-state="confirmed"] .session-send-state { background: var(--accent-soft); color: var(--accent); }
+    .session-send-note[data-state="verifying"] .session-send-state svg { animation: session-send-spin .9s linear infinite; }
+    .session-send-note[data-state="confirmed"] .session-send-state { background: var(--success-soft); color: var(--idle); }
+    .session-send-note:is([data-state="stalled"], [data-state="failed"]) .session-send-state { background: var(--danger-soft); color: var(--waiting); }
     .session-send-text { min-width: 0; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
-    .session-send-note .action { min-width: 0; padding: 3px 7px; border-radius: 6px; font-size: 11px; }
-    .focus-session-card .session-send-input { padding: 5px 8px; font-size: 11px; }
-    .focus-session-card .session-send-button { min-width: 44px; padding: 5px 7px; font-size: 11px; }
+    .session-send-icon-button { width: 24px; height: 24px; border: 1px solid transparent; background: transparent; color: var(--muted); }
+    .session-send-icon-button:hover { background: var(--hover); }
+    .session-send-copy:hover { color: var(--accent); }
+    .session-send-dismiss:hover { color: var(--muted); }
+    .session-send-icon-button:focus-visible { outline-width: 2px; outline-offset: 0; }
+    @keyframes session-send-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .session-send-note[data-state="verifying"] .session-send-state svg { animation: none; }
+    }
+    .focus-session-card .session-send { --session-send-height: 32px; margin-top: 5px; border-radius: 8px; }
+    .focus-session-card .session-send-input { padding-inline: 8px; font-size: 11px; }
+    .focus-session-card .session-send-button { min-width: 48px; padding-inline: 9px; font-size: 11px; }
+    .session-tasks { display: grid; grid-column: 2 / -1; gap: 5px; margin-top: 8px; }
+    .session-task { display: flex; min-width: 0; align-items: center; gap: 7px; font-size: 12px; }
+    .session-task-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 999px; background: var(--busy); }
+    .session-task[data-kind="done"] .session-task-dot { background: var(--muted); }
+    .session-task-number { flex: 0 0 auto; padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
+    .session-task-title { min-width: 0; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+    .session-task[data-kind="done"] .session-task-title { color: var(--muted); text-decoration: line-through; }
+    .session-task .action { min-width: 0; padding: 3px 7px; border-radius: 6px; font-size: 11px; }
+    .session-task-open { display: inline-flex; align-items: center; text-decoration: none; }
+    .session-capture { display: flex; grid-column: 2 / -1; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
+    .session-capture-row { display: flex; grid-column: 2 / -1; margin-top: 6px; }
+    .session-capture-input { min-width: 120px; flex: 1; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+    .session-capture-input:focus { border-color: var(--accent); outline: none; }
+    .session-capture-button { min-width: 54px; border-color: var(--accent); background: var(--accent); color: var(--surface); font-weight: 700; }
+    .session-capture-button:disabled { cursor: wait; opacity: .62; }
+    .session-capture-open, .session-capture-target, .session-capture-cancel { padding: 3px 8px; font-size: 11px; }
+    .session-capture-target { max-width: 240px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+    .session-capture-picker { min-width: 0; max-width: 240px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; }
+    .focus-session-card .session-capture-input { padding: 5px 8px; font-size: 11px; }
+    .focus-session-card .session-capture-button { min-width: 44px; padding: 5px 7px; font-size: 11px; }
     .floating-menu { position: relative; min-width: 0; flex: 0 0 auto; }
     .floating-menu-toggle { cursor: pointer; list-style: none; user-select: none; }
     .floating-menu-toggle::-webkit-details-marker { display: none; }
@@ -525,8 +561,10 @@
   <script>
     (() => {
       const POLL_MS = 5000;
+      const CAPTURE_PLACEHOLDER = "捕捉一个想法…";
       const SEARCH_DEBOUNCE_MS = 200;
       const RESULT_RESET_MS = 2000;
+      const SEND_CONFIRMATION_FEEDBACK_MS = 1400;
       const LIVE_POOL_LIMIT = 5000;
       const VISIBLE_SESSION_LIMIT = 500;
       const FOCUS_INPUT_PAGE_SIZE = 5;
@@ -539,17 +577,19 @@
       const FOCUS_MONITOR_DOCK_MAX_PX = 180;
       const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
       const COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.collapsedWorktrees.v1";
-      const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v1";
-      const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v1";
+      const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v2";
+      const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v2";
       const FOCUS_PROJECT_SORT_STORAGE_KEY = "orcatab.focusProjectSort.v1";
       const FOCUS_MONITOR_PLACEMENT_STORAGE_KEY = "orcatab.focusMonitorPlacement.v1";
       const FOCUS_PROJECT_SORT_MODES = new Set(["az", "za", "recent"]);
       const FOCUS_PROJECT_NAME_COLLATOR = new Intl.Collator(["zh-CN", "en"], { numeric: true, sensitivity: "base" });
       const UNINDEXED_LIVE_PROJECT_KEY = "__unindexed_live__";
       const SESSION_AGENTS = new Set(["claude", "codex", "hermes"]);
-      const SEND_CONFIRMED_NOTE_MS = 120000;
       const SEND_STATE_LABELS = {
-        pending: "已发送 · 等待确认", verifying: "进行中 · 正在核对", confirmed: "已确认", stalled: "未确认",
+        pending: "等待确认", verifying: "正在核对", confirmed: "已确认", stalled: "确认失败", failed: "确认失败",
+      };
+      const SEND_STATE_ICONS = {
+        pending: "clock", verifying: "spinner", confirmed: "check", stalled: "x", failed: "x",
       };
       const SEND_CONFLICT_MESSAGES = {
         offline: "会话已不在线，输入没有发出",
@@ -583,6 +623,10 @@
         recentInputsHasMoreBySession: {}, recentInputsLoadingBySession: {},
         recentInputsIdentitySignature: "", recentInputsSupported: true, focusMonitorSessionKey: "",
         sendRecords: {}, sendDrafts: {}, sendSupported: true, sendRecordsSignature: "",
+        sendConfirmationFlashes: {}, sendConfirmationSeen: {},
+        sendCompositionKey: "", sendRenderPending: false,
+        sessionTasks: {}, sessionTasksEtag: "", tasksSupported: true, boards: null,
+        captureKey: "", captureDrafts: {}, capturePickerKey: "", captureTarget: "",
         focusMonitorPlacement: loadFocusMonitorPlacement(),
       };
       const searchInput = document.querySelector("#search");
@@ -900,6 +944,32 @@
         return element;
       }
 
+      function lineIcon(name) {
+        const paths = {
+          check: "M5 12.5l4.25 4L19 7",
+          clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M12 7v5l3 2",
+          copy: "M9 8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1",
+          spinner: "M20 12a8 8 0 1 1-2.34-5.66",
+          x: "M7 7l10 10M17 7L7 17",
+        };
+        const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+        const path = document.createElementNS(SVG_NAMESPACE, "path");
+        path.setAttribute("d", paths[name] || paths.clock);
+        svg.append(path);
+        return svg;
+      }
+
+      function iconButton(className, label, iconName) {
+        const button = make("button", `session-send-icon-button ${className}`);
+        button.type = "button";
+        button.setAttribute("aria-label", label);
+        button.title = label;
+        button.append(lineIcon(iconName));
+        return button;
+      }
+
       function pinIndicator(label) {
         const indicator = make("span", "pin-indicator");
         indicator.setAttribute("role", "img");
@@ -1001,14 +1071,18 @@
         render();
       }
 
-      function focusWorktreeCollapseKey(projectKey, worktreeRoot) {
-        return JSON.stringify([projectKey, worktreeRoot]);
+      function focusProjectCollapseKey(laneKey, projectKey) {
+        return JSON.stringify([laneKey, projectKey]);
       }
 
-      function setFocusProjectCollapsed(projectKey, collapsed) {
+      function focusWorktreeCollapseKey(laneKey, projectKey, worktreeRoot) {
+        return JSON.stringify([laneKey, projectKey, worktreeRoot]);
+      }
+
+      function setFocusProjectCollapsed(collapseKey, collapsed) {
         const next = new Set(state.focusCollapsedProjects);
-        if (collapsed) next.add(projectKey);
-        else next.delete(projectKey);
+        if (collapsed) next.add(collapseKey);
+        else next.delete(collapseKey);
         state.focusCollapsedProjects = next;
         saveStoredStringSet(FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY, "Focus projects", next);
         renderFocus();
@@ -1200,9 +1274,34 @@
         if (previous.caret !== null) input.setSelectionRange(previous.caret, previous.caret);
       }
 
+      function finishSendComposition(key) {
+        if (state.sendCompositionKey === key) state.sendCompositionKey = "";
+        if (!state.sendRenderPending) return;
+        state.sendRenderPending = false;
+        requestAnimationFrame(renderCurrentView);
+      }
+
       function renderCurrentView() {
         if (state.view === "focus") renderFocus();
         else render();
+      }
+
+      function registerSendConfirmation(entry) {
+        const key = sessionKey(entry);
+        const signature = `${entry.sentAt || 0}:${entry.confirmedAt || 0}`;
+        if (state.sendConfirmationSeen[key] === signature) return;
+        state.sendConfirmationSeen[key] = signature;
+        const flash = { ...entry, state: "confirmed" };
+        state.sendConfirmationFlashes[key] = flash;
+        setTimeout(() => {
+          const current = state.sendConfirmationFlashes[key];
+          if (!current || current.sentAt !== flash.sentAt) return;
+          delete state.sendConfirmationFlashes[key];
+          if (state.sendRecords[key]?.state === "confirmed"
+            && state.sendRecords[key].sentAt === flash.sentAt) delete state.sendRecords[key];
+          state.sendRecordsSignature = "";
+          renderCurrentView();
+        }, SEND_CONFIRMATION_FEEDBACK_MS);
       }
 
       async function loadSendRecords() {
@@ -1212,11 +1311,21 @@
           state.sendSupported = false;
           const had = Object.keys(state.sendRecords).length > 0;
           state.sendRecords = {};
+          state.sendConfirmationFlashes = {};
           return had;
         }
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-        const records = body.records || {};
+        const records = { ...(body.records || {}) };
+        Object.entries(records).forEach(([key, record]) => {
+          if (record.state !== "confirmed") return;
+          registerSendConfirmation(record);
+          delete records[key];
+        });
+        (Array.isArray(body.confirmed) ? body.confirmed : []).forEach(registerSendConfirmation);
+        Object.entries(state.sendConfirmationFlashes).forEach(([key, record]) => {
+          if (!records[key]) records[key] = record;
+        });
         const signature = JSON.stringify(records);
         if (signature === state.sendRecordsSignature) return false;
         state.sendRecords = records;
@@ -1238,6 +1347,7 @@
           }));
           const body = await response.json();
           if (!response.ok) throw new Error(SEND_CONFLICT_MESSAGES[body.code] || body.error || `HTTP ${response.status}`);
+          delete state.sendConfirmationFlashes[key];
           state.sendRecords[key] = body.record;
           state.sendRecordsSignature = "";
           delete state.sendDrafts[key];
@@ -1264,11 +1374,32 @@
         input.value = state.sendDrafts[key] || "";
         input.placeholder = `发送给 ${row.agent}…`;
         input.setAttribute("aria-label", `发送输入到会话：${row.displayTitle}`);
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        let composing = false;
+        let suppressCompositionSubmit = false;
         input.addEventListener("input", () => { state.sendDrafts[key] = input.value; });
-        const button = make("button", "action session-send-button", "发送");
+        input.addEventListener("compositionstart", () => {
+          composing = true;
+          state.sendCompositionKey = key;
+        });
+        input.addEventListener("compositionend", () => {
+          composing = false;
+          suppressCompositionSubmit = true;
+          state.sendDrafts[key] = input.value;
+          finishSendComposition(key);
+          setTimeout(() => { suppressCompositionSubmit = false; }, 0);
+        });
+        input.addEventListener("keydown", (event) => {
+          if (event.isComposing || composing || event.keyCode === 229) {
+            if (event.key === "Enter") suppressCompositionSubmit = true;
+          }
+        });
+        const button = make("button", "session-send-button", "发送");
         button.type = "submit";
         form.addEventListener("submit", (event) => {
           event.preventDefault();
+          if (composing || suppressCompositionSubmit) return;
           submitSessionInput(row, input, button);
         });
         form.append(input, button);
@@ -1289,6 +1420,7 @@
 
       async function dismissSentInput(row) {
         const key = sessionKey(row);
+        delete state.sendConfirmationFlashes[key];
         delete state.sendRecords[key];
         state.sendRecordsSignature = "";
         renderCurrentView();
@@ -1299,26 +1431,256 @@
       function sentInputNote(row) {
         const record = state.sendRecords[sessionKey(row)];
         if (!record) return null;
-        const confirmedAt = Number(record.confirmedAt) || record.sentAt;
-        if (record.state === "confirmed" && Date.now() - confirmedAt > SEND_CONFIRMED_NOTE_MS) return null;
         const note = make("div", "session-send-note");
         note.dataset.state = record.state;
-        const label = make("span", "session-send-state", SEND_STATE_LABELS[record.state] || record.state);
-        label.title = record.state === "confirmed"
-          ? `${relativeTime(confirmedAt)}核对到同一条用户输入`
-          : record.state === "verifying"
-            ? "会话已进入进行中，正在核对用户输入"
-            : `${relativeTime(record.sentAt)}发送到终端 ${record.handle}`;
+        const stateLabel = SEND_STATE_LABELS[record.state] || "等待确认";
+        const label = make("span", "session-send-state");
+        label.setAttribute("role", "img");
+        label.setAttribute("aria-label", stateLabel);
+        label.title = record.state === "verifying"
+          ? "正在核对：会话已进入进行中"
+          : record.state === "confirmed"
+            ? "已确认：核对到相同的用户输入"
+            : record.state === "stalled" || record.state === "failed"
+              ? "确认失败：未在时限内核对到相同的用户输入"
+              : `${relativeTime(record.sentAt)}发送到终端 ${record.handle}`;
+        label.append(lineIcon(SEND_STATE_ICONS[record.state] || "clock"));
         const text = make("span", "session-send-text", record.text);
         text.title = record.text;
-        const copy = make("button", "action session-send-copy", "复制上次输入");
-        copy.type = "button";
+        const copy = iconButton("session-send-copy", "复制上次输入", "copy");
         copy.addEventListener("click", () => reuseSentInput(row, record));
-        const dismiss = make("button", "action session-send-dismiss", "忽略");
-        dismiss.type = "button";
+        const dismiss = iconButton("session-send-dismiss", "忽略", "x");
         dismiss.addEventListener("click", () => dismissSentInput(row));
         note.append(label, text, copy, dismiss);
         return note;
+      }
+
+      function sessionTasksFor(row) {
+        return state.sessionTasks[sessionKey(row)] || [];
+      }
+
+      async function loadSessionTasks() {
+        if (!state.tasksSupported) return false;
+        const result = await optionalConditionalApi(
+          "/api/session-tasks?refresh=1", state.sessionTasksEtag, { tasks: {} },
+        );
+        if (result.unsupported) { state.tasksSupported = false; return false; }
+        if (result.unchanged) return false;
+        state.sessionTasks = result.body.tasks || {};
+        state.sessionTasksEtag = result.etag;
+        return true;
+      }
+
+      async function reloadSessionTasks() {
+        state.sessionTasksEtag = "";
+        await loadSessionTasks();
+        renderCurrentView();
+      }
+
+      async function ensureBoards(force) {
+        if (state.boards && !force) return state.boards;
+        state.boards = await api("/api/boards");
+        return state.boards;
+      }
+
+      /** The board list lands after the first paint; redraw so the bound-project hint shows up. */
+      function ensureBoardsThenRender() {
+        if (state.boards) return;
+        ensureBoards(false).then(renderCurrentView).catch(() => {});
+      }
+
+      function boundProjectLabel(row) {
+        const project = state.boards?.bindings.find((binding) => binding.projectKey === row.projectKey);
+        if (!project) return "";
+        const board = state.boards.boards.find((candidate) => candidate.id === project.boardId);
+        return `${board ? board.name : project.boardId} · ${project.boardProjectName}`;
+      }
+
+      function captureTargetOptions() {
+        return (state.boards?.boards || []).flatMap((board) => board.projects
+          .map((project) => ({
+            boardId: board.id, projectId: project.id, label: `${board.name} · ${project.name}`,
+          })))
+          .map((option, index) => ({ ...option, value: String(index) }));
+      }
+
+      /** Turns a 409 into an inline picker instead of a dead end: the repo just needs a board project once. */
+      async function openCapturePicker(key, message) {
+        try { await ensureBoards(true); }
+        catch (error) { showToast(`读取任务板失败：${error.message}`); return; }
+        const options = captureTargetOptions();
+        if (!options.length) {
+          showToast("没有可用的任务板项目，先在任务板里建一个");
+          return;
+        }
+        state.capturePickerKey = key;
+        if (!options.some((option) => option.value === state.captureTarget)) {
+          state.captureTarget = options[0].value;
+        }
+        if (message) showToast(message);
+        renderCurrentView();
+      }
+
+      async function submitCapture(row, input, button) {
+        const key = sessionKey(row);
+        const title = input.value.trim();
+        if (!title) { input.focus(); return; }
+        const picked = state.capturePickerKey === key
+          ? captureTargetOptions().find((option) => option.value === state.captureTarget) : null;
+        const original = button.textContent;
+        input.disabled = true;
+        button.disabled = true;
+        button.textContent = "捕捉中…";
+        try {
+          const response = await fetch(`/api/session-tasks/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title,
+              ...(picked ? { boardId: picked.boardId, projectId: picked.projectId } : {}),
+            }),
+          });
+          const body = await response.json();
+          if (response.status === 409 && body.code === "project-required") {
+            await openCapturePicker(key, "先选一个任务板项目，之后这个仓库就记住了");
+            return;
+          }
+          if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+          delete state.captureDrafts[key];
+          state.capturePickerKey = "";
+          state.captureKey = "";
+          input.value = "";
+          if (body.binding) state.boards = null;
+          showToast(body.backlinkError ? "已捕捉，但没能回写会话证据" : "已捕捉，等待落地");
+          await reloadSessionTasks();
+        } catch (error) {
+          showToast(`捕捉失败：${error.message}`);
+        } finally {
+          input.disabled = false;
+          button.disabled = false;
+          button.textContent = original;
+        }
+      }
+
+      async function removeSessionTask(row, task) {
+        const path = `/api/session-tasks/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`
+          + `/${encodeURIComponent(task.boardId)}/${encodeURIComponent(task.taskId)}`;
+        try {
+          await api(path, { method: "DELETE" });
+          await reloadSessionTasks();
+        } catch (error) {
+          showToast(`移除失败：${error.message}`);
+        }
+      }
+
+      function sessionTaskList(row) {
+        const tasks = sessionTasksFor(row);
+        if (!tasks.length) return null;
+        const list = make("div", "session-tasks");
+        tasks.forEach((task) => {
+          const item = make("div", "session-task");
+          item.dataset.kind = task.statusKind;
+          item.append(make("span", "session-task-dot"));
+          if (task.number) item.append(make("span", "session-task-number", task.number));
+          const title = make("span", "session-task-title", task.title);
+          title.title = `${task.title}\n${task.status}`;
+          item.append(title);
+          if (task.url) {
+            const open = make("a", "action session-task-open", "打开");
+            open.href = task.url;
+            open.target = "_blank";
+            open.rel = "noreferrer";
+            item.append(open);
+          }
+          const remove = make("button", "action session-task-remove", "移除");
+          remove.type = "button";
+          remove.title = "只解除与本会话的关联，不删除任务板上的任务";
+          remove.addEventListener("click", () => removeSessionTask(row, task));
+          item.append(remove);
+          list.append(item);
+        });
+        return list;
+      }
+
+      function captureForm(row) {
+        const key = sessionKey(row);
+        const form = make("form", "session-capture");
+        form.dataset.captureKey = key;
+        const input = make("input", "session-capture-input");
+        input.type = "text";
+        input.value = state.captureDrafts[key] || "";
+        input.placeholder = CAPTURE_PLACEHOLDER;
+        input.setAttribute("aria-label", `捕捉想法到会话：${row.displayTitle}`);
+        input.addEventListener("input", () => { state.captureDrafts[key] = input.value; });
+        const button = make("button", "action session-capture-button", "捕捉");
+        button.type = "submit";
+        form.append(input, button);
+        if (state.capturePickerKey === key) {
+          const picker = make("select", "session-capture-picker");
+          picker.setAttribute("aria-label", "选择任务板项目");
+          captureTargetOptions().forEach((option) => picker.append(new Option(option.label, option.value)));
+          picker.value = state.captureTarget || "";
+          picker.addEventListener("change", () => { state.captureTarget = picker.value; });
+          form.append(picker);
+        } else {
+          const label = boundProjectLabel(row);
+          if (label) {
+            const target = make("button", "action session-capture-target", label);
+            target.type = "button";
+            target.title = "更换这个仓库的任务板项目";
+            target.addEventListener("click", () => openCapturePicker(key, ""));
+            form.append(target);
+          }
+        }
+        const cancel = make("button", "action session-capture-cancel", "取消");
+        cancel.type = "button";
+        cancel.addEventListener("click", () => {
+          state.captureKey = "";
+          state.capturePickerKey = "";
+          renderCurrentView();
+        });
+        form.append(cancel);
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          submitCapture(row, input, button);
+        });
+        return form;
+      }
+
+      function openCapture(row) {
+        state.captureKey = sessionKey(row);
+        state.capturePickerKey = "";
+        ensureBoardsThenRender();
+        renderCurrentView();
+        const form = document.querySelector(`.session-capture[data-capture-key="${CSS.escape(state.captureKey)}"]`);
+        form?.querySelector(".session-capture-input")?.focus();
+      }
+
+      function appendTaskControls(element, row) {
+        if (!state.tasksSupported) return;
+        const list = sessionTaskList(row);
+        if (list) element.append(list);
+        if (state.captureKey === sessionKey(row)) {
+          element.append(captureForm(row));
+          return;
+        }
+        if (!list) return;
+        const opener = make("div", "session-capture-row");
+        const button = make("button", "action session-capture-open", "＋想法");
+        button.type = "button";
+        button.addEventListener("click", () => openCapture(row));
+        opener.append(button);
+        element.append(opener);
+      }
+
+      /** The capture entry point lives with the row's other actions so it costs one click, not two. */
+      function captureAction(row) {
+        const tasks = sessionTasksFor(row);
+        const button = make("button", "action capture-action", tasks.length ? `想法 ${tasks.length}` : "＋想法");
+        button.type = "button";
+        button.title = "捕捉一个想法，挂到这个会话上等待落地";
+        button.addEventListener("click", () => openCapture(row));
+        return button;
       }
 
       function appendSendControls(element, row) {
@@ -1410,6 +1772,7 @@
         drawerPanel.append(copyButton);
         if (row.indexed !== false) drawerPanel.append(commandButton);
         actions.append(focusButton, drawer);
+        if (state.tasksSupported) actions.append(captureAction(row));
         if (options.goalPicker && row.indexed !== false) {
           const picker = make("select", "goal-picker");
           picker.setAttribute("aria-label", "添加到目标");
@@ -1435,6 +1798,7 @@
         });
         element.append(actions);
         appendSendControls(element, row);
+        appendTaskControls(element, row);
         return element;
       }
 
@@ -1717,6 +2081,7 @@
         element.addEventListener("focusin", () => showFocusMonitor(row));
         element.append(dot, main, jump);
         appendSendControls(element, row);
+        appendTaskControls(element, row);
         return element;
       }
 
@@ -1729,7 +2094,7 @@
         return (state.focusBoard?.lanes || []).flatMap((lane) => lane.rows);
       }
 
-      function renderFocusGroups(parent, rows) {
+      function renderFocusGroups(parent, laneKey, rows) {
         if (!rows.length) return;
         const projectGroups = new Map();
         rows.forEach((row) => {
@@ -1740,11 +2105,13 @@
         orderedFocusProjectKeys(projectGroups).forEach((projectKey) => {
           const projectRows = projectGroups.get(projectKey);
           const project = projectFor(projectKey);
-          const projectCollapsed = state.focusCollapsedProjects.has(projectKey);
+          const projectCollapseKey = focusProjectCollapseKey(laneKey, projectKey);
+          const projectCollapsed = state.focusCollapsedProjects.has(projectCollapseKey);
           const firstProjectSession = projectRows[0];
-          const projectBodyId = `focus-project-worktrees-${firstProjectSession.agent}-${firstProjectSession.sid}`;
+          const projectBodyId = `focus-project-worktrees-${laneKey}-${firstProjectSession.agent}-${firstProjectSession.sid}`;
           const projectGroup = make("article", "focus-project-group");
           projectGroup.dataset.projectKey = projectKey;
+          projectGroup.dataset.focusLane = laneKey;
           projectGroup.classList.toggle("collapsed", projectCollapsed);
           const projectHead = make("header", "focus-project-head");
           const projectToggle = make("button", "worktree-toggle focus-group-toggle");
@@ -1753,7 +2120,9 @@
           projectToggle.setAttribute("aria-controls", projectBodyId);
           projectToggle.setAttribute("aria-label", `${projectCollapsed ? "展开" : "收起"}项目：${project.name}`);
           projectToggle.title = `${projectCollapsed ? "展开" : "收起"}项目：${project.name}`;
-          projectToggle.addEventListener("click", () => setFocusProjectCollapsed(projectKey, !projectCollapsed));
+          projectToggle.addEventListener("click", () => {
+            setFocusProjectCollapsed(projectCollapseKey, !projectCollapsed);
+          });
           const color = make("span", "color-dot");
           if (project.color) color.style.setProperty("--project-color", project.color);
           projectHead.append(
@@ -1766,12 +2135,13 @@
           projectBody.id = projectBodyId;
           projectBody.hidden = projectCollapsed;
           groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0).forEach((worktree) => {
-            const worktreeCollapseKey = focusWorktreeCollapseKey(projectKey, worktree.root);
+            const worktreeCollapseKey = focusWorktreeCollapseKey(laneKey, projectKey, worktree.root);
             const worktreeCollapsed = state.focusCollapsedWorktrees.has(worktreeCollapseKey);
             const firstWorktreeSession = worktree.rows[0];
-            const sessionListId = `focus-worktree-sessions-${firstWorktreeSession.agent}-${firstWorktreeSession.sid}`;
+            const sessionListId = `focus-worktree-sessions-${laneKey}-${firstWorktreeSession.agent}-${firstWorktreeSession.sid}`;
             const worktreeGroup = make("section", "focus-worktree-group");
             worktreeGroup.dataset.worktreeRoot = worktree.root;
+            worktreeGroup.dataset.focusLane = laneKey;
             worktreeGroup.classList.toggle("collapsed", worktreeCollapsed);
             const unindexed = project.key === UNINDEXED_LIVE_PROJECT_KEY;
             const worktreeName = basename(worktree.root) || (unindexed ? "在线进程" : "未知目录");
@@ -1809,6 +2179,7 @@
       }
 
       function renderFocus() {
+        if (state.sendCompositionKey) { state.sendRenderPending = true; return; }
         const previousSendFocus = activeSendFocus();
         focusBoard.replaceChildren();
         FOCUS_LANES.forEach((definition) => {
@@ -1826,7 +2197,7 @@
             make("span", "focus-lane-count", String(rows.length)),
           );
           const body = make("div", "focus-lane-body");
-          if (rows.length) renderFocusGroups(body, rows);
+          if (rows.length) renderFocusGroups(body, definition.key, rows);
           else body.append(make("div", "focus-empty", definition.empty));
           lane.append(head, body);
           focusBoard.append(lane);
@@ -1868,6 +2239,7 @@
       }
 
       function render() {
+        if (state.sendCompositionKey) { state.sendRenderPending = true; return; }
         const previousSendFocus = activeSendFocus();
         state.activeRow = -1;
         const isSearch = Boolean(state.query);
@@ -2475,6 +2847,7 @@
           conditionalApi("/api/projects", state.projectEtag),
           worktreesRequest,
           loadSendRecords(),
+          loadSessionTasks(),
         ]);
         if (board.unsupported) { state.focusBoardSupported = false; return; }
         if (!board.unchanged) {
@@ -2784,7 +3157,8 @@
         const resourcesRequest = state.resourcesSupported
           ? optionalConditionalApi("/api/worktree-resources", state.resourceEtag, { resources: {} })
           : Promise.resolve({ unchanged: true, etag: state.resourceEtag, body: { resources: {} } });
-        const [projects, sessions, worktrees, resources, health, goals, live, sendRecords] = await Promise.all([
+        const [projects, sessions, worktrees, resources, health, goals, live, sendRecords,
+          tasksChanged] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
           conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
           worktreesRequest,
@@ -2793,6 +3167,7 @@
           api("/api/goals"),
           conditionalApi("/api/live", state.liveEtag),
           loadSendRecords(),
+          loadSessionTasks(),
         ]);
         const sendRecordsChanged = sendRecords === true;
         if (requestId !== state.requestId || state.query) return;
@@ -2831,15 +3206,15 @@
         if (projectsChanged || worktreesChanged || liveChanged) renderProjects();
         if (projectsChanged || liveChanged) renderProjectManagement();
         if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || liveChanged
-          || sendRecordsChanged) render();
+          || sendRecordsChanged || tasksChanged) render();
       }
 
       async function refreshLive() {
-        const [live, sendRecordsChanged] = await Promise.all([
-          conditionalApi("/api/live", state.liveEtag), loadSendRecords(),
+        const [live, sendRecordsChanged, tasksChanged] = await Promise.all([
+          conditionalApi("/api/live", state.liveEtag), loadSendRecords(), loadSessionTasks(),
         ]);
         if (live.unchanged) {
-          if (sendRecordsChanged) render();
+          if (sendRecordsChanged || tasksChanged) render();
           return;
         }
         state.liveBySession = live.body;
@@ -2987,6 +3362,7 @@
         });
       });
       document.addEventListener("keydown", (event) => {
+        if (event.isComposing || event.keyCode === 229) return;
         if (event.key === "Escape" && closeFloatingMenus()) { event.preventDefault(); return; }
         const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
         if (event.key === "/" && !typing && state.view === "sessions") { event.preventDefault(); searchInput.focus(); return; }

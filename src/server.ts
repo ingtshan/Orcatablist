@@ -4,16 +4,20 @@ import {
   AGENTS, FALLBACK_RESCAN_INTERVAL_MS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_DATA_DIR,
   ORCATAB_HERMES_DB, ORCATAB_HOST, ORCATAB_ORCA_BIN, ORCATAB_PORT, RESCAN_INTERVAL_MS,
 } from "./config";
+import {
+  createBoardRegistry, openBoardDatabase, ProjectBoardStore, SessionTaskStore,
+  type BoardRegistry, type RemoteBoardConfig,
+} from "./boards";
 import { OrcaDatabase } from "./db";
 import { createDiscoveryReaders, handleDiscoveryRequest, type DiscoveryReaders } from "./discovery";
 import { handleFocusBoardRequest } from "./focus-board-routes";
 import { createFocusDeps, resolveFocus, ValidationError, type FocusDeps } from "./focus";
-import { GoalsStore, openGoalsDatabase, type GoalLinkKind } from "./goals";
-import { isSessionId, parseSessionUri, sessionIdentityKey } from "./session-identity";
+import { handleGoalRequest } from "./goal-routes";
+import { GoalsStore, openGoalsDatabase } from "./goals";
+import { parseSessionUri, sessionIdentityKey } from "./session-identity";
 import { handleGovernanceRequest } from "./governance";
 import {
-  assertSameOriginWrite, boundedLimit, decodeParts, focusText, json, jsonObject, nullableText,
-  requiredName, requiredString,
+  assertSameOriginWrite, boundedLimit, focusText, json, jsonObject, requiredString,
 } from "./http";
 import { serveFresh, versionSource, type VersionSource } from "./freshness";
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
@@ -24,25 +28,23 @@ import { openProjectPreferencesDatabase, ProjectPreferencesStore } from "./proje
 import { handleProjectRequest, NotFoundError } from "./project-routes";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
 import { handleSessionInputsRequest } from "./session-input-routes";
+import { createRefreshGate, handleSessionTaskRequest } from "./session-task-routes";
 import { handleSessionSendRequest } from "./session-send-routes";
 import { createSessionSendRuntime, type SentInputStore } from "./session-send-runtime";
 import { createSessionLiveReader, mergeSessionLive, type SessionLiveReader } from "./session-live";
 import { handleSppRequest } from "./spp";
-import { suggestSessions } from "./suggest";
-import type { Agent, GoalStatus, SearchResult, SessionRow } from "./types";
+import type { Agent, SearchResult, SessionRow } from "./types";
 import { appendUnindexedLiveSessions, liveSessionsWithProjectKeys } from "./unindexed-live";
 import { resolveWorktreeFocus } from "./worktree-focus";
 const DEFAULT_SESSIONS_LIMIT = 500;
 const MAX_SESSIONS_LIMIT = 5_000;
-const SUGGESTION_POOL_LIMIT = 5_000;
 const DEFAULT_SEARCH_LIMIT = 50;
 const MAX_SEARCH_LIMIT = 200;
-const GOAL_STATUSES = new Set<GoalStatus>(["active", "done", "archived"]);
-const GOAL_LINK_KINDS = new Set<GoalLinkKind>(["confirmed", "dismissed"]);
 export interface ServerOptions {
   port?: number; claudeDir?: string; codexDir?: string; hermesDb?: string; dataDir?: string; orcaBin?: string;
   db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; discovery?: DiscoveryReaders; startTimers?: boolean; quiet?: boolean;
   directoryPathExists?(path: string): boolean; orcaAuditReader?: OrcaWorktreeAuditReader; sentInputStore?: SentInputStore;
+  boardConfigs?: RemoteBoardConfig[]; boards?: BoardRegistry;
 }
 export interface OrcaTabServer { server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary; stop(): void; }
 function attachGoals<T extends SessionRow>(rows: T[], store: GoalsStore): T[] {
@@ -68,6 +70,17 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const db = options.db ?? new OrcaDatabase(join(dataDir, "index.db"));
   const goalsStore = options.goalsStore ?? new GoalsStore(openGoalsDatabase(join(dataDir, "goals.db")));
   const projectPreferences = new ProjectPreferencesStore(openProjectPreferencesDatabase(join(dataDir, "project-preferences.db")));
+  const boardDatabase = openBoardDatabase(join(dataDir, "boards.db"));
+  const sessionTaskStore = new SessionTaskStore(boardDatabase);
+  const projectBoardStore = new ProjectBoardStore(boardDatabase);
+  const boards = options.boards ?? createBoardRegistry({
+    database: boardDatabase,
+    listLocalProjects: () => db.listProjects().map((project) => ({
+      id: project.key, name: project.name, url: null,
+    })),
+    ...(options.boardConfigs === undefined ? {} : { configs: options.boardConfigs }),
+  });
+  const refreshGate = createRefreshGate();
   const discovery = options.discovery ?? createDiscoveryReaders();
   const orcaAuditReader = options.orcaAuditReader ?? createOrcaWorktreeAuditReader({ orcaBin });
   const indexer = createIndexer({ claudeDir, codexDir, hermesDb, db });
@@ -106,18 +119,6 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     projects: versionSource("projects", () => projectPreferences.preferencesVersion),
     worktrees: versionSource("worktrees", () => projectPreferences.worktreePreferencesVersion),
   } satisfies Record<string, VersionSource>;
-  const goalSummaries = () => {
-    const goals = goalsStore.listGoals();
-    const linksByGoal = goalsStore.confirmedLinksByGoal();
-    const sessions = db.getSessionsByIdentity([...linksByGoal.values()].flat());
-    return goals.map((goal) => {
-      const links = linksByGoal.get(goal.id) ?? [];
-      const timestamps = links.map(({ agent, sid }) => sessions.get(sessionIdentityKey(agent, sid))?.lastInputAt ?? null)
-        .filter((value): value is number => value !== null);
-      return { ...goal, sessionCount: links.length, lastActivityAt: timestamps.length ? Math.max(...timestamps) : null };
-    }).sort((left, right) => Number(right.lastActivityAt !== null) - Number(left.lastActivityAt !== null)
-      || (right.lastActivityAt ?? -1) - (left.lastActivityAt ?? -1));
-  };
   const handler = async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
@@ -149,7 +150,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           watch: watcher.mode, agents: [...AGENTS], version: "p7",
           capabilities: [
             "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
-            "session-send", "focus-board",
+            "session-send", "focus-board", "session-tasks",
           ],
         });
       }
@@ -165,6 +166,11 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       if (focusBoardResponse !== null) return focusBoardResponse;
       const sessionInputsResponse = await handleSessionInputsRequest(request, url, db);
       if (sessionInputsResponse !== null) return sessionInputsResponse;
+      const sessionTaskResponse = await handleSessionTaskRequest(request, url, {
+        db, boards, store: sessionTaskStore, bindings: projectBoardStore, refreshGate,
+        ...(options.quiet ? { onError: () => {} } : {}),
+      });
+      if (sessionTaskResponse !== null) return sessionTaskResponse;
       const sessionSendResponse = await handleSessionSendRequest(request, url, {
         findLive: sessionLiveReader.findLive, psEnv: focusDeps.psEnv, orcaJson: focusDeps.orcaJson,
         store: sentInputRuntime.store, confirmationQueue: sentInputRuntime.confirmationQueue,
@@ -212,65 +218,8 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           return attachGoals(rows, goalsStore);
         });
       }
-      if (url.pathname === "/api/goals" && request.method === "GET") return json(goalSummaries());
-      if (url.pathname === "/api/goals" && request.method === "POST") {
-        const body = await jsonObject(request);
-        const goal = goalsStore.createGoal({
-          name: requiredName(body.name), externalRef: nullableText(body.externalRef, "externalRef"),
-          color: nullableText(body.color, "color"),
-        });
-        return json(goal, 201);
-      }
-      if (url.pathname.startsWith("/api/goals/")) {
-        const parts = decodeParts(url.pathname, "/api/goals/");
-        const goalId = parts[0] ?? "";
-        const goal = goalsStore.getGoal(goalId);
-        if (goal === null) throw new NotFoundError("goal not found");
-        if (parts.length === 1 && request.method === "GET") {
-          const links = goalsStore.confirmedLinks(goalId);
-          const sessionsByIdentity = db.getSessionsByIdentity(links);
-          const base = links.map(({ agent, sid }) => sessionsByIdentity.get(sessionIdentityKey(agent, sid)))
-            .filter((row): row is SessionRow => row !== undefined);
-          const live = await sessionLiveReader.refresh();
-          const sessions = attachGoals(mergeSessionLive(base, live), goalsStore)
-            .sort((left, right) => (right.lastInputAt ?? -1) - (left.lastInputAt ?? -1));
-          const excluded = new Set(goalsStore.excludedLinks(goalId).map(({ agent, sid }) => sessionIdentityKey(agent, sid)));
-          const pool = attachGoals(mergeSessionLive(db.listSessions({ limit: SUGGESTION_POOL_LIMIT }), live), goalsStore);
-          return json({ goal, sessions, suggestions: suggestSessions(goal, sessions, excluded, pool) });
-        }
-        if (parts.length === 1 && request.method === "PATCH") {
-          const body = await jsonObject(request);
-          const name = body.name === undefined ? undefined : requiredName(body.name);
-          const status = body.status;
-          if (status !== undefined && (typeof status !== "string" || !GOAL_STATUSES.has(status as GoalStatus))) {
-            throw new ValidationError("invalid goal status");
-          }
-          return json(goalsStore.updateGoal(goalId, {
-            name, status: status as GoalStatus | undefined,
-            externalRef: nullableText(body.externalRef, "externalRef"), color: nullableText(body.color, "color"),
-          })!);
-        }
-        if (parts.length === 1 && request.method === "DELETE") {
-          goalsStore.deleteGoal(goalId);
-          return json({ ok: true });
-        }
-        if (parts.length === 2 && parts[1] === "links" && request.method === "POST") {
-          const body = await jsonObject(request);
-          if (typeof body.agent !== "string" || !enabledAgent(body.agent)) throw new ValidationError("invalid agent");
-          if (!isSessionId(body.sid)) throw new ValidationError("invalid session id");
-          if (typeof body.kind !== "string" || !GOAL_LINK_KINDS.has(body.kind as GoalLinkKind)) throw new ValidationError("invalid link kind");
-          goalsStore.setLink(goalId, body.agent, body.sid, body.kind as GoalLinkKind);
-          return json({ ok: true });
-        }
-        if (parts.length === 4 && parts[1] === "links" && request.method === "DELETE") {
-          const agent = parts[2]!;
-          const sid = parts[3]!;
-          if (!enabledAgent(agent)) throw new ValidationError("invalid agent");
-          if (!isSessionId(sid)) throw new ValidationError("invalid session id");
-          goalsStore.removeLink(goalId, agent, sid);
-          return json({ ok: true });
-        }
-      }
+      const goalResponse = await handleGoalRequest(request, url, { db, goalsStore, liveReader: sessionLiveReader });
+      if (goalResponse !== null) return goalResponse;
       if (request.method === "POST" && url.pathname.startsWith("/api/focus/")) {
         assertSameOriginWrite(request);
         let parts: string[];
@@ -302,6 +251,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       sentInputRuntime.close();
       server.stop(true);
       projectPreferences.close();
+      boardDatabase.close();
       goalsStore.close();
       db.close();
     },

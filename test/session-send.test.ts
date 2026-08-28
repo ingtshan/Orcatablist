@@ -20,7 +20,7 @@ function live(overrides: Partial<LiveInfo> = {}): LiveInfo {
 function sentInput(overrides: Partial<SentInput> = {}): SentInput {
   return {
     agent: "claude", sid: SID, text: "继续", handle: "term_claude", sentAt: SENT_AT,
-    workingObservedAt: null, confirmedAt: null, confirmedInputAt: null, ...overrides,
+    workingObservedAt: null, ...overrides,
   };
 }
 
@@ -75,7 +75,6 @@ describe("confirmationState", () => {
   test("reflects the queue phases without treating live status alone as confirmation", () => {
     expect(confirmationState(sentInput(), SENT_AT)).toBe("pending");
     expect(confirmationState(sentInput({ workingObservedAt: SENT_AT + 1 }), SENT_AT + 2)).toBe("verifying");
-    expect(confirmationState(sentInput({ confirmedAt: SENT_AT + 2 }), SENT_AT + 3)).toBe("confirmed");
   });
 
   test("stays pending until the timeout, then reports stalled", () => {
@@ -101,17 +100,20 @@ describe("sent input confirmation queue", () => {
     currentLive = live({ status: "working", updatedAt: SENT_AT + 1_000 });
     inputs = new Map([[`claude/${SID}`, [{ text: "不匹配", ts: SENT_AT + 1_000 }]]]);
     expect((await queue.reconcile())[`claude/${SID}`]).toMatchObject({
-      state: "verifying", workingObservedAt: SENT_AT + 1_000, confirmedAt: null,
+      state: "verifying", workingObservedAt: SENT_AT + 1_000,
     });
 
     currentLive = live({ status: "done", updatedAt: SENT_AT + 3_000 });
     inputs = new Map([[`claude/${SID}`, [{
       text: "继续", ts: SENT_AT + CONFIRMATION_INPUT_TOLERANCE_MS,
     }]]]);
-    expect((await queue.reconcile())[`claude/${SID}`]).toMatchObject({
-      state: "confirmed", confirmedAt: SENT_AT + 2_000,
+    expect((await queue.reconcile())[`claude/${SID}`]).toBeUndefined();
+    expect(store.get("claude", SID)).toBeNull();
+    expect(queue.takeConfirmed()).toEqual([expect.objectContaining({
+      agent: "claude", sid: SID, text: "继续", confirmedAt: SENT_AT + 2_000,
       confirmedInputAt: SENT_AT + CONFIRMATION_INPUT_TOLERANCE_MS,
-    });
+    })]);
+    expect(queue.takeConfirmed()).toEqual([]);
   });
 
   test("does not treat busy, mismatched text, or an out-of-window input as confirmation", async () => {
@@ -160,8 +162,12 @@ describe("sent input confirmation queue", () => {
     const records = await queue.reconcile({ forceLive: true });
     expect(forces).toEqual([true]);
     expect(batches).toEqual([[`claude/${SID}`, `codex/${otherSid}`]]);
-    expect(Object.values(records).map((record) => record.state)).toEqual(["confirmed", "confirmed"]);
+    expect(records).toEqual({});
+    expect(store.list()).toEqual([]);
     expect(queue.hasPending()).toBeFalse();
+    expect(queue.takeConfirmed().map((entry) => `${entry.agent}/${entry.sid}`)).toEqual([
+      `claude/${SID}`, `codex/${otherSid}`,
+    ]);
   });
 });
 
@@ -240,7 +246,7 @@ describe("sent input store", () => {
     expect(store.list()).toHaveLength(1);
   });
 
-  test("annotates records with their delivery state", () => {
+  test("annotates records with their confirmation state", () => {
     const store = createSentInputStore();
     store.record(sentInput());
     const records = sentInputRecords(store, SENT_AT + CONFIRMATION_TIMEOUT_MS);
@@ -296,7 +302,7 @@ describe("session send routes", () => {
     expect(recorder.calls).toHaveLength(1);
   });
 
-  test("reconciles queued records and drops one on delete", async () => {
+  test("removes a confirmed record automatically and keeps delete idempotent", async () => {
     const store = createSentInputStore();
     store.record(sentInput());
     const confirmationQueue = createSentInputConfirmationQueue({
@@ -310,7 +316,16 @@ describe("session send routes", () => {
     });
     const listRequest = new Request("http://127.0.0.1:47831/api/session-send");
     const listed = await handleSessionSendRequest(listRequest, new URL(listRequest.url), deps);
-    expect(await listed!.json()).toMatchObject({ records: { [`claude/${SID}`]: { state: "confirmed" } } });
+    expect(await listed!.json()).toEqual({
+      records: {},
+      confirmed: [expect.objectContaining({
+        agent: "claude", sid: SID, text: "继续", confirmedAt: SENT_AT + 2,
+      })],
+    });
+    expect(store.list()).toEqual([]);
+
+    const relisted = await handleSessionSendRequest(listRequest, new URL(listRequest.url), deps);
+    expect(await relisted!.json()).toEqual({ records: {}, confirmed: [] });
 
     const deleteRequest = new Request(`http://127.0.0.1:47831/api/session-send/claude/${SID}`, { method: "DELETE" });
     const deleted = await handleSessionSendRequest(deleteRequest, new URL(deleteRequest.url), deps);

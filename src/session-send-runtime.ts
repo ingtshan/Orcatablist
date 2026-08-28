@@ -5,6 +5,7 @@ import {
   type SentInputConfirmationQueue, type SentInputStore,
 } from "./session-send";
 import type { SessionLiveReader } from "./session-live";
+export type { SentInputStore } from "./session-send";
 
 export interface SessionSendRuntime {
   store: SentInputStore;

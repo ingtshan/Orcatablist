@@ -49,7 +49,8 @@ export async function handleSessionSendRequest(
   if (url.pathname !== COLLECTION_ROUTE && !url.pathname.startsWith(`${COLLECTION_ROUTE}/`)) return null;
   try {
     if (request.method === "GET" && url.pathname === COLLECTION_ROUTE) {
-      return json({ records: await deps.confirmationQueue.reconcile() });
+      const records = await deps.confirmationQueue.reconcile();
+      return json({ records, confirmed: deps.confirmationQueue.takeConfirmed() });
     }
     const identity = decodeIdentity(url.pathname);
     if (identity !== null && request.method === "DELETE") {

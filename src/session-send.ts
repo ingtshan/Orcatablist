@@ -14,12 +14,13 @@ export const MAX_INPUT_CHARS = 4_000;
 export const CONFIRMATION_INPUT_TOLERANCE_MS = 5_000;
 export const CONFIRMATION_TIMEOUT_MS = 20_000;
 export const CONFIRMATION_POLL_MS = 1_000;
+export const CONFIRMATION_FEEDBACK_TTL_MS = 15_000;
 const MAX_TRACKED_SENDS = 200;
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
 export type SendConflictCode =
   | "offline" | "not-waiting" | "status-changed" | "handle-changed" | "running-outside-orca";
-export type ConfirmationState = "pending" | "verifying" | "confirmed" | "stalled";
+export type ConfirmationState = "pending" | "verifying" | "stalled";
 
 export class SendConflictError extends Error {
   override name = "SendConflictError";
@@ -33,11 +34,13 @@ export interface SentInput {
   handle: string;
   sentAt: number;
   workingObservedAt: number | null;
-  confirmedAt: number | null;
-  confirmedInputAt: number | null;
 }
 
 export interface SentInputRecord extends SentInput { state: ConfirmationState; }
+export interface ConfirmedSentInput extends SentInput {
+  confirmedAt: number;
+  confirmedInputAt: number;
+}
 export interface SentUserInputEvidence { text: string; ts: number | null; }
 
 export interface SentInputStore {
@@ -52,6 +55,7 @@ export interface SentInputConfirmationQueue {
   hasPending(): boolean;
   reconcile(options?: { forceLive?: boolean }): Promise<Record<string, SentInputRecord>>;
   records(): Record<string, SentInputRecord>;
+  takeConfirmed(): ConfirmedSentInput[];
 }
 
 export interface SentInputConfirmationQueueDeps {
@@ -110,7 +114,6 @@ export function normalizeInputText(value: unknown): string {
 }
 
 export function confirmationState(entry: SentInput, now: number): ConfirmationState {
-  if (entry.confirmedAt !== null) return "confirmed";
   if (now - entry.sentAt >= CONFIRMATION_TIMEOUT_MS) return "stalled";
   return entry.workingObservedAt === null ? "pending" : "verifying";
 }
@@ -136,9 +139,13 @@ function workingEventAt(entry: SentInput, live: LiveInfo | undefined, now: numbe
 function matchingEvidence(
   entry: SentInput,
   inputs: readonly SentUserInputEvidence[],
-): SentUserInputEvidence | null {
-  return inputs.find((input) => input.ts !== null && input.text === entry.text
-    && Math.abs(input.ts - entry.sentAt) <= CONFIRMATION_INPUT_TOLERANCE_MS) ?? null;
+): (SentUserInputEvidence & { ts: number }) | null {
+  for (const input of inputs) {
+    if (input.ts === null || input.text !== entry.text) continue;
+    if (Math.abs(input.ts - entry.sentAt) > CONFIRMATION_INPUT_TOLERANCE_MS) continue;
+    return { ...input, ts: input.ts };
+  }
+  return null;
 }
 
 function isPending(entry: SentInput, now: number): boolean {
@@ -153,11 +160,19 @@ function updateCurrent(store: SentInputStore, previous: SentInput, next: SentInp
   return next;
 }
 
+function removeCurrent(store: SentInputStore, entry: SentInput): boolean {
+  const current = store.get(entry.agent, entry.sid);
+  if (current?.sentAt !== entry.sentAt) return false;
+  store.remove(entry.agent, entry.sid);
+  return true;
+}
+
 export function createSentInputConfirmationQueue(
   deps: SentInputConfirmationQueueDeps,
 ): SentInputConfirmationQueue {
   const now = deps.now ?? Date.now;
   let active: Promise<Record<string, SentInputRecord>> | null = null;
+  const confirmed = new Map<string, ConfirmedSentInput>();
 
   const records = () => sentInputRecords(deps.store, now());
   const hasPending = () => deps.store.list().some((entry) => isPending(entry, now()));
@@ -172,16 +187,15 @@ export function createSentInputConfirmationQueue(
       if (workingObservedAt === entry.workingObservedAt) return entry;
       return updateCurrent(deps.store, entry, { ...entry, workingObservedAt });
     });
-    const candidates = observed.filter((entry) => entry.workingObservedAt !== null && entry.confirmedAt === null);
+    const candidates = observed.filter((entry) => entry.workingObservedAt !== null);
     const inputs = candidates.length === 0 ? new Map<string, readonly SentUserInputEvidence[]>()
       : deps.getUserInputs(candidates);
     for (const entry of candidates) {
       const key = sessionIdentityKey(entry.agent, entry.sid);
       const evidence = matchingEvidence(entry, inputs.get(key) ?? []);
       if (evidence === null) continue;
-      updateCurrent(deps.store, entry, {
-        ...entry, confirmedAt: checkedAt, confirmedInputAt: evidence.ts,
-      });
+      if (!removeCurrent(deps.store, entry)) continue;
+      confirmed.set(key, { ...entry, confirmedAt: checkedAt, confirmedInputAt: evidence.ts });
     }
     return sentInputRecords(deps.store, checkedAt);
   }
@@ -189,6 +203,12 @@ export function createSentInputConfirmationQueue(
   return {
     hasPending,
     records,
+    takeConfirmed: () => {
+      const cutoff = now() - CONFIRMATION_FEEDBACK_TTL_MS;
+      const entries = [...confirmed.values()].filter((entry) => entry.confirmedAt >= cutoff);
+      confirmed.clear();
+      return entries;
+    },
     reconcile: (options = {}) => {
       if (active !== null) return active;
       active = run(options.forceLive === true).finally(() => { active = null; });
@@ -229,7 +249,7 @@ export async function sendSessionInput(
   const sentAt = (deps.now ?? Date.now)();
   const entry: SentInput = {
     agent, sid, text: payload, handle: target.handle, sentAt,
-    workingObservedAt: null, confirmedAt: null, confirmedInputAt: null,
+    workingObservedAt: null,
   };
   deps.store.record(entry);
   deps.onSent?.(entry);

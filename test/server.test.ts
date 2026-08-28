@@ -185,7 +185,7 @@ describe("HTTP server", () => {
       dataVersion: 1, listVersion: 1, watch: "timer",
       capabilities: [
         "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
-        "session-send", "focus-board",
+        "session-send", "focus-board", "session-tasks",
       ],
     });
   });
@@ -568,10 +568,14 @@ describe("HTTP server", () => {
     expect(html).toContain('state.focusProjectSort === "za" ? -1 : 1');
     expect(html).toContain('focusProjectSort.addEventListener("change", () => setFocusProjectSort(focusProjectSort.value))');
     expect(html).toContain('make("small", "focus-lane-range", definition.range)');
-    expect(html).toContain('const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v1"');
-    expect(html).toContain('const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v1"');
-    expect(html).toContain('function setFocusProjectCollapsed(projectKey, collapsed)');
+    expect(html).toContain('const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v2"');
+    expect(html).toContain('const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v2"');
+    expect(html).toContain('function focusProjectCollapseKey(laneKey, projectKey)');
+    expect(html).toContain('function focusWorktreeCollapseKey(laneKey, projectKey, worktreeRoot)');
+    expect(html).toContain('function setFocusProjectCollapsed(collapseKey, collapsed)');
     expect(html).toContain('function setFocusWorktreeCollapsed(collapseKey, collapsed)');
+    expect(html).toContain('function renderFocusGroups(parent, laneKey, rows)');
+    expect(html).toContain('renderFocusGroups(body, definition.key, rows)');
     expect(html).toContain('projectToggle.setAttribute("aria-expanded", String(!projectCollapsed))');
     expect(html).toContain('projectBody.hidden = projectCollapsed');
     expect(html).toContain('worktreeToggle.setAttribute("aria-expanded", String(!worktreeCollapsed))');
@@ -582,10 +586,24 @@ describe("HTTP server", () => {
     expect(html).toContain('rawLiveState(row.live) === "done"');
     expect(html).toContain('text, expectedHandle: row.live?.handle, expectedStatus: rawLiveState(row.live)');
     expect(html).toContain('fetch("/api/session-send")');
-    expect(html).toContain('make("button", "action session-send-copy", "复制上次输入")');
-    expect(html).toContain('pending: "已发送 · 等待确认", verifying: "进行中 · 正在核对", confirmed: "已确认", stalled: "未确认"');
+    expect(html).toContain('function iconButton(className, label, iconName)');
+    expect(html).toContain('iconButton("session-send-copy", "复制上次输入", "copy")');
+    expect(html).toContain('iconButton("session-send-dismiss", "忽略", "x")');
+    expect(html).toContain('pending: "clock", verifying: "spinner", confirmed: "check", stalled: "x", failed: "x"');
+    expect(html).toContain('pending: "等待确认", verifying: "正在核对", confirmed: "已确认", stalled: "确认失败"');
+    expect(html).toContain('const SEND_CONFIRMATION_FEEDBACK_MS = 1400');
+    expect(html).toContain('function registerSendConfirmation(entry)');
+    expect(html).toContain('(Array.isArray(body.confirmed) ? body.confirmed : []).forEach(registerSendConfirmation)');
+    expect(html).toContain('.session-send-icon-button { width: 24px; height: 24px;');
+    expect(html).not.toContain('make("button", "action session-send-copy", "复制上次输入")');
     expect(html).toContain('showToast("已发送，已加入自动确认队列")');
     expect(html).toContain('record.state === "confirmed"');
+    expect(html).toContain('.session-send { --session-send-height: 36px;');
+    expect(html).toContain('make("button", "session-send-button", "发送")');
+    expect(html).toContain('input.addEventListener("compositionstart"');
+    expect(html).toContain('input.addEventListener("compositionend"');
+    expect(html).toContain('event.isComposing || composing || event.keyCode === 229');
+    expect(html).toContain('if (state.sendCompositionKey) { state.sendRenderPending = true; return; }');
     expect(html).toContain('id="focus-monitor" class="focus-monitor" hidden');
     expect(html).toContain('.focus-monitor.monitor-floating { right: var(--focus-monitor-gap);');
     expect(html).toContain('.focus-monitor.monitor-docked-left');

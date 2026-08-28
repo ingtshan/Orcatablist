@@ -12,7 +12,7 @@ const SID = "02998b64-f0d0-48a9-9bf1-8c90e265de7a";
 function sentInput(agent: SentInput["agent"], sid: string, text: string): SentInput {
   return {
     agent, sid, text, handle: `term_${agent}`, sentAt: SENT_AT,
-    workingObservedAt: SENT_AT + 1, confirmedAt: null, confirmedInputAt: null,
+    workingObservedAt: SENT_AT + 1,
   };
 }
 
