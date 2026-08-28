@@ -2,7 +2,8 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
-import { escapeLike, likeSnippet, sessionIdentityKey, sessionRow, storedSession } from "./db-rows";
+import { escapeLike, likeSnippet, sessionRow, storedSession } from "./db-rows";
+import { sessionIdentityKey } from "./session-identity";
 import { openDatabase } from "./db-schema";
 import type { Agent, ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
 

@@ -1,4 +1,4 @@
-import { sessionIdentityKey } from "./goals";
+import { sessionIdentityKey } from "./session-identity";
 import type { Goal, SessionRow, SessionSuggestion, SuggestionReason } from "./types";
 
 const MAX_TITLE_SCORE = 3;

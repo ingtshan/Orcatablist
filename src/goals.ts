@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { sessionIdentityKey } from "./session-identity";
 import type { Agent, Goal, GoalRef, GoalStatus } from "./types";
 
 const GOALS_SCHEMA_VERSION = "1";
@@ -22,10 +23,6 @@ export interface SessionIdentity { agent: Agent; sid: string; }
 export interface CreateGoalInput { name: string; externalRef?: string | null; color?: string | null; }
 export interface UpdateGoalInput {
   name?: string; status?: GoalStatus; externalRef?: string | null; color?: string | null;
-}
-
-export function sessionIdentityKey(agent: string, sid: string): `${string}/${string}` {
-  return `${agent}/${sid}`;
 }
 
 export function openGoalsDatabase(path: string): Database {

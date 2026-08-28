@@ -3,13 +3,12 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 import { HERMES_PROCESS_CACHE_MS, LIVE_CACHE_MS, ORCATAB_ORCA_BIN } from "./config";
-import { sessionIdentityKey } from "./goals";
+import { isAgent, SESSION_ID_PATTERN, sessionIdentityKey } from "./session-identity";
 import { getLiveMap as getClaudeLiveMap } from "./live";
 import { listHermesProcessEnvironments } from "./process-environments";
 import type { Agent, LiveInfo, SessionRow } from "./types";
 
 const ACTIVE_FILE_PATTERN = /^hermes-tui-active-session-[A-Za-z0-9._-]+\.json$/;
-const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const ACTIVE_FILE_MAX_BYTES = 4_096;
 const ORCA_RUNTIME_TIMEOUT_MS = 3_000;
 const RUNTIME_CLIENT_RELATIVE_PATH = "app.asar.unpacked/out/cli/runtime-client.js";
@@ -90,7 +89,7 @@ function readSmallTextFile(path: string): string {
 }
 
 function asAgent(value: unknown): Agent | null {
-  return value === "claude" || value === "codex" || value === "hermes" ? value : null;
+  return isAgent(value) ? value : null;
 }
 
 function rawLiveStatus(value: unknown): string {

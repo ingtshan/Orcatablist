@@ -1,6 +1,7 @@
 import { AGENTS } from "./config";
 import type { OrcaDatabase } from "./db";
-import { SID_PATTERN, ValidationError } from "./focus";
+import { ValidationError } from "./focus";
+import { isSessionId } from "./session-identity";
 import type { SessionIdentity } from "./goals";
 import { json, jsonObject } from "./http";
 
@@ -18,7 +19,7 @@ function requestedSessionIdentities(value: unknown): SessionIdentity[] {
     if (typeof item !== "object" || item === null) throw new ValidationError("invalid session identity");
     const { agent, sid } = item as Record<string, unknown>;
     if (typeof agent !== "string" || !ENABLED_AGENTS.has(agent)
-      || typeof sid !== "string" || !SID_PATTERN.test(sid)) {
+      || !isSessionId(sid)) {
       throw new ValidationError("invalid session identity");
     }
     return { agent: agent as SessionIdentity["agent"], sid };

@@ -1,5 +1,5 @@
 import type { OrcaDatabase } from "./db";
-import { sessionIdentityKey } from "./goals";
+import { sessionIdentityKey } from "./session-identity";
 import {
   CONFIRMATION_INPUT_TOLERANCE_MS, type SentInput, type SentUserInputEvidence,
 } from "./session-send";

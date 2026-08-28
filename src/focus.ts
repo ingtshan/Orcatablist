@@ -8,10 +8,9 @@ import { createLiveReader } from "./live";
 import { createSessionLiveReader } from "./session-live";
 import { findCodexSessionCwd } from "./sources/codex";
 import { findHermesSessionCwd } from "./sources/hermes";
+import { isAgent, isSessionId, isSessionUri, parseSessionUri } from "./session-identity";
 import type { Agent, FocusResult, LiveInfo } from "./types";
 
-export const SID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-const URI_PATTERN = /^orcatab:\/\/([^/]+)\/(.+)$/;
 const CLI_SCAN_MAX_BYTES = 256 * 1_024;
 
 export class ValidationError extends Error { override name = "ValidationError"; }
@@ -150,7 +149,7 @@ export async function resolveFocus(
   options: { dryRun: boolean } = { dryRun: false },
 ): Promise<FocusResult> {
   if (!AGENTS.some((candidate) => candidate === agent)) throw new ValidationError("invalid agent");
-  if (!SID_PATTERN.test(sid)) throw new ValidationError("invalid session id");
+  if (!isSessionId(sid)) throw new ValidationError("invalid session id");
   const live = await deps.findLive(agent, sid);
   if (live !== null) {
     const target = await resolveTerminalTarget(live, deps);
@@ -247,11 +246,10 @@ function parseCliArgs(args: string[]): { agent: Agent; sid: string; dryRun: bool
   const dryRun = args.includes("--dry-run");
   const input = args.find((arg) => arg !== "--dry-run");
   if (!input) throw new ValidationError("usage: bun src/focus.ts [--dry-run] <sid | orcatab://<agent>/<sid>>");
-  const match = URI_PATTERN.exec(input);
-  if (match === null) return { agent: "claude", sid: input, dryRun };
-  const agent = match[1];
-  if (!AGENTS.some((candidate) => candidate === agent)) throw new ValidationError("invalid agent");
-  return { agent: agent as Agent, sid: match[2]!, dryRun };
+  if (!isSessionUri(input)) return { agent: "claude", sid: input, dryRun };
+  const identity = parseSessionUri(input);
+  if (identity === null) throw new ValidationError("invalid orcatab uri");
+  return { ...identity, dryRun };
 }
 
 async function runCli(args: string[]): Promise<void> {

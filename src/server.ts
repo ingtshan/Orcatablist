@@ -6,8 +6,9 @@ import {
 } from "./config";
 import { OrcaDatabase } from "./db";
 import { createDiscoveryReaders, handleDiscoveryRequest, type DiscoveryReaders } from "./discovery";
-import { createFocusDeps, resolveFocus, SID_PATTERN, ValidationError, type FocusDeps } from "./focus";
-import { GoalsStore, openGoalsDatabase, sessionIdentityKey, type GoalLinkKind } from "./goals";
+import { createFocusDeps, resolveFocus, ValidationError, type FocusDeps } from "./focus";
+import { GoalsStore, openGoalsDatabase, type GoalLinkKind } from "./goals";
+import { isSessionId, parseSessionUri, sessionIdentityKey } from "./session-identity";
 import { handleGovernanceRequest } from "./governance";
 import {
   assertSameOriginWrite, boundedLimit, conditionalJson, decodeParts, focusText, json, jsonObject, nullableText,
@@ -22,8 +23,7 @@ import { handleProjectRequest, NotFoundError } from "./project-routes";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
 import { handleSessionInputsRequest } from "./session-input-routes";
 import { handleSessionSendRequest } from "./session-send-routes";
-import { createSessionSendRuntime } from "./session-send-runtime";
-import type { SentInputStore } from "./session-send";
+import { createSessionSendRuntime, type SentInputStore } from "./session-send-runtime";
 import { createSessionLiveReader, mergeSessionLive, type SessionLiveReader } from "./session-live";
 import { handleSppRequest } from "./spp";
 import { suggestSessions } from "./suggest";
@@ -35,20 +35,14 @@ const MAX_SESSIONS_LIMIT = 5_000;
 const SUGGESTION_POOL_LIMIT = 5_000;
 const DEFAULT_SEARCH_LIMIT = 50;
 const MAX_SEARCH_LIMIT = 200;
-const FOCUS_URI_PATTERN = /^orcatab:\/\/(claude|codex|hermes)\/([A-Za-z0-9_-]{1,128})$/;
 const GOAL_STATUSES = new Set<GoalStatus>(["active", "done", "archived"]);
 const GOAL_LINK_KINDS = new Set<GoalLinkKind>(["confirmed", "dismissed"]);
 export interface ServerOptions {
   port?: number; claudeDir?: string; codexDir?: string; hermesDb?: string; dataDir?: string; orcaBin?: string;
   db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; discovery?: DiscoveryReaders; startTimers?: boolean; quiet?: boolean;
-  directoryPathExists?(path: string): boolean;
-  orcaAuditReader?: OrcaWorktreeAuditReader;
-  sentInputStore?: SentInputStore;
+  directoryPathExists?(path: string): boolean; orcaAuditReader?: OrcaWorktreeAuditReader; sentInputStore?: SentInputStore;
 }
-export interface OrcaTabServer {
-  server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary;
-  stop(): void;
-}
+export interface OrcaTabServer { server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary; stop(): void; }
 function attachGoals<T extends SessionRow>(rows: T[], store: GoalsStore): T[] {
   const goals = store.goalsForSessions(rows.map(({ agent, sid }) => ({ agent, sid })));
   return rows.map((row) => ({ ...row, goals: goals.get(sessionIdentityKey(row.agent, row.sid)) ?? [] }));
@@ -85,11 +79,9 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const focusDeps = options.focusDeps ?? createFocusDeps(db, {
     claudeDir, codexDir, hermesDb, orcaBin, liveFinder: sessionLiveReader.findLive,
   });
-  const sentInputRuntime = createSessionSendRuntime({
-    db, liveReader: sessionLiveReader, startPolling: options.startTimers !== false,
-    ...(options.sentInputStore === undefined ? {} : { store: options.sentInputStore }),
-    ...(options.quiet ? { onError: () => {} } : {}),
-  });
+  const sentInputRuntime = createSessionSendRuntime({ db, liveReader: sessionLiveReader,
+    startPolling: options.startTimers !== false,
+    ...(options.sentInputStore === undefined ? {} : { store: options.sentInputStore }), ...(options.quiet ? { onError: () => {} } : {}) });
   const timers: Array<ReturnType<typeof setInterval>> = [];
   let watcher: WatchHandle = { mode: "timer", close: () => {} };
   let rescanTimer: ReturnType<typeof setInterval> | null = null;
@@ -161,9 +153,8 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       const sessionInputsResponse = await handleSessionInputsRequest(request, url, db);
       if (sessionInputsResponse !== null) return sessionInputsResponse;
       const sessionSendResponse = await handleSessionSendRequest(request, url, {
-        findLive: sessionLiveReader.findLive,
-        psEnv: focusDeps.psEnv, orcaJson: focusDeps.orcaJson, store: sentInputRuntime.store,
-        confirmationQueue: sentInputRuntime.confirmationQueue,
+        findLive: sessionLiveReader.findLive, psEnv: focusDeps.psEnv, orcaJson: focusDeps.orcaJson,
+        store: sentInputRuntime.store, confirmationQueue: sentInputRuntime.confirmationQueue,
       });
       if (sessionSendResponse !== null) return sessionSendResponse;
       if (request.method === "POST" && url.pathname === "/api/projects/focus") {
@@ -254,7 +245,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         if (parts.length === 2 && parts[1] === "links" && request.method === "POST") {
           const body = await jsonObject(request);
           if (typeof body.agent !== "string" || !enabledAgent(body.agent)) throw new ValidationError("invalid agent");
-          if (typeof body.sid !== "string" || !SID_PATTERN.test(body.sid)) throw new ValidationError("invalid session id");
+          if (!isSessionId(body.sid)) throw new ValidationError("invalid session id");
           if (typeof body.kind !== "string" || !GOAL_LINK_KINDS.has(body.kind as GoalLinkKind)) throw new ValidationError("invalid link kind");
           goalsStore.setLink(goalId, body.agent, body.sid, body.kind as GoalLinkKind);
           return json({ ok: true });
@@ -263,7 +254,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           const agent = parts[2]!;
           const sid = parts[3]!;
           if (!enabledAgent(agent)) throw new ValidationError("invalid agent");
-          if (!SID_PATTERN.test(sid)) throw new ValidationError("invalid session id");
+          if (!isSessionId(sid)) throw new ValidationError("invalid session id");
           goalsStore.removeLink(goalId, agent, sid);
           return json({ ok: true });
         }
@@ -279,12 +270,9 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         return json(await resolveFocus(agent, sid, focusDeps, { dryRun: false }));
       }
       if (request.method === "GET" && url.pathname === "/focus") {
-        const candidate = url.searchParams.get("uri") ?? "";
-        const match = FOCUS_URI_PATTERN.exec(candidate);
-        if (!match) throw new ValidationError("invalid orcatab uri");
-        const agent = match[1]!;
-        if (!enabledAgent(agent)) throw new ValidationError("invalid agent");
-        const result = await resolveFocus(agent, match[2]!, focusDeps, { dryRun: false });
+        const identity = parseSessionUri(url.searchParams.get("uri") ?? "");
+        if (identity === null) throw new ValidationError("invalid orcatab uri");
+        const result = await resolveFocus(identity.agent, identity.sid, focusDeps, { dryRun: false });
         return new Response(`${focusText(result)}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       }
       return json({ error: "not found" }, 404);

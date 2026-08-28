@@ -1,8 +1,8 @@
 import { AGENTS } from "./config";
 import {
-  errorText, OrcaError, resolveTerminalTarget, SID_PATTERN, ValidationError, type OrcaJsonResult,
+  errorText, OrcaError, resolveTerminalTarget, ValidationError, type OrcaJsonResult,
 } from "./focus";
-import { sessionIdentityKey } from "./goals";
+import { isSessionId, sessionIdentityKey } from "./session-identity";
 import type { Agent, LiveInfo, LiveStatus } from "./types";
 
 /**
@@ -205,7 +205,7 @@ export async function sendSessionInput(
   expected: SendExpectation = {},
 ): Promise<SentInputRecord> {
   if (!AGENTS.some((candidate) => candidate === agent)) throw new ValidationError("invalid agent");
-  if (!SID_PATTERN.test(sid)) throw new ValidationError("invalid session id");
+  if (!isSessionId(sid)) throw new ValidationError("invalid session id");
   const payload = normalizeInputText(text);
   const live = await deps.findLive(agent, sid);
   if (live === null) throw new SendConflictError("offline", "session is no longer live in Orca");
