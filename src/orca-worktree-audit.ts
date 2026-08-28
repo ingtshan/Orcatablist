@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { createCachedSnapshot } from "./cached-snapshot";
 
 const ORCA_AUDIT_CACHE_MS = 30_000;
 const COMMAND_TIMEOUT_MS = 5_000;
@@ -190,10 +191,6 @@ export function createOrcaWorktreeAuditReader(options: OrcaWorktreeAuditOptions 
   const pathExists = options.pathExists ?? existsSync;
   const cacheMs = options.cacheMs ?? ORCA_AUDIT_CACHE_MS;
   const orcaBin = options.orcaBin ?? "orca";
-  let cached: OrcaWorktreeAuditSnapshot | null = null;
-  let cachedAt = Number.NEGATIVE_INFINITY;
-  let version = 0;
-  let signature = "";
 
   async function load(): Promise<OrcaWorktreeAuditSnapshot> {
     const warnings: string[] = [];
@@ -230,18 +227,10 @@ export function createOrcaWorktreeAuditReader(options: OrcaWorktreeAuditOptions 
     };
   }
 
-  return {
-    refresh: async () => {
-      const current = now();
-      if (cached !== null && current - cachedAt < cacheMs) return cached;
-      const next = await load();
-      const nextSignature = JSON.stringify({ summary: next.summary, items: next.items, warnings: next.warnings });
-      if (nextSignature !== signature) version += 1;
-      signature = nextSignature;
-      cached = next;
-      cachedAt = current;
-      return cached;
-    },
-    getVersion: () => version,
-  };
+  const snapshot = createCachedSnapshot<void, OrcaWorktreeAuditSnapshot>({
+    ttlMs: cacheMs, now, load: () => load(),
+    // auditedAt moves on every load; the version must track content only.
+    signature: ({ summary, items, warnings }) => JSON.stringify({ summary, items, warnings }),
+  });
+  return { refresh: () => snapshot.refresh(), getVersion: snapshot.getVersion };
 }
