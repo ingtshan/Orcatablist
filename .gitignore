@@ -3,3 +3,6 @@ coverage/
 *.log
 .DS_Store
 tasks/REPORT-*.md
+
+# codegraph index (local, rebuildable)
+.codegraph/

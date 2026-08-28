@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,7 +35,7 @@ function storedSession(
 }
 
 const switchLive: LiveInfo = {
-  pid: process.pid, status: "busy", waitingFor: "tool approval", name: "SPP live fixture",
+  pid: process.pid, status: "working", waitingFor: "tool approval", name: "SPP live fixture",
 };
 
 const focusDeps: FocusDeps = {
@@ -101,8 +101,10 @@ describe("SPP pure mappings and database additions", () => {
   });
 
   test("maps every live status and absence to SPP states", () => {
-    expect([toSppState("busy"), toSppState("waiting"), toSppState("idle"), toSppState("shell"), toSppState(null)])
-      .toEqual(["live", "waiting", "idle", "idle", "offline"]);
+    expect([
+      toSppState("working"), toSppState("done"), toSppState("waiting"),
+      toSppState("shell"), toSppState("future-state"), toSppState(null),
+    ]).toEqual(["live", "done", "waiting", "idle", "idle", "offline"]);
   });
 
   test("finds sessions across agents and counts strict user deltas", () => {
@@ -123,7 +125,10 @@ describe("SPP HTTP server", () => {
       protocol: "spp/1.0",
       provider: { id: "orcatab", name: "OrcaTab", version: "1.0.0" },
       agents: ["claude", "codex", "hermes"],
-      features: { search: true, suggest: true, status: true, action: true, progressDelta: true },
+      features: {
+        search: true, suggest: true, status: true, rawState: true,
+        action: true, progressDelta: true, lookup: true,
+      },
     });
     expect((await fetch(`${baseUrl}/healthz`)).headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
@@ -163,6 +168,8 @@ describe("SPP HTTP server", () => {
   });
 
   test("reports live/offline states, waiting details, and optional progress deltas", async () => {
+    const getSessionBySid = spyOn(app.db, "getSessionBySid");
+    const countUserActivitySince = spyOn(app.db, "countUserActivitySince");
     const response = await fetch(`${baseUrl}/spp/v1/status`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ refs: [
@@ -173,20 +180,44 @@ describe("SPP HTTP server", () => {
     });
     expect(await response.json()).toEqual({ statuses: [
       {
-        providerId: "orcatab", sessionId: SWITCH_SID, state: "live", lastActivityAt: 300,
+        providerId: "orcatab", sessionId: SWITCH_SID, state: "live", rawState: "working", lastActivityAt: 300,
         newActivityCount: 1, waitingFor: "tool approval",
       },
       {
-        providerId: "orcatab", sessionId: RESUME_SID, state: "offline", lastActivityAt: 200,
+        providerId: "orcatab", sessionId: RESUME_SID, state: "offline", rawState: null, lastActivityAt: 200,
         newActivityCount: 1, waitingFor: null,
       },
     ] });
+    expect(getSessionBySid).not.toHaveBeenCalled();
+    expect(countUserActivitySince).not.toHaveBeenCalled();
+    getSessionBySid.mockRestore();
+    countUserActivitySince.mockRestore();
 
     const withoutSince = await (await fetch(`${baseUrl}/spp/v1/status`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ refs: [{ providerId: "orcatab", sessionId: SWITCH_SID }] }),
     })).json();
     expect("newActivityCount" in withoutSince.statuses[0]).toBeFalse();
+  });
+
+  test("resolves one session by ref so ref-only clients can describe what they link", async () => {
+    const response = await fetch(`${baseUrl}/spp/v1/sessions/orcatab/${SWITCH_SID}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      providerId: "orcatab", sessionId: SWITCH_SID, agent: "claude",
+      actionUrl: `orcatab://claude/${SWITCH_SID}`,
+    });
+
+    // full-text search does not match session ids, which is why this route exists
+    const searched = await (await fetch(
+      `${baseUrl}/spp/v1/sessions?q=${SWITCH_SID}`,
+    )).json();
+    expect(searched.sessions).toHaveLength(0);
+
+    expect((await fetch(`${baseUrl}/spp/v1/sessions/orcatab/missing`)).status).toBe(404);
+    const badProvider = await fetch(`${baseUrl}/spp/v1/sessions/notaprovider/${SWITCH_SID}`);
+    expect(badProvider.status).toBe(404);
+    expect(await badProvider.json()).toEqual({ error: "provider not found" });
   });
 
   test("describes switch, resume, and manual actions without performing them", async () => {

@@ -12,6 +12,7 @@ const DEFAULT_SUGGESTIONS_LIMIT = 8;
 const MAX_SUGGESTIONS_LIMIT = 200;
 const SUGGESTION_POOL_LIMIT = 5_000;
 const ACTION_ROUTE = /^\/spp\/v1\/sessions\/([^/]+)\/([^/]+)\/action$/;
+const LOOKUP_ROUTE = /^\/spp\/v1\/sessions\/([^/]+)\/([^/]+)$/;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -149,10 +150,11 @@ export function toSppSession(row: SessionRow): SppSession {
 }
 
 export function toSppState(status: LiveStatus | null | undefined): SppState {
-  if (status === "busy") return "live";
+  if (status === "working" || status === "busy") return "live";
   if (status === "waiting") return "waiting";
+  if (status === "done") return "done";
   if (status === "idle" || status === "shell") return "idle";
-  return "offline";
+  return status ? "idle" : "offline";
 }
 
 function suggestions(body: Record<string, unknown>, db: OrcaDatabase) {
@@ -173,18 +175,29 @@ function statuses(body: Record<string, unknown>, deps: SppDependencies) {
   const refs = parseRefs(body.refs).filter((ref) => ref.providerId === PROVIDER_ID);
   const since = parseSince(body.since);
   const live = deps.getLiveMap();
+  const sessions = deps.db.getSessionsBySid(refs.map((ref) => ref.sessionId));
+  const activity = since === undefined ? null
+    : deps.db.countUserActivitySinceBySid(refs.map((ref) => ref.sessionId), since);
   return refs.map((ref) => {
-    const session = deps.db.getSessionBySid(ref.sessionId);
+    const session = sessions.get(ref.sessionId);
     const liveInfo = session ? live.get(sessionIdentityKey(session.agent, session.sid)) : undefined;
     return {
       providerId: PROVIDER_ID,
       sessionId: ref.sessionId,
       state: toSppState(liveInfo?.status),
+      rawState: liveInfo?.status ?? null,
       lastActivityAt: session?.lastInputAt ?? null,
-      ...(since === undefined ? {} : { newActivityCount: deps.db.countUserActivitySince(ref.sessionId, since) }),
+      ...(since === undefined ? {} : { newActivityCount: activity?.get(ref.sessionId) ?? 0 }),
       waitingFor: liveInfo?.waitingFor ?? null,
     };
   });
+}
+
+function lookup(providerId: string, sessionId: string, deps: SppDependencies): SppSession {
+  if (providerId !== PROVIDER_ID) throw new SppNotFoundError("provider not found");
+  const session = deps.db.getSessionBySid(sessionId);
+  if (session === null) throw new SppNotFoundError("session not found");
+  return toSppSession(session);
 }
 
 async function action(providerId: string, sessionId: string, deps: SppDependencies) {
@@ -202,11 +215,11 @@ async function action(providerId: string, sessionId: string, deps: SppDependenci
   return { kind: "manual", url: null, command: result.command, label: "手动恢复" };
 }
 
-function decodeActionRoute(pathname: string): [string, string] | null {
-  const match = ACTION_ROUTE.exec(pathname);
+function decodeRefRoute(route: RegExp, pathname: string): [string, string] | null {
+  const match = route.exec(pathname);
   if (!match) return null;
   try { return [decodeURIComponent(match[1]!), decodeURIComponent(match[2]!)]; }
-  catch { throw new ValidationError("invalid action path encoding"); }
+  catch { throw new ValidationError("invalid session path encoding"); }
 }
 
 function errorResponse(error: unknown, request: Request): Response {
@@ -225,7 +238,10 @@ export async function handleSppRequest(request: Request, deps: SppDependencies):
         protocol: "spp/1.0",
         provider: { id: PROVIDER_ID, name: "OrcaTab", version: "1.0.0" },
         agents: [...AGENTS],
-        features: { search: true, suggest: true, status: true, action: true, progressDelta: true },
+        features: {
+          search: true, suggest: true, status: true, rawState: true,
+          action: true, progressDelta: true, lookup: true,
+        },
       });
     }
     if (request.method === "GET" && url.pathname === "/spp/v1/sessions") {
@@ -242,8 +258,10 @@ export async function handleSppRequest(request: Request, deps: SppDependencies):
     if (request.method === "POST" && url.pathname === "/spp/v1/status") {
       return sppJson({ statuses: statuses(await jsonObject(request), deps) });
     }
-    const actionParts = request.method === "GET" ? decodeActionRoute(url.pathname) : null;
+    const actionParts = request.method === "GET" ? decodeRefRoute(ACTION_ROUTE, url.pathname) : null;
     if (actionParts) return sppJson(await action(actionParts[0], actionParts[1], deps));
+    const lookupParts = request.method === "GET" ? decodeRefRoute(LOOKUP_ROUTE, url.pathname) : null;
+    if (lookupParts) return sppJson(lookup(lookupParts[0], lookupParts[1], deps));
     return sppJson({ error: "not found" }, 404);
   } catch (error) {
     return errorResponse(error, request);
