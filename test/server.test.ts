@@ -185,7 +185,7 @@ describe("HTTP server", () => {
       dataVersion: 1, listVersion: 1, watch: "timer",
       capabilities: [
         "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
-        "session-send",
+        "session-send", "focus-board",
       ],
     });
   });
@@ -546,10 +546,12 @@ describe("HTTP server", () => {
     expect(html).toContain('{ key: "working", title: "进行中", range: ""');
     expect(html).toContain('{ key: "non-working-today", title: "操作/就绪", range: "今天"');
     expect(html).toContain('{ key: "non-working-recent", title: "操作/就绪", range: "三天内"');
-    expect(html).toContain('if (status === "working") return "working"');
-    expect(html).toContain('return "non-working-today"');
-    expect(html).toContain('return "non-working-recent"');
     expect(html).toContain('dot.dataset.state = status');
+    // Lane assignment moved behind /api/board/focus; the page reads lanes rather than computing them.
+    expect(html).toContain('function focusLaneRows(key)');
+    expect(html).toContain('optionalConditionalApi("/api/board/focus"');
+    expect(html).not.toContain("function focusBucket");
+    expect(html).not.toContain("function focusDayBoundaries");
     expect(html).not.toContain('status !== "done"');
     expect(html).not.toContain('key: "done-today"');
     expect(html).not.toContain('key: "done-recent"');
@@ -575,9 +577,7 @@ describe("HTTP server", () => {
     expect(html).toContain('worktreeToggle.setAttribute("aria-expanded", String(!worktreeCollapsed))');
     expect(html).toContain('list.hidden = worktreeCollapsed');
     expect(html).toContain('.focus-project-body[hidden], .focus-session-list[hidden] { display: none; }');
-    expect(html).toContain('updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow');
     expect(html).toContain('groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0)');
-    expect(html).toContain('conditionalApi(`/api/sessions?live=1&limit=${LIVE_POOL_LIMIT}`');
     expect(html).toContain('fetch("/api/session-inputs"');
     expect(html).toContain('rawLiveState(row.live) === "done"');
     expect(html).toContain('text, expectedHandle: row.live?.handle, expectedStatus: rawLiveState(row.live)');

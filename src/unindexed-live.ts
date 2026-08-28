@@ -4,7 +4,8 @@ import type { Agent, LiveInfo, SessionRow } from "./types";
 
 export const UNINDEXED_LIVE_PROJECT_KEY = "__unindexed_live__";
 
-function placeholder(agent: Agent, sid: string, live: LiveInfo): SessionRow {
+/** A live session the indexer has not seen yet — a brand new tab, or one outside the watched dirs. */
+export function unindexedLiveRow(agent: Agent, sid: string, live: LiveInfo): SessionRow {
   return {
     agent,
     sid,
@@ -28,7 +29,7 @@ export function appendUnindexedLiveSessions(rows: SessionRow[], live: Map<string
   const indexed = new Set(rows.map((row) => `${row.agent}/${row.sid}`));
   const unindexed = [...live].flatMap(([key, info]) => {
     const parsed = parseSessionIdentity(key);
-    return parsed === null || indexed.has(key) ? [] : [placeholder(parsed.agent, parsed.sid, info)];
+    return parsed === null || indexed.has(key) ? [] : [unindexedLiveRow(parsed.agent, parsed.sid, info)];
   });
   return [...unindexed, ...rows];
 }

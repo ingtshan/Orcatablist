@@ -180,6 +180,7 @@
     .focus-title { margin: 0 0 6px; font-size: 25px; letter-spacing: -.02em; }
     .focus-description { margin: 0; color: var(--muted); font-size: 13px; }
     .focus-updated { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+    .focus-updated[data-degraded] { color: var(--waiting); font-weight: 600; }
     .focus-head-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 14px; }
     .focus-project-sort-control { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
     .focus-project-sort-control select { min-width: 104px; padding: 6px 25px 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 11px; }
@@ -528,7 +529,6 @@
       const RESULT_RESET_MS = 2000;
       const LIVE_POOL_LIMIT = 5000;
       const VISIBLE_SESSION_LIMIT = 500;
-      const FOCUS_RECENT_DAYS = 3;
       const FOCUS_INPUT_PAGE_SIZE = 5;
       const FLOATING_MENU_VIEWPORT_GAP = 8;
       const FOCUS_MONITOR_VIEWPORT_GAP_PX = 16;
@@ -578,7 +578,7 @@
         projectScope: "active", projectQuery: "",
         directoryAudit: null, directoryAuditSupported: true,
         orcaAudit: null, orcaAuditEtag: "", orcaAuditSupported: true,
-        focusSessions: [], focusSessionEtag: "",
+        focusBoard: null, focusBoardEtag: "", focusBoardSupported: true,
         recentInputsBySession: {}, recentInputTimesBySession: {}, recentInputsVersion: -1,
         recentInputsHasMoreBySession: {}, recentInputsLoadingBySession: {},
         recentInputsIdentitySignature: "", recentInputsSupported: true, focusMonitorSessionKey: "",
@@ -692,25 +692,6 @@
         return `${Math.floor(hours / 24)} 天前`;
       }
 
-      function focusDayBoundaries(now = Date.now()) {
-        const today = new Date(now);
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const recent = new Date(today);
-        recent.setDate(recent.getDate() - FOCUS_RECENT_DAYS);
-        return { recent: recent.getTime(), today: today.getTime(), tomorrow: tomorrow.getTime() };
-      }
-
-      function focusBucket(row, boundaries) {
-        const status = rawLiveState(row.live);
-        if (status === "working") return "working";
-        const updatedAt = row.live?.updatedAt;
-        if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return null;
-        if (updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow) return "non-working-today";
-        if (updatedAt >= boundaries.recent && updatedAt < boundaries.today) return "non-working-recent";
-        return null;
-      }
 
       function focusInputText(value) {
         return String(value || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -1594,9 +1575,7 @@
 
       function focusMonitorRow() {
         if (!state.focusMonitorSessionKey) return null;
-        const boundaries = focusDayBoundaries();
-        return visibleFocusRows().find((row) => sessionKey(row) === state.focusMonitorSessionKey
-          && focusBucket(row, boundaries) !== null) || null;
+        return visibleFocusRows().find((row) => sessionKey(row) === state.focusMonitorSessionKey) || null;
       }
 
       function showFocusMonitor(row) {
@@ -1741,13 +1720,13 @@
         return element;
       }
 
+      // The server assigns lanes and applies archive visibility; these are already the rows to draw.
+      function focusLaneRows(key) {
+        return state.focusBoard?.lanes?.find((lane) => lane.key === key)?.rows || [];
+      }
+
       function visibleFocusRows() {
-        return state.focusSessions.filter((row) => {
-          if (!row.live) return false;
-          const project = projectFor(row.projectKey);
-          const worktreeArchived = Boolean(state.worktreePreferences.get(worktreeRootFor(row, project))?.archived);
-          return !project.archived && !worktreeArchived;
-        });
+        return (state.focusBoard?.lanes || []).flatMap((lane) => lane.rows);
       }
 
       function renderFocusGroups(parent, rows) {
@@ -1831,16 +1810,9 @@
 
       function renderFocus() {
         const previousSendFocus = activeSendFocus();
-        const boundaries = focusDayBoundaries();
-        const buckets = new Map(FOCUS_LANES.map((lane) => [lane.key, []]));
-        visibleFocusRows().forEach((row) => {
-          const bucket = focusBucket(row, boundaries);
-          if (bucket !== null) buckets.get(bucket).push(row);
-        });
         focusBoard.replaceChildren();
         FOCUS_LANES.forEach((definition) => {
-          const rows = buckets.get(definition.key)
-            .sort((left, right) => (right.live?.updatedAt || 0) - (left.live?.updatedAt || 0));
+          const rows = focusLaneRows(definition.key);
           const lane = make("section", "focus-lane");
           lane.dataset.focusBucket = definition.key;
           const head = make("header", "focus-lane-head");
@@ -2461,43 +2433,73 @@
         }
       }
 
+      // Names a source the board is missing, so an empty lane is never mistaken for a quiet machine.
+      const LIVE_SOURCE_LABELS = {
+        "claude-pid": "Claude 进程", "orca-tab": "Orca 标签页", "hermes-process": "Hermes 进程",
+      };
+
+      function clockTime(timestamp) {
+        return timestamp === null || timestamp === undefined
+          ? "未知时间"
+          : new Date(timestamp).toLocaleTimeString("zh-CN", {
+            hour: "2-digit", minute: "2-digit", second: "2-digit",
+          });
+      }
+
+      function renderFocusFreshness() {
+        const board = state.focusBoard;
+        const checked = new Date().toLocaleTimeString("zh-CN", {
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+        });
+        if (!board) { focusUpdated.textContent = "状态尚未读取"; return; }
+        const down = (board.sources || []).filter((source) => !source.ok);
+        if (!down.length) {
+          focusUpdated.textContent = `状态已确认 ${checked}`;
+          focusUpdated.removeAttribute("data-degraded");
+          return;
+        }
+        const names = down.map((source) => LIVE_SOURCE_LABELS[source.name] || source.name).join("、");
+        const stale = down.filter((source) => source.stale);
+        focusUpdated.textContent = stale.length
+          ? `⚠ ${names}不可用，看板停留在 ${clockTime(stale[0].readAt)} 的快照（${checked} 检查）`
+          : `⚠ ${names}不可用，这些会话已从看板移除（${checked} 检查）`;
+        focusUpdated.setAttribute("data-degraded", "true");
+      }
+
       async function loadFocus() {
         const worktreesRequest = state.worktreesSupported
           ? optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])
           : Promise.resolve({ unchanged: true, etag: state.worktreeEtag, body: [] });
-        const [projects, sessions, worktrees, health] = await Promise.all([
+        const [board, projects, worktrees] = await Promise.all([
+          optionalConditionalApi("/api/board/focus", state.focusBoardEtag, null),
           conditionalApi("/api/projects", state.projectEtag),
-          conditionalApi(`/api/sessions?live=1&limit=${LIVE_POOL_LIMIT}`, state.focusSessionEtag),
           worktreesRequest,
-          api("/healthz"),
           loadSendRecords(),
         ]);
-        indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
+        if (board.unsupported) { state.focusBoardSupported = false; return; }
+        if (!board.unchanged) {
+          state.focusBoard = board.body;
+          state.focusBoardEtag = board.etag;
+        }
         if (!projects.unchanged) {
           state.projects = projects.body;
           state.projectEtag = projects.etag;
-        }
-        if (!sessions.unchanged) {
-          state.focusSessions = sessions.body;
-          state.focusSessionEtag = sessions.etag;
         }
         if (worktrees.unsupported) state.worktreesSupported = false;
         else if (!worktrees.unchanged) {
           applyWorktreePreferences(worktrees.body);
           state.worktreeEtag = worktrees.etag;
         }
-        await loadFocusInputs(health.listVersion);
-        focusUpdated.textContent = `Orca 状态更新于 ${new Date().toLocaleTimeString("zh-CN", {
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-        })}`;
+        indexStatus.textContent = `索引更新于 ${relativeTime(state.focusBoard?.indexedAt ?? null)}`;
+        await loadFocusInputs(state.focusBoard?.listVersion ?? -1);
+        renderFocusFreshness();
         renderFocus();
       }
 
       async function loadFocusInputs(listVersion) {
         if (!state.recentInputsSupported) return;
-        const boundaries = focusDayBoundaries();
         const identities = [...new Map(visibleFocusRows()
-          .filter((row) => row.indexed !== false && focusBucket(row, boundaries) !== null)
+          .filter((row) => row.indexed !== false)
           .map((row) => [sessionKey(row), { agent: row.agent, sid: row.sid }])).entries()]
           .sort(([left], [right]) => left.localeCompare(right));
         const signature = identities.map(([key]) => key).join("\u0000");

@@ -6,6 +6,7 @@ import {
 } from "./config";
 import { OrcaDatabase } from "./db";
 import { createDiscoveryReaders, handleDiscoveryRequest, type DiscoveryReaders } from "./discovery";
+import { handleFocusBoardRequest } from "./focus-board-routes";
 import { createFocusDeps, resolveFocus, ValidationError, type FocusDeps } from "./focus";
 import { GoalsStore, openGoalsDatabase, type GoalLinkKind } from "./goals";
 import { isSessionId, parseSessionUri, sessionIdentityKey } from "./session-identity";
@@ -141,7 +142,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           watch: watcher.mode, agents: [...AGENTS], version: "p7",
           capabilities: [
             "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
-            "session-send",
+            "session-send", "focus-board",
           ],
         });
       }
@@ -150,6 +151,10 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const etag = `"l-${sessionLiveReader.getLiveVersion()}-${db.getListVersion()}"`;
         return conditionalJson(request, etag, () => liveSessionsWithProjectKeys(db, live));
       }
+      const focusBoardResponse = await handleFocusBoardRequest(request, url, {
+        db, goalsStore, preferences: projectPreferences, liveReader: sessionLiveReader,
+      });
+      if (focusBoardResponse !== null) return focusBoardResponse;
       const sessionInputsResponse = await handleSessionInputsRequest(request, url, db);
       if (sessionInputsResponse !== null) return sessionInputsResponse;
       const sessionSendResponse = await handleSessionSendRequest(request, url, {
