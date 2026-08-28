@@ -3,7 +3,7 @@ import {
   assignFocusLanes, focusDayBoundaries, type FocusBoard, type FocusVisibility,
 } from "./focus-board";
 import type { GoalsStore } from "./goals";
-import { conditionalJson } from "./http";
+import { serveFresh, versionSource } from "./freshness";
 import type { ProjectPreferencesStore } from "./project-preferences";
 import type { SessionLiveReader } from "./session-live";
 import { identityKey, parseSessionIdentity, sessionIdentityKey } from "./session-identity";
@@ -69,12 +69,16 @@ export async function handleFocusBoardRequest(
   const at = now();
   const snapshot = await deps.liveReader.refreshSnapshot();
   const indexedAt = deps.db.getMeta("indexed_at");
-  // The day boundary is an input to lane assignment, so it belongs in the ETag: without it a
-  // client holds yesterday's "today" lane across midnight and never re-fetches.
-  const etag = `"b-${deps.db.getListVersion()}-${deps.liveReader.getLiveVersion()}`
-    + `-${deps.goalsStore.goalsVersion}-${deps.preferences.preferencesVersion}`
-    + `-${deps.preferences.worktreePreferencesVersion}-${focusDayBoundaries(at).today}"`;
-  return conditionalJson(request, etag, (): FocusBoardPayload => ({
+  return serveFresh(request, "focus-board", [
+    versionSource("list", () => deps.db.getListVersion()),
+    versionSource("live", () => deps.liveReader.getLiveVersion()),
+    versionSource("goals", () => deps.goalsStore.goalsVersion),
+    versionSource("projects", () => deps.preferences.preferencesVersion),
+    versionSource("worktrees", () => deps.preferences.worktreePreferencesVersion),
+    // The day boundary is an input to lane assignment, so it is an input to the ETag: without it
+    // a client holds yesterday's "today" lane across midnight and never re-fetches.
+    versionSource("day", () => focusDayBoundaries(at).today),
+  ], (): FocusBoardPayload => ({
     ...assignFocusLanes(focusBoardRows(deps.db, deps.goalsStore, snapshot.live), {
       now: at,
       visibility: boardVisibility(deps.db, deps.preferences),

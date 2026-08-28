@@ -12,9 +12,10 @@ import { GoalsStore, openGoalsDatabase, type GoalLinkKind } from "./goals";
 import { isSessionId, parseSessionUri, sessionIdentityKey } from "./session-identity";
 import { handleGovernanceRequest } from "./governance";
 import {
-  assertSameOriginWrite, boundedLimit, conditionalJson, decodeParts, focusText, json, jsonObject, nullableText,
+  assertSameOriginWrite, boundedLimit, decodeParts, focusText, json, jsonObject, nullableText,
   requiredName, requiredString,
 } from "./http";
+import { serveFresh, versionSource, type VersionSource } from "./freshness";
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
 import { handleOrcaAuditRequest } from "./orca-audit-route";
@@ -95,10 +96,16 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     rescanTimer = indexer.startRescanTimer(watcher.mode === "fs.watch" ? RESCAN_INTERVAL_MS : FALLBACK_RESCAN_INTERVAL_MS);
     timers.push(rescanTimer, startProjectMetadataTimer(db, orcaBin));
   }
-  const versionedLive = async (contentVersion: number) => {
-    const live = await sessionLiveReader.refresh();
-    return { live, etag: `"${contentVersion}-${sessionLiveReader.getLiveVersion()}-${goalsStore.goalsVersion}"` };
-  };
+  // Named once, next to the stores they track, so a route declares what it reads rather than
+  // remembering which of two database counters belongs in which ETag.
+  const versions = {
+    list: versionSource("list", () => db.getListVersion()),
+    data: versionSource("data", () => db.getDataVersion()),
+    goals: versionSource("goals", () => goalsStore.goalsVersion),
+    live: versionSource("live", () => sessionLiveReader.getLiveVersion()),
+    projects: versionSource("projects", () => projectPreferences.preferencesVersion),
+    worktrees: versionSource("worktrees", () => projectPreferences.worktreePreferencesVersion),
+  } satisfies Record<string, VersionSource>;
   const goalSummaries = () => {
     const goals = goalsStore.listGoals();
     const linksByGoal = goalsStore.confirmedLinksByGoal();
@@ -148,8 +155,9 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       }
       if (request.method === "GET" && url.pathname === "/api/live") {
         const live = await sessionLiveReader.refresh();
-        const etag = `"l-${sessionLiveReader.getLiveVersion()}-${db.getListVersion()}"`;
-        return conditionalJson(request, etag, () => liveSessionsWithProjectKeys(db, live));
+        // The payload joins live status to each session's project, so it reads the list too.
+        return serveFresh(request, "live", [versions.live, versions.list],
+          () => liveSessionsWithProjectKeys(db, live));
       }
       const focusBoardResponse = await handleFocusBoardRequest(request, url, {
         db, goalsStore, preferences: projectPreferences, liveReader: sessionLiveReader,
@@ -179,13 +187,12 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const includeLive = url.searchParams.get("includeLive") !== "0";
         if (liveOnly && !includeLive) throw new ValidationError("live=1 requires live session data");
         if (!includeLive) {
-          const etag = `"s-${db.getListVersion()}-${goalsStore.goalsVersion}"`;
-          return conditionalJson(request, etag, () => attachGoals(
+          return serveFresh(request, "sessions", [versions.list, versions.goals], () => attachGoals(
             db.listSessions({ ...(projectKey ? { projectKey } : {}), limit }), goalsStore,
           ));
         }
-        const { live, etag } = await versionedLive(db.getListVersion());
-        return conditionalJson(request, etag, () => {
+        const live = await sessionLiveReader.refresh();
+        return serveFresh(request, "sessions-live", [versions.list, versions.live, versions.goals], () => {
           const base = db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit });
           const indexedRows = attachGoals(mergeSessionLive(base, live), goalsStore);
           const rows = projectKey ? indexedRows : appendUnindexedLiveSessions(indexedRows, live);
@@ -199,8 +206,8 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           const rows: SearchResult[] = q.trim() ? db.search(q, limit) : [];
           return json(attachGoals(rows, goalsStore));
         }
-        const { live, etag } = await versionedLive(db.getDataVersion());
-        return conditionalJson(request, etag, () => {
+        const live = await sessionLiveReader.refresh();
+        return serveFresh(request, "search", [versions.data, versions.live, versions.goals], () => {
           const rows: SearchResult[] = q.trim() ? mergeSessionLive(db.search(q, limit), live) : [];
           return attachGoals(rows, goalsStore);
         });

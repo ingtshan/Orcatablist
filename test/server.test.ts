@@ -192,27 +192,27 @@ describe("HTTP server", () => {
 
   test("serves read-only gateway and accessible worktree resources with ETags", async () => {
     const gateway = await fetch(`${baseUrl}/api/gateway`);
-    expect(gateway.headers.get("ETag")).toBe('"g-1"');
+    expect(gateway.headers.get("ETag")).toBe('"gateway:1"');
     expect(await gateway.json()).toMatchObject({
       sources: ["fixture-nginx"], routes: [{ upstreamPort: 4321, urls: ["http://fixture.localhost"] }],
       files: [{ content: "server { listen 80; }" }],
     });
     expect((await fetch(`${baseUrl}/api/gateway`, {
-      headers: { "If-None-Match": '"g-1"' },
+      headers: { "If-None-Match": '"gateway:1"' },
     })).status).toBe(304);
 
     const resources = await fetch(`${baseUrl}/api/worktree-resources`);
-    expect(resources.headers.get("ETag")).toBe('"r-1"');
+    expect(resources.headers.get("ETag")).toBe('"resources:1"');
     expect(await resources.json()).toMatchObject({
       resources: { [fixtureCwd]: [{ appName: "fixture-web", port: 4321 }] },
     });
     expect(resourceRoots).toContain(fixtureCwd);
     expect((await fetch(`${baseUrl}/api/worktree-resources`, {
-      headers: { "If-None-Match": '"r-1"' },
+      headers: { "If-None-Match": '"resources:1"' },
     })).status).toBe(304);
 
     const audit = await fetch(`${baseUrl}/api/orca-worktree-audit`);
-    expect(audit.headers.get("ETag")).toBe('"o-1"');
+    expect(audit.headers.get("ETag")).toBe('"orca-audit:1"');
     expect(await audit.json()).toMatchObject({
       summary: {
         completedWorktrees: 12, ready: 10, review: 1, hold: 1,
@@ -221,7 +221,7 @@ describe("HTTP server", () => {
       items: [{ name: "kg-core", recommendation: "ready" }],
     });
     expect((await fetch(`${baseUrl}/api/orca-worktree-audit`, {
-      headers: { "If-None-Match": '"o-1"' },
+      headers: { "If-None-Match": '"orca-audit:1"' },
     })).status).toBe(304);
   });
 
@@ -323,17 +323,17 @@ describe("HTTP server", () => {
   test("serves static lists without live refreshes and versions live state separately", async () => {
     liveRefreshes = 0;
     const projects = await fetch(`${baseUrl}/api/projects`);
-    expect(projects.headers.get("ETag")).toMatch(/^"p-\d+-\d+"$/);
+    expect(projects.headers.get("ETag")).toMatch(/^"projects:\d+\.\d+"$/);
     await projects.json();
 
     const sessions = await fetch(`${baseUrl}/api/sessions?includeLive=0`);
-    expect(sessions.headers.get("ETag")).toMatch(/^"s-\d+-\d+"$/);
+    expect(sessions.headers.get("ETag")).toMatch(/^"sessions:\d+\.\d+"$/);
     expect((await sessions.json()).every((row: { live: unknown }) => row.live === null)).toBeTrue();
     expect(liveRefreshes).toBe(0);
 
     const live = await fetch(`${baseUrl}/api/live`);
     const liveEtag = live.headers.get("ETag");
-    expect(liveEtag).toBe(`"l-1-${app.db.getListVersion()}"`);
+    expect(liveEtag).toBe(`"live:1.${app.db.getListVersion()}"`);
     const livePayload = await live.json();
     expect(Object.keys(livePayload).sort()).toEqual([
       `claude/${LIVE_ONLY_SID}`, `codex/${CODEX_SID}`, `hermes/${HERMES_SID}`,
@@ -414,7 +414,7 @@ describe("HTTP server", () => {
     const [project] = await (await fetch(`${baseUrl}/api/projects`)).json();
     const initial = await fetch(`${baseUrl}/api/worktrees`);
     const initialEtag = initial.headers.get("ETag");
-    expect(initialEtag).toMatch(/^"w-\d+"$/);
+    expect(initialEtag).toMatch(/^"worktrees:\d+"$/);
     expect(await initial.json()).toEqual([]);
     const patchWorktree = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/worktrees`, {
       method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -504,7 +504,7 @@ describe("HTTP server", () => {
 
     const first = await fetch(`${baseUrl}/api/sessions`);
     const etag = first.headers.get("ETag");
-    expect(etag).toMatch(/^"\d+-\d+-\d+"$/);
+    expect(etag).toMatch(/^"sessions-live:\d+\.\d+\.\d+"$/);
     await first.json();
     const unchanged = await fetch(`${baseUrl}/api/sessions`, { headers: { "If-None-Match": etag! } });
     expect(unchanged.status).toBe(304);

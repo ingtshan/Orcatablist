@@ -1,6 +1,7 @@
 import type { OrcaDatabase } from "./db";
 import { ValidationError } from "./focus";
-import { conditionalJson, json, jsonObject, requiredString } from "./http";
+import { serveFresh, versionSource } from "./freshness";
+import { json, jsonObject, requiredString } from "./http";
 import type { ProjectPreferencesStore } from "./project-preferences";
 
 export class NotFoundError extends Error { override name = "NotFoundError"; }
@@ -20,8 +21,10 @@ export async function handleProjectRequest(
   preferences: ProjectPreferencesStore,
 ): Promise<Response | null> {
   if (request.method === "GET" && url.pathname === "/api/projects") {
-    const etag = `"p-${db.getListVersion()}-${preferences.preferencesVersion}"`;
-    return conditionalJson(request, etag, () => preferences.apply(db.listProjects()));
+    return serveFresh(request, "projects", [
+      versionSource("list", () => db.getListVersion()),
+      versionSource("projects", () => preferences.preferencesVersion),
+    ], () => preferences.apply(db.listProjects()));
   }
   if (request.method === "PATCH" && url.pathname === "/api/projects") {
     const body = await jsonObject(request);
@@ -33,8 +36,9 @@ export async function handleProjectRequest(
     return json(preferences.apply([project])[0]);
   }
   if (request.method === "GET" && url.pathname === "/api/worktrees") {
-    const etag = `"w-${preferences.worktreePreferencesVersion}"`;
-    return conditionalJson(request, etag, () => preferences.listWorktreePreferences());
+    return serveFresh(request, "worktrees", [
+      versionSource("worktrees", () => preferences.worktreePreferencesVersion),
+    ], () => preferences.listWorktreePreferences());
   }
   if (request.method !== "PATCH" || url.pathname !== "/api/worktrees") return null;
 
