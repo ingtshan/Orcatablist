@@ -91,6 +91,16 @@
     .session-row { display: grid; grid-template-columns: 12px minmax(180px, 1fr) minmax(90px, auto) auto auto; gap: 12px; align-items: center; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
     .session-row:last-child { border-bottom: 0; }
     .session-row:hover, .session-row.keyboard-active { background: var(--hover); }
+    .run-cluster { box-shadow: inset 2px 0 0 var(--accent-soft); border-bottom: 1px solid var(--line); }
+    .run-cluster:last-child { border-bottom: 0; }
+    .run-cluster > .session-row { border-bottom: 0; }
+    .run-worker-list { margin-left: 22px; }
+    .run-worker-list > .session-row { border-top: 1px dashed var(--line); border-bottom: 0; }
+    button.run-chip { background: var(--accent-soft); color: var(--accent); font-family: inherit; }
+    button.run-chip:hover { border-color: var(--accent); }
+    button.run-chip::after { margin-left: 5px; content: "\25B8"; }
+    button.run-chip[aria-expanded="true"]::after { content: "\25BE"; }
+    .run-origin-chip { background: var(--bg); }
     .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--offline); box-shadow: 0 0 0 3px var(--bg); }
     .status-dot[data-state="working"], .status-dot[data-state="busy"] { background: var(--busy); }
     .status-dot[data-state="waiting"] { background: var(--waiting); }
@@ -583,6 +593,7 @@
       const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v2";
       const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v2";
       const FOCUS_PROJECT_SORT_STORAGE_KEY = "orcatab.focusProjectSort.v1";
+      const EXPANDED_RUNS_STORAGE_KEY = "orcatab.expandedRuns.v1";
       const FOCUS_MONITOR_PLACEMENT_STORAGE_KEY = "orcatab.focusMonitorPlacement.v1";
       const FOCUS_PROJECT_SORT_MODES = new Set(["az", "za", "recent"]);
       const FOCUS_PROJECT_NAME_COLLATOR = new Intl.Collator(["zh-CN", "en"], { numeric: true, sensitivity: "base" });
@@ -616,6 +627,8 @@
         focusCollapsedProjects: loadStoredStringSet(FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY, "Focus projects"),
         focusCollapsedWorktrees: loadStoredStringSet(FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY, "Focus worktrees"),
         focusProjectSort: loadFocusProjectSort(),
+        orchestrationRuns: [], orchestrationEtag: "", orchestrationSupported: true,
+        expandedRuns: loadStoredStringSet(EXPANDED_RUNS_STORAGE_KEY, "expanded orchestration runs"),
         worktreeResources: new Map(), resourceEtag: "", resourcesSupported: true,
         gateway: null, gatewayEtag: "", gatewaySupported: true,
         projectScope: "active", projectQuery: "",
@@ -1099,6 +1112,15 @@
         state.focusCollapsedWorktrees = next;
         saveStoredStringSet(FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY, "Focus worktrees", next);
         renderFocus();
+      }
+
+      function setRunExpanded(runId, expanded) {
+        const next = new Set(state.expandedRuns);
+        if (expanded) next.add(runId);
+        else next.delete(runId);
+        state.expandedRuns = next;
+        saveStoredStringSet(EXPANDED_RUNS_STORAGE_KEY, "expanded orchestration runs", next);
+        render();
       }
 
       function closeFloatingMenus(except = null) {
@@ -1705,8 +1727,9 @@
         const main = make("div", "session-main");
         const titleLine = make("div", "session-title-line");
         titleLine.append(make("span", `agent-badge agent-${row.agent}`, row.agent));
-        const title = make("div", "session-title", row.displayTitle);
-        if (row.indexed === false) title.title = [row.live?.name, row.sid].filter(Boolean).join(" · ");
+        const title = make("div", "session-title", options.titleOverride || row.displayTitle);
+        if (options.titleOverride) title.title = `${options.titleOverride}\n${row.displayTitle}`;
+        else if (row.indexed === false) title.title = [row.live?.name, row.sid].filter(Boolean).join(" · ");
         else if (row.title && row.firstPrompt) title.title = row.firstPrompt;
         titleLine.append(title);
         const liveState = make("span", "live-state");
@@ -1730,8 +1753,17 @@
         element.append(main);
 
         const chips = make("div", "chips");
+        if (options.leadChip) chips.append(options.leadChip);
+        if (options.originChip) {
+          const origin = basename(worktreeRootFor(row, project)) || project.name;
+          const chip = make("span", "chip run-origin-chip", origin);
+          chip.title = `来自 ${project.name} · ${worktreeRootFor(row, project) || "未知 worktree"}`;
+          chips.append(chip);
+        }
         if (row.indexed === false) chips.append(make("span", "chip", "无 transcript"));
-        if (row.cwd && row.cwd !== (row.worktreeRoot || project.root)) chips.append(make("span", "chip", basename(row.cwd)));
+        if (!options.originChip && row.cwd && row.cwd !== (row.worktreeRoot || project.root)) {
+          chips.append(make("span", "chip", basename(row.cwd)));
+        }
         if (row.branch && row.branch !== "HEAD") chips.append(make("span", "chip", row.branch));
         (row.goals || []).forEach((goal) => {
           const button = make("button", "chip goal-chip", goal.name);
@@ -2260,6 +2292,65 @@
         return menu;
       }
 
+      /**
+       * Fold every Orca orchestration run into a single list entry: the coordinator keeps its
+       * own position, and the sessions it dispatched are pulled out of their own worktrees.
+       */
+      function orchestrationGroups(rows) {
+        const byKey = new Map(rows.map((row) => [sessionKey(row), row]));
+        const groups = new Map();
+        const absorbed = new Set();
+        state.orchestrationRuns.forEach((run) => {
+          const coordinatorKey = run.coordinator ? sessionKey(run.coordinator) : "";
+          if (!byKey.has(coordinatorKey) || absorbed.has(coordinatorKey)) return;
+          const workers = (run.workers || [])
+            .filter((worker) => {
+              const key = sessionKey(worker);
+              return key !== coordinatorKey && byKey.has(key) && !absorbed.has(key) && !groups.has(key);
+            })
+            .map((worker) => ({ row: byKey.get(sessionKey(worker)), taskTitle: worker.taskTitle || "" }));
+          if (!workers.length) return;
+          workers.forEach((worker) => absorbed.add(sessionKey(worker.row)));
+          // One coordinator can own several runs; they share a single fold.
+          const group = groups.get(coordinatorKey)
+            || { key: coordinatorKey, runIds: [], objectives: [], workers: [] };
+          group.runIds.push(run.runId);
+          if (run.objective) group.objectives.push(run.objective);
+          group.workers.push(...workers);
+          groups.set(coordinatorKey, group);
+        });
+        groups.forEach((group) => group.workers
+          .sort((a, b) => (b.row.lastInputAt || 0) - (a.row.lastInputAt || 0)));
+        return { groups, absorbed };
+      }
+
+      function runCluster(group, coordinator, project, isSearch) {
+        const cluster = make("div", "run-cluster");
+        cluster.dataset.runIds = group.runIds.join(" ");
+        const expanded = state.expandedRuns.has(group.key);
+        const listId = `run-workers-${group.key.replace("/", "-")}`;
+        const toggle = make("button", "chip run-chip", `编排 · ${group.workers.length} 个子会话`);
+        toggle.type = "button";
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.setAttribute("aria-controls", listId);
+        toggle.setAttribute("aria-label", `${expanded ? "收起" : "展开"}编排子会话：${coordinator.displayTitle}`);
+        toggle.title = [...group.objectives, ...group.runIds].join("\n");
+        toggle.addEventListener("click", () => setRunExpanded(group.key, !expanded));
+        const workerList = make("div", "run-worker-list");
+        workerList.id = listId;
+        workerList.hidden = !expanded;
+        group.workers.forEach(({ row, taskTitle }) => workerList.append(
+          sessionRow(row, projectFor(row.projectKey), isSearch, {
+            goalPicker: true, originChip: true, titleOverride: taskTitle,
+          }),
+        ));
+        cluster.append(
+          sessionRow(coordinator, project, isSearch, { goalPicker: true, leadChip: toggle }),
+          workerList,
+        );
+        return cluster;
+      }
+
       function render() {
         if (state.sendCompositionKey) { state.sendRenderPending = true; return; }
         const previousSendFocus = activeSendFocus();
@@ -2270,8 +2361,10 @@
           content.append(make("div", "empty", state.query ? "没有匹配的会话" : "当前筛选下没有会话"));
           return;
         }
+        const runs = isSearch ? { groups: new Map(), absorbed: new Set() } : orchestrationGroups(state.sessions);
         const groups = new Map();
         state.sessions.forEach((row) => {
+          if (runs.absorbed.has(sessionKey(row))) return;
           const rows = groups.get(row.projectKey) || [];
           rows.push(row);
           groups.set(row.projectKey, rows);
@@ -2366,7 +2459,12 @@
             const list = make("div", "session-list");
             list.id = `worktree-sessions-${firstSession.agent}-${firstSession.sid}`;
             list.hidden = collapsed;
-            worktreeRows.forEach((row) => list.append(sessionRow(row, project, isSearch, { goalPicker: true })));
+            worktreeRows.forEach((row) => {
+              const group = runs.groups.get(sessionKey(row));
+              list.append(group
+                ? runCluster(group, row, project, isSearch)
+                : sessionRow(row, project, isSearch, { goalPicker: true }));
+            });
             cluster.append(worktreeHeader, list);
             stack.append(cluster);
           });
@@ -3195,7 +3293,10 @@
         const resourcesRequest = state.resourcesSupported
           ? optionalConditionalApi("/api/worktree-resources", state.resourceEtag, { resources: {} })
           : Promise.resolve({ unchanged: true, etag: state.resourceEtag, body: { resources: {} } });
-        const [projects, sessions, worktrees, resources, health, goals, live, sendRecords,
+        const orchestrationRequest = state.orchestrationSupported
+          ? optionalConditionalApi("/api/orchestration", state.orchestrationEtag, { runs: [] })
+          : Promise.resolve({ unchanged: true, etag: state.orchestrationEtag, body: { runs: [] } });
+        const [projects, sessions, worktrees, resources, health, goals, live, orchestration, sendRecords,
           tasksChanged] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
           conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
@@ -3204,6 +3305,7 @@
           api("/healthz"),
           api("/api/goals"),
           conditionalApi("/api/live", state.liveEtag),
+          orchestrationRequest,
           loadSendRecords(),
           loadSessionTasks(),
         ]);
@@ -3218,8 +3320,10 @@
         const worktreesChanged = !worktrees.unchanged;
         const resourcesChanged = !resources.unchanged;
         const liveChanged = !live.unchanged;
+        const orchestrationChanged = !orchestration.unchanged;
         if (worktrees.unsupported) state.worktreesSupported = false;
         if (resources.unsupported) state.resourcesSupported = false;
+        if (orchestration.unsupported) state.orchestrationSupported = false;
         if (!projects.unchanged) {
           state.projects = projects.body;
           state.projectEtag = projects.etag;
@@ -3240,11 +3344,15 @@
           state.liveBySession = live.body;
           state.liveEtag = live.etag;
         }
+        if (!orchestration.unchanged) {
+          state.orchestrationRuns = Array.isArray(orchestration.body?.runs) ? orchestration.body.runs : [];
+          state.orchestrationEtag = orchestration.etag;
+        }
         syncSessionLive();
         if (projectsChanged || worktreesChanged || liveChanged) renderProjects();
         if (projectsChanged || liveChanged) renderProjectManagement();
         if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || liveChanged
-          || sendRecordsChanged || tasksChanged) render();
+          || orchestrationChanged || sendRecordsChanged || tasksChanged) render();
       }
 
       async function refreshLive() {
