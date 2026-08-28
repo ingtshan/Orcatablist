@@ -21,6 +21,18 @@ bun x tsc --noEmit
 bun test
 ```
 
+## 卡片内发送输入
+
+Orca 报告为 `done`（已就绪、等待用户输入）的在线会话，卡片上会直接出现输入框：回车即通过
+`orca terminal send --terminal <handle> --text <text> --enter` 送进该会话，不必先跳转。
+
+- 只有 `done` 会出现输入框；`waiting`（工具权限确认）等状态一律不发。
+- 只收单行文本，不接受换行与控制字符——`--enter` 是逐字键入语义，换行会在 TUI 里变成提前提交。
+- 发送前会用卡片上的 handle / 状态与服务端最新快照比对，不一致返回 409 并提示刷新。
+- 发出后按 Orca 的 tab 状态判定回执：20 秒内没离开 `done` 就标为「未确认送达」，
+  卡片上保留「复制上次输入」把原文取回来重发。
+- 写操作校验 `Sec-Fetch-Site` / `Origin`，只接受同源请求。
+
 ## 注册 orcatab://
 
 在仓库根目录运行安装脚本，它会生成 `~/Applications/OrcaTab.app` 并注册 URL scheme：

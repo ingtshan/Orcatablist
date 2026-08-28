@@ -40,7 +40,7 @@ export interface SessionLiveReaderOptions {
 }
 
 export interface SessionLiveReader {
-  refresh(): Promise<Map<string, LiveInfo>>;
+  refresh(force?: boolean): Promise<Map<string, LiveInfo>>;
   getLiveMap(): Map<string, LiveInfo>;
   getLiveVersion(): number;
   findLive(agent: Agent, sid: string): Promise<LiveInfo | null>;
@@ -282,9 +282,9 @@ export function createSessionLiveReader(options: SessionLiveReaderOptions = {}):
     return cached;
   }
 
-  async function refresh(): Promise<Map<string, LiveInfo>> {
+  async function refresh(force = false): Promise<Map<string, LiveInfo>> {
     const current = now();
-    if (current - cachedAt < LIVE_CACHE_MS) return cached;
+    if (!force && current - cachedAt < LIVE_CACHE_MS) return cached;
     if (pending !== null) return pending;
     pending = load(current).finally(() => { pending = null; });
     return pending;

@@ -178,6 +178,7 @@ describe("HTTP server", () => {
       dataVersion: 1, listVersion: 1, watch: "timer",
       capabilities: [
         "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
+        "session-send",
       ],
     });
   });
@@ -525,23 +526,39 @@ describe("HTTP server", () => {
     expect(html).toContain('row.live ? "跳转" : "恢复"');
     expect(html).toContain('action focus-action ${row.live ? "focus-jump" : "focus-resume"}');
     expect(html).toContain('if (status === "working") return "进行中"');
-    expect(html).toContain('if (status === "done") return "等待用户"');
-    expect(html).toContain('if (status === "waiting") return "等待中"');
+    expect(html).toContain('if (status === "done") return "已就绪"');
+    expect(html).toContain('if (status === "waiting") return "需操作"');
+    expect(html).toContain('if (status === "blocked") return "已受阻"');
     expect(html).toContain('if (status === "idle") return "空闲"');
     expect(html).toContain('const label = live ? liveStateText(live) : "离线"');
     expect(html).not.toContain('working · 进行中');
-    expect(html).not.toContain('done · 等待用户');
+    expect(html).not.toContain('done · 已就绪');
     expect(html).toContain('live.projectKey === projectKey && live.status === "working"');
     expect(html).toContain('make("span", "project-working", String(count))');
     expect(html).toContain('id="focus-view-button" type="button" aria-pressed="false">聚焦</button>');
-    expect(html).toContain('{ key: "idle-today", title: "Idle 今日"');
-    expect(html).toContain('{ key: "idle-recent", title: "Idle 过去 3 天"');
+    expect(html).toContain('{ key: "working", title: "进行中", range: ""');
+    expect(html).toContain('{ key: "non-working-today", title: "操作/就绪", range: "今天"');
+    expect(html).toContain('{ key: "non-working-recent", title: "操作/就绪", range: "三天内"');
     expect(html).toContain('if (status === "working") return "working"');
-    expect(html).toContain('return "idle-today"');
-    expect(html).toContain('return "idle-recent"');
+    expect(html).toContain('return "non-working-today"');
+    expect(html).toContain('return "non-working-recent"');
+    expect(html).toContain('dot.dataset.state = status');
     expect(html).not.toContain('status !== "done"');
     expect(html).not.toContain('key: "done-today"');
     expect(html).not.toContain('key: "done-recent"');
+    expect(html).not.toContain('return "idle-today"');
+    expect(html).not.toContain('return "idle-recent"');
+    expect(html).toContain('id="focus-project-sort"');
+    expect(html).toContain('<option value="az">A–Z</option>');
+    expect(html).toContain('<option value="za">Z–A</option>');
+    expect(html).toContain('<option value="recent">最近活动</option>');
+    expect(html).toContain('const FOCUS_PROJECT_SORT_STORAGE_KEY = "orcatab.focusProjectSort.v1"');
+    expect(html).toContain('focusProjectSort: loadFocusProjectSort()');
+    expect(html).toContain('function orderedFocusProjectKeys(groups)');
+    expect(html).toContain('if (state.focusProjectSort === "recent")');
+    expect(html).toContain('state.focusProjectSort === "za" ? -1 : 1');
+    expect(html).toContain('focusProjectSort.addEventListener("change", () => setFocusProjectSort(focusProjectSort.value))');
+    expect(html).toContain('make("small", "focus-lane-range", definition.range)');
     expect(html).toContain('const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v1"');
     expect(html).toContain('const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v1"');
     expect(html).toContain('function setFocusProjectCollapsed(projectKey, collapsed)');
@@ -555,6 +572,13 @@ describe("HTTP server", () => {
     expect(html).toContain('groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0)');
     expect(html).toContain('conditionalApi(`/api/sessions?live=1&limit=${LIVE_POOL_LIMIT}`');
     expect(html).toContain('fetch("/api/session-inputs"');
+    expect(html).toContain('rawLiveState(row.live) === "done"');
+    expect(html).toContain('text, expectedHandle: row.live?.handle, expectedStatus: rawLiveState(row.live)');
+    expect(html).toContain('fetch("/api/session-send")');
+    expect(html).toContain('make("button", "action session-send-copy", "复制上次输入")');
+    expect(html).toContain('pending: "已发送 · 等待确认", verifying: "进行中 · 正在核对", confirmed: "已确认", stalled: "未确认"');
+    expect(html).toContain('showToast("已发送，已加入自动确认队列")');
+    expect(html).toContain('record.state === "confirmed"');
     expect(html).toContain('id="focus-monitor" class="focus-monitor" hidden');
     expect(html).toContain('.focus-monitor.monitor-floating { right: var(--focus-monitor-gap);');
     expect(html).toContain('.focus-monitor.monitor-docked-left');

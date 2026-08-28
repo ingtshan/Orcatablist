@@ -51,6 +51,36 @@ export function decodeParts(pathname: string, prefix: string): string[] {
   catch { throw new ValidationError("invalid path encoding"); }
 }
 
+/** `same-site` is excluded on purpose: another local port is a different app, not this page. */
+const SAFE_FETCH_SITES = new Set(["same-origin", "none"]);
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+function allowedOrigin(origin: string, request: Request): boolean {
+  try {
+    const url = new URL(origin);
+    return LOOPBACK_HOSTNAMES.has(url.hostname) || url.host === request.headers.get("Host");
+  } catch { return false; }
+}
+
+/**
+ * State-changing routes are reachable from any page the user visits, because the server has no
+ * auth and browsers happily send cross-site POSTs. Reject anything a browser marks as foreign.
+ */
+export function assertSameOriginWrite(request: Request): void {
+  const site = request.headers.get("Sec-Fetch-Site");
+  if (site !== null && !SAFE_FETCH_SITES.has(site)) throw new ValidationError("cross-site request rejected");
+  const origin = request.headers.get("Origin");
+  if (origin !== null && !allowedOrigin(origin, request)) throw new ValidationError("cross-origin request rejected");
+}
+
+/** A JSON content type forces a CORS preflight, which this server never answers. */
+export function assertJsonRequest(request: Request): void {
+  const contentType = request.headers.get("Content-Type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    throw new ValidationError("Content-Type must be application/json");
+  }
+}
+
 export function focusText(result: FocusResult): string {
   if (result.action === "switched") return `switched ${result.handle}`;
   if (result.action === "resumed") return `resumed ${result.handle}`;

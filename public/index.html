@@ -126,6 +126,20 @@
     .focus-jump:hover { border-color: var(--accent); color: var(--surface); filter: brightness(.95); }
     .focus-resume { border-color: var(--resume); background: var(--resume-soft); color: var(--resume); }
     .focus-resume:hover { border-color: var(--resume); color: var(--resume); filter: brightness(.96); }
+    .session-send { display: flex; grid-column: 2 / -1; align-items: center; gap: 7px; margin-top: 8px; }
+    .session-send-input { min-width: 0; flex: 1; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+    .session-send-input:focus { border-color: var(--accent); outline: none; }
+    .session-send-button { min-width: 54px; border-color: var(--accent); background: var(--accent); color: var(--surface); font-weight: 700; }
+    .session-send-button:disabled { cursor: wait; opacity: .62; }
+    .session-send-note { display: flex; grid-column: 2 / -1; align-items: center; gap: 7px; margin-top: 6px; color: var(--muted); font-size: 11px; }
+    .session-send-state { flex: 0 0 auto; padding: 2px 6px; border-radius: 999px; background: var(--bg); font: 10px ui-monospace, Menlo, monospace; }
+    .session-send-note[data-state="stalled"] .session-send-state { background: var(--danger-soft); color: var(--waiting); }
+    .session-send-note[data-state="verifying"] .session-send-state { background: var(--resume-soft); color: var(--busy); }
+    .session-send-note[data-state="confirmed"] .session-send-state { background: var(--accent-soft); color: var(--accent); }
+    .session-send-text { min-width: 0; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+    .session-send-note .action { min-width: 0; padding: 3px 7px; border-radius: 6px; font-size: 11px; }
+    .focus-session-card .session-send-input { padding: 5px 8px; font-size: 11px; }
+    .focus-session-card .session-send-button { min-width: 44px; padding: 5px 7px; font-size: 11px; }
     .floating-menu { position: relative; min-width: 0; flex: 0 0 auto; }
     .floating-menu-toggle { cursor: pointer; list-style: none; user-select: none; }
     .floating-menu-toggle::-webkit-details-marker { display: none; }
@@ -166,6 +180,9 @@
     .focus-title { margin: 0 0 6px; font-size: 25px; letter-spacing: -.02em; }
     .focus-description { margin: 0; color: var(--muted); font-size: 13px; }
     .focus-updated { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+    .focus-head-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 14px; }
+    .focus-project-sort-control { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+    .focus-project-sort-control select { min-width: 104px; padding: 6px 25px 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 11px; }
     .focus-workspace { min-width: 0; }
     .focus-monitor { position: fixed; z-index: 12; display: flex; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 34px var(--shadow); }
     .focus-monitor.monitor-floating { right: var(--focus-monitor-gap); bottom: var(--focus-monitor-gap); width: min(var(--focus-monitor-width), calc(100vw - var(--focus-monitor-inset))); max-height: calc(100vh - var(--topbar-height) - var(--focus-monitor-inset)); border-radius: 14px; }
@@ -200,13 +217,14 @@
     .focus-lane { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
     .focus-lane-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 14px; border-bottom: 1px solid var(--line); }
     .focus-lane-marker { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-    .focus-lane-title { margin: 0; font-size: 15px; }
+    .focus-lane-title { display: flex; align-items: baseline; gap: 6px; margin: 0; font-size: 15px; }
+    .focus-lane-range { color: var(--muted); font-size: 9px; font-weight: 650; letter-spacing: .02em; }
     .focus-lane-note { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
     .focus-lane-count { display: inline-grid; min-width: 26px; height: 22px; padding: 0 7px; place-items: center; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 700 11px ui-monospace, Menlo, monospace; }
     .focus-lane[data-focus-bucket="working"] .focus-lane-marker { background: var(--busy); }
     .focus-lane[data-focus-bucket="working"] .focus-lane-count { background: var(--resume-soft); color: var(--busy); }
-    .focus-lane[data-focus-bucket="idle-today"] .focus-lane-marker { background: var(--idle); }
-    .focus-lane[data-focus-bucket="idle-today"] .focus-lane-count { color: var(--idle); }
+    .focus-lane[data-focus-bucket="non-working-today"] .focus-lane-marker { background: var(--idle); }
+    .focus-lane[data-focus-bucket="non-working-today"] .focus-lane-count { color: var(--idle); }
     .focus-lane-body { display: grid; gap: 12px; min-height: 130px; padding: 12px; border-radius: 0 0 13px 13px; background: var(--bg); }
     .focus-empty { padding: 34px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 12px; text-align: center; }
     .focus-project-group { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
@@ -413,8 +431,18 @@
   </header>
   <div id="focus-view" class="focus-view" hidden>
     <header class="focus-head">
-      <div><h1 class="focus-title">聚焦</h1><p class="focus-description">按 Orca 原始状态和本机日期，只看 working 与最近更新的非 working session。</p></div>
-      <span id="focus-updated" class="focus-updated">状态尚未读取</span>
+      <div><h1 class="focus-title">聚焦</h1><p class="focus-description">按 Orca 原始状态和本机日期分组，分列不会改变状态值。</p></div>
+      <div class="focus-head-actions">
+        <label class="focus-project-sort-control" for="focus-project-sort">
+          <span>项目排序</span>
+          <select id="focus-project-sort">
+            <option value="az">A–Z</option>
+            <option value="za">Z–A</option>
+            <option value="recent">最近活动</option>
+          </select>
+        </label>
+        <span id="focus-updated" class="focus-updated">状态尚未读取</span>
+      </div>
     </header>
     <div id="focus-workspace" class="focus-workspace">
       <aside id="focus-monitor" class="focus-monitor" hidden aria-live="polite"></aside>
@@ -513,13 +541,27 @@
       const COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.collapsedWorktrees.v1";
       const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v1";
       const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v1";
+      const FOCUS_PROJECT_SORT_STORAGE_KEY = "orcatab.focusProjectSort.v1";
       const FOCUS_MONITOR_PLACEMENT_STORAGE_KEY = "orcatab.focusMonitorPlacement.v1";
+      const FOCUS_PROJECT_SORT_MODES = new Set(["az", "za", "recent"]);
+      const FOCUS_PROJECT_NAME_COLLATOR = new Intl.Collator(["zh-CN", "en"], { numeric: true, sensitivity: "base" });
       const UNINDEXED_LIVE_PROJECT_KEY = "__unindexed_live__";
       const SESSION_AGENTS = new Set(["claude", "codex", "hermes"]);
+      const SEND_CONFIRMED_NOTE_MS = 120000;
+      const SEND_STATE_LABELS = {
+        pending: "已发送 · 等待确认", verifying: "进行中 · 正在核对", confirmed: "已确认", stalled: "未确认",
+      };
+      const SEND_CONFLICT_MESSAGES = {
+        offline: "会话已不在线，输入没有发出",
+        "not-waiting": "会话已不在等待输入，输入没有发出",
+        "status-changed": "会话状态已变化，输入没有发出",
+        "handle-changed": "会话已换到另一个 Orca 终端，输入没有发出",
+        "running-outside-orca": "该会话在 Orca 外运行，无法发送",
+      };
       const FOCUS_LANES = [
-        { key: "working", title: "Working", note: "当前仍在执行", empty: "当前没有 working session" },
-        { key: "idle-today", title: "Idle 今日", note: "非 working · 本机今天 00:00 起", empty: "今天没有 idle session" },
-        { key: "idle-recent", title: "Idle 过去 3 天", note: "非 working · 此前 3 个自然日", empty: "过去 3 天没有 idle session" },
+        { key: "working", title: "进行中", range: "", note: "当前仍在执行", empty: "当前没有进行中的会话" },
+        { key: "non-working-today", title: "操作/就绪", range: "今天", note: "今天更新的非进行中会话", empty: "今天没有操作或就绪的会话" },
+        { key: "non-working-recent", title: "操作/就绪", range: "三天内", note: "此前 3 个自然日，不含今天", empty: "三天内没有操作或就绪的会话" },
       ];
       const state = {
         projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0,
@@ -530,6 +572,7 @@
         collapsedWorktrees: loadCollapsedWorktrees(),
         focusCollapsedProjects: loadStoredStringSet(FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY, "Focus projects"),
         focusCollapsedWorktrees: loadStoredStringSet(FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY, "Focus worktrees"),
+        focusProjectSort: loadFocusProjectSort(),
         worktreeResources: new Map(), resourceEtag: "", resourcesSupported: true,
         gateway: null, gatewayEtag: "", gatewaySupported: true,
         projectScope: "active", projectQuery: "",
@@ -539,6 +582,7 @@
         recentInputsBySession: {}, recentInputTimesBySession: {}, recentInputsVersion: -1,
         recentInputsHasMoreBySession: {}, recentInputsLoadingBySession: {},
         recentInputsIdentitySignature: "", recentInputsSupported: true, focusMonitorSessionKey: "",
+        sendRecords: {}, sendDrafts: {}, sendSupported: true, sendRecordsSignature: "",
         focusMonitorPlacement: loadFocusMonitorPlacement(),
       };
       const searchInput = document.querySelector("#search");
@@ -549,6 +593,8 @@
       const focusMonitorDockRight = document.querySelector("#focus-monitor-dock-right");
       const focusBoard = document.querySelector("#focus-board");
       const focusUpdated = document.querySelector("#focus-updated");
+      const focusProjectSort = document.querySelector("#focus-project-sort");
+      focusProjectSort.value = state.focusProjectSort;
       const sessionsView = document.querySelector("#sessions-view");
       const projectsView = document.querySelector("#projects-view");
       const goalsView = document.querySelector("#goals-view");
@@ -661,8 +707,8 @@
         if (status === "working") return "working";
         const updatedAt = row.live?.updatedAt;
         if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return null;
-        if (updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow) return "idle-today";
-        if (updatedAt >= boundaries.recent && updatedAt < boundaries.today) return "idle-recent";
+        if (updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow) return "non-working-today";
+        if (updatedAt >= boundaries.recent && updatedAt < boundaries.today) return "non-working-recent";
         return null;
       }
 
@@ -711,6 +757,35 @@
           ordered.unshift(UNINDEXED_LIVE_PROJECT_KEY);
         }
         return ordered;
+      }
+
+      function focusProjectLatest(rows) {
+        return rows.reduce((latest, row) => Math.max(latest, row.live?.updatedAt || 0), 0);
+      }
+
+      function compareFocusProjectNames(leftKey, rightKey, direction = 1) {
+        const left = projectFor(leftKey);
+        const right = projectFor(rightKey);
+        return direction * (
+          FOCUS_PROJECT_NAME_COLLATOR.compare(left.name, right.name)
+          || left.key.localeCompare(right.key)
+        );
+      }
+
+      function orderedFocusProjectKeys(groups) {
+        return [...groups.keys()].sort((leftKey, rightKey) => {
+          if (leftKey === UNINDEXED_LIVE_PROJECT_KEY) return -1;
+          if (rightKey === UNINDEXED_LIVE_PROJECT_KEY) return 1;
+          const pinOrder = Number(Boolean(projectFor(rightKey).pinned))
+            - Number(Boolean(projectFor(leftKey).pinned));
+          if (pinOrder) return pinOrder;
+          if (state.focusProjectSort === "recent") {
+            const activityOrder = focusProjectLatest(groups.get(rightKey))
+              - focusProjectLatest(groups.get(leftKey));
+            if (activityOrder) return activityOrder;
+          }
+          return compareFocusProjectNames(leftKey, rightKey, state.focusProjectSort === "za" ? -1 : 1);
+        });
       }
 
       function visibleProjects() {
@@ -796,8 +871,9 @@
       function liveStateText(live) {
         const status = rawLiveState(live);
         if (status === "working") return "进行中";
-        if (status === "done") return "等待用户";
-        if (status === "waiting") return "等待中";
+        if (status === "done") return "已就绪";
+        if (status === "waiting") return "需操作";
+        if (status === "blocked") return "已受阻";
         if (status === "idle") return "空闲";
         if (status === "busy") return "忙碌";
         if (status === "shell") return "终端中";
@@ -875,6 +951,27 @@
         } catch (error) {
           console.warn(`Unable to save ${label}`, error);
         }
+      }
+
+      function loadFocusProjectSort() {
+        try {
+          const value = localStorage.getItem(FOCUS_PROJECT_SORT_STORAGE_KEY) || "az";
+          return FOCUS_PROJECT_SORT_MODES.has(value) ? value : "az";
+        } catch (error) {
+          console.warn("Unable to load Focus project sort", error);
+          return "az";
+        }
+      }
+
+      function setFocusProjectSort(value) {
+        if (!FOCUS_PROJECT_SORT_MODES.has(value) || value === state.focusProjectSort) return;
+        state.focusProjectSort = value;
+        try {
+          localStorage.setItem(FOCUS_PROJECT_SORT_STORAGE_KEY, value);
+        } catch (error) {
+          console.warn("Unable to save Focus project sort", error);
+        }
+        renderFocus();
       }
 
       function loadCollapsedWorktrees() {
@@ -1094,6 +1191,162 @@
         } finally { button.disabled = false; }
       }
 
+      function canSendInput(row) {
+        return Boolean(state.sendSupported && row.live && row.live.handle && rawLiveState(row.live) === "done");
+      }
+
+      function sendPath(row) {
+        return `/api/session-send/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`;
+      }
+
+      function sendInputElement(key) {
+        return document.querySelector(`.session-send[data-send-key="${CSS.escape(key)}"] .session-send-input`);
+      }
+
+      function activeSendFocus() {
+        const active = document.activeElement;
+        const form = active && active.closest ? active.closest(".session-send") : null;
+        if (!form || !form.dataset.sendKey) return null;
+        const caret = typeof active.selectionStart === "number" ? active.selectionStart : null;
+        return { key: form.dataset.sendKey, caret };
+      }
+
+      function restoreSendFocus(previous) {
+        if (!previous) return;
+        const input = sendInputElement(previous.key);
+        if (!input) return;
+        input.focus();
+        if (previous.caret !== null) input.setSelectionRange(previous.caret, previous.caret);
+      }
+
+      function renderCurrentView() {
+        if (state.view === "focus") renderFocus();
+        else render();
+      }
+
+      async function loadSendRecords() {
+        if (!state.sendSupported) return false;
+        const response = await fetch("/api/session-send");
+        if (response.status === 404) {
+          state.sendSupported = false;
+          const had = Object.keys(state.sendRecords).length > 0;
+          state.sendRecords = {};
+          return had;
+        }
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        const records = body.records || {};
+        const signature = JSON.stringify(records);
+        if (signature === state.sendRecordsSignature) return false;
+        state.sendRecords = records;
+        state.sendRecordsSignature = signature;
+        return true;
+      }
+
+      async function submitSessionInput(row, input, button) {
+        const key = sessionKey(row);
+        const text = input.value.trim();
+        if (!text) { input.focus(); return; }
+        const original = button.textContent;
+        button.disabled = true;
+        input.disabled = true;
+        button.textContent = "发送中…";
+        try {
+          const response = await fetch(sendPath(row), jsonRequest("POST", {
+            text, expectedHandle: row.live?.handle, expectedStatus: rawLiveState(row.live),
+          }));
+          const body = await response.json();
+          if (!response.ok) throw new Error(SEND_CONFLICT_MESSAGES[body.code] || body.error || `HTTP ${response.status}`);
+          state.sendRecords[key] = body.record;
+          state.sendRecordsSignature = "";
+          delete state.sendDrafts[key];
+          input.value = "";
+          showToast("已发送，已加入自动确认队列");
+          renderCurrentView();
+          sendInputElement(key)?.focus();
+        } catch (error) {
+          showToast(`发送失败：${error.message}`);
+        } finally {
+          input.disabled = false;
+          button.disabled = false;
+          button.textContent = original;
+        }
+      }
+
+      function sessionSendForm(row) {
+        if (!canSendInput(row)) return null;
+        const key = sessionKey(row);
+        const form = make("form", "session-send");
+        form.dataset.sendKey = key;
+        const input = make("input", "session-send-input");
+        input.type = "text";
+        input.value = state.sendDrafts[key] || "";
+        input.placeholder = `发送给 ${row.agent}…`;
+        input.setAttribute("aria-label", `发送输入到会话：${row.displayTitle}`);
+        input.addEventListener("input", () => { state.sendDrafts[key] = input.value; });
+        const button = make("button", "action session-send-button", "发送");
+        button.type = "submit";
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          submitSessionInput(row, input, button);
+        });
+        form.append(input, button);
+        return form;
+      }
+
+      async function reuseSentInput(row, record) {
+        const key = sessionKey(row);
+        const input = sendInputElement(key);
+        if (input) {
+          input.value = record.text;
+          state.sendDrafts[key] = record.text;
+          input.focus();
+          input.setSelectionRange(record.text.length, record.text.length);
+        }
+        await copyText(record.text, input ? "已复制并回填上次输入" : "已复制上次输入");
+      }
+
+      async function dismissSentInput(row) {
+        const key = sessionKey(row);
+        delete state.sendRecords[key];
+        state.sendRecordsSignature = "";
+        renderCurrentView();
+        try { await api(sendPath(row), { method: "DELETE" }); }
+        catch (error) { showToast(`清除记录失败：${error.message}`); }
+      }
+
+      function sentInputNote(row) {
+        const record = state.sendRecords[sessionKey(row)];
+        if (!record) return null;
+        const confirmedAt = Number(record.confirmedAt) || record.sentAt;
+        if (record.state === "confirmed" && Date.now() - confirmedAt > SEND_CONFIRMED_NOTE_MS) return null;
+        const note = make("div", "session-send-note");
+        note.dataset.state = record.state;
+        const label = make("span", "session-send-state", SEND_STATE_LABELS[record.state] || record.state);
+        label.title = record.state === "confirmed"
+          ? `${relativeTime(confirmedAt)}核对到同一条用户输入`
+          : record.state === "verifying"
+            ? "会话已进入进行中，正在核对用户输入"
+            : `${relativeTime(record.sentAt)}发送到终端 ${record.handle}`;
+        const text = make("span", "session-send-text", record.text);
+        text.title = record.text;
+        const copy = make("button", "action session-send-copy", "复制上次输入");
+        copy.type = "button";
+        copy.addEventListener("click", () => reuseSentInput(row, record));
+        const dismiss = make("button", "action session-send-dismiss", "忽略");
+        dismiss.type = "button";
+        dismiss.addEventListener("click", () => dismissSentInput(row));
+        note.append(label, text, copy, dismiss);
+        return note;
+      }
+
+      function appendSendControls(element, row) {
+        const note = sentInputNote(row);
+        if (note) element.append(note);
+        const form = sessionSendForm(row);
+        if (form) element.append(form);
+      }
+
       function sessionRow(row, project, isSearch, options = {}) {
         const element = make("article", "session-row");
         element.tabIndex = -1;
@@ -1200,6 +1453,7 @@
           actions.append(button);
         });
         element.append(actions);
+        appendSendControls(element, row);
         return element;
       }
 
@@ -1472,7 +1726,7 @@
         const updatedAt = row.live?.updatedAt;
         const status = rawLiveState(row.live);
         const timeLabel = typeof updatedAt === "number" && Number.isFinite(updatedAt)
-          ? `${status === "done" ? "完成" : "状态更新"} ${relativeTime(updatedAt)}`
+          ? `${status === "done" ? "就绪" : "状态更新"} ${relativeTime(updatedAt)}`
           : "状态时间未知";
         meta.append(liveState, make("span", "focus-session-time", timeLabel));
         if (row.branch && row.branch !== "HEAD") meta.append(make("span", "chip", row.branch));
@@ -1483,6 +1737,7 @@
         element.addEventListener("mouseenter", () => showFocusMonitor(row));
         element.addEventListener("focusin", () => showFocusMonitor(row));
         element.append(dot, main, jump);
+        appendSendControls(element, row);
         return element;
       }
 
@@ -1503,7 +1758,7 @@
           group.push(row);
           projectGroups.set(row.projectKey, group);
         });
-        orderedProjectKeys(projectGroups).forEach((projectKey) => {
+        orderedFocusProjectKeys(projectGroups).forEach((projectKey) => {
           const projectRows = projectGroups.get(projectKey);
           const project = projectFor(projectKey);
           const projectCollapsed = state.focusCollapsedProjects.has(projectKey);
@@ -1575,6 +1830,7 @@
       }
 
       function renderFocus() {
+        const previousSendFocus = activeSendFocus();
         const boundaries = focusDayBoundaries();
         const buckets = new Map(FOCUS_LANES.map((lane) => [lane.key, []]));
         visibleFocusRows().forEach((row) => {
@@ -1589,7 +1845,9 @@
           lane.dataset.focusBucket = definition.key;
           const head = make("header", "focus-lane-head");
           const copy = make("div");
-          copy.append(make("h2", "focus-lane-title", definition.title), make("p", "focus-lane-note", definition.note));
+          const title = make("h2", "focus-lane-title", definition.title);
+          if (definition.range) title.append(make("small", "focus-lane-range", definition.range));
+          copy.append(title, make("p", "focus-lane-note", definition.note));
           head.append(
             make("span", "focus-lane-marker"),
             copy,
@@ -1602,6 +1860,7 @@
           focusBoard.append(lane);
         });
         renderFocusMonitor();
+        restoreSendFocus(previousSendFocus);
       }
 
       function worktreeResourceDrawer(root, name) {
@@ -1637,6 +1896,7 @@
       }
 
       function render() {
+        const previousSendFocus = activeSendFocus();
         state.activeRow = -1;
         const isSearch = Boolean(state.query);
         content.replaceChildren();
@@ -1747,6 +2007,7 @@
           section.append(stack);
           content.append(section);
         });
+        restoreSendFocus(previousSendFocus);
       }
 
       function renderProjects() {
@@ -2209,6 +2470,7 @@
           conditionalApi(`/api/sessions?live=1&limit=${LIVE_POOL_LIMIT}`, state.focusSessionEtag),
           worktreesRequest,
           api("/healthz"),
+          loadSendRecords(),
         ]);
         indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
         if (!projects.unchanged) {
@@ -2520,7 +2782,7 @@
         const resourcesRequest = state.resourcesSupported
           ? optionalConditionalApi("/api/worktree-resources", state.resourceEtag, { resources: {} })
           : Promise.resolve({ unchanged: true, etag: state.resourceEtag, body: { resources: {} } });
-        const [projects, sessions, worktrees, resources, health, goals, live] = await Promise.all([
+        const [projects, sessions, worktrees, resources, health, goals, live, sendRecords] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
           conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
           worktreesRequest,
@@ -2528,7 +2790,9 @@
           api("/healthz"),
           api("/api/goals"),
           conditionalApi("/api/live", state.liveEtag),
+          loadSendRecords(),
         ]);
+        const sendRecordsChanged = sendRecords === true;
         if (requestId !== state.requestId || state.query) return;
         indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
         state.worktreePinSupported = Array.isArray(health.capabilities)
@@ -2564,12 +2828,18 @@
         syncSessionLive();
         if (projectsChanged || worktreesChanged || liveChanged) renderProjects();
         if (projectsChanged || liveChanged) renderProjectManagement();
-        if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || liveChanged) render();
+        if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || liveChanged
+          || sendRecordsChanged) render();
       }
 
       async function refreshLive() {
-        const live = await conditionalApi("/api/live", state.liveEtag);
-        if (live.unchanged) return;
+        const [live, sendRecordsChanged] = await Promise.all([
+          conditionalApi("/api/live", state.liveEtag), loadSendRecords(),
+        ]);
+        if (live.unchanged) {
+          if (sendRecordsChanged) render();
+          return;
+        }
         state.liveBySession = live.body;
         state.liveEtag = live.etag;
         syncSessionLive();
@@ -2632,6 +2902,7 @@
       focusViewButton.addEventListener("click", () => {
         setView("focus").catch((error) => showToast("加载聚焦看板失败：" + error.message));
       });
+      focusProjectSort.addEventListener("change", () => setFocusProjectSort(focusProjectSort.value));
       sessionsViewButton.addEventListener("click", async () => {
         await setView("sessions", false);
         state.sessionEtag = "";

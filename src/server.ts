@@ -10,7 +10,8 @@ import { createFocusDeps, resolveFocus, SID_PATTERN, ValidationError, type Focus
 import { GoalsStore, openGoalsDatabase, sessionIdentityKey, type GoalLinkKind } from "./goals";
 import { handleGovernanceRequest } from "./governance";
 import {
-  boundedLimit, conditionalJson, decodeParts, focusText, json, jsonObject, nullableText, requiredName, requiredString,
+  assertSameOriginWrite, boundedLimit, conditionalJson, decodeParts, focusText, json, jsonObject, nullableText,
+  requiredName, requiredString,
 } from "./http";
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
@@ -20,6 +21,9 @@ import { openProjectPreferencesDatabase, ProjectPreferencesStore } from "./proje
 import { handleProjectRequest, NotFoundError } from "./project-routes";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
 import { handleSessionInputsRequest } from "./session-input-routes";
+import { handleSessionSendRequest } from "./session-send-routes";
+import { createSessionSendRuntime } from "./session-send-runtime";
+import type { SentInputStore } from "./session-send";
 import { createSessionLiveReader, mergeSessionLive, type SessionLiveReader } from "./session-live";
 import { handleSppRequest } from "./spp";
 import { suggestSessions } from "./suggest";
@@ -39,6 +43,7 @@ export interface ServerOptions {
   db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; discovery?: DiscoveryReaders; startTimers?: boolean; quiet?: boolean;
   directoryPathExists?(path: string): boolean;
   orcaAuditReader?: OrcaWorktreeAuditReader;
+  sentInputStore?: SentInputStore;
 }
 export interface OrcaTabServer {
   server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary;
@@ -79,6 +84,11 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   });
   const focusDeps = options.focusDeps ?? createFocusDeps(db, {
     claudeDir, codexDir, hermesDb, orcaBin, liveFinder: sessionLiveReader.findLive,
+  });
+  const sentInputRuntime = createSessionSendRuntime({
+    db, liveReader: sessionLiveReader, startPolling: options.startTimers !== false,
+    ...(options.sentInputStore === undefined ? {} : { store: options.sentInputStore }),
+    ...(options.quiet ? { onError: () => {} } : {}),
   });
   const timers: Array<ReturnType<typeof setInterval>> = [];
   let watcher: WatchHandle = { mode: "timer", close: () => {} };
@@ -139,6 +149,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           watch: watcher.mode, agents: [...AGENTS], version: "p7",
           capabilities: [
             "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
+            "session-send",
           ],
         });
       }
@@ -149,6 +160,12 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       }
       const sessionInputsResponse = await handleSessionInputsRequest(request, url, db);
       if (sessionInputsResponse !== null) return sessionInputsResponse;
+      const sessionSendResponse = await handleSessionSendRequest(request, url, {
+        findLive: sessionLiveReader.findLive,
+        psEnv: focusDeps.psEnv, orcaJson: focusDeps.orcaJson, store: sentInputRuntime.store,
+        confirmationQueue: sentInputRuntime.confirmationQueue,
+      });
+      if (sessionSendResponse !== null) return sessionSendResponse;
       if (request.method === "POST" && url.pathname === "/api/projects/focus") {
         const body = await jsonObject(request);
         const projectKey = requiredString(body.projectKey, "projectKey");
@@ -252,6 +269,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         }
       }
       if (request.method === "POST" && url.pathname.startsWith("/api/focus/")) {
+        assertSameOriginWrite(request);
         let parts: string[];
         try { parts = url.pathname.slice("/api/focus/".length).split("/").map(decodeURIComponent); }
         catch { throw new ValidationError("invalid session id encoding"); }
@@ -281,6 +299,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     stop: () => {
       watcher.close();
       for (const timer of timers) clearInterval(timer);
+      sentInputRuntime.close();
       server.stop(true);
       projectPreferences.close();
       goalsStore.close();

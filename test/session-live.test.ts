@@ -99,20 +99,23 @@ describe("multi-agent open-session reader", () => {
     now = 100;
     await reader.refresh();
     expect(calls).toBe(1);
+    await reader.refresh(true);
+    expect(calls).toBe(2);
+    expect(reader.getLiveVersion()).toBe(1);
     now = 4_000;
     title = "renamed title";
     await reader.refresh();
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     expect(reader.getLiveVersion()).toBe(2);
     now = 8_000;
     handle = "term_two";
     await reader.refresh();
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
     expect(reader.getLiveVersion()).toBe(3);
     now = 12_000;
     updatedAt = 31;
     await reader.refresh();
-    expect(calls).toBe(4);
+    expect(calls).toBe(5);
     expect(reader.getLiveVersion()).toBe(4);
   });
 
