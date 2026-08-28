@@ -9,7 +9,12 @@ const CLAUDE_SID = "02998b64-f0d0-48a9-9bf1-8c90e265de7a";
 const HERMES_SID = "20260811_031044_76b3bb";
 const ACTIVE_FILE = join(tmpdir(), "hermes-tui-active-session-abcd.json");
 
-function runtimeSnapshot(codexHandle = "term_codex", hermesHandle = "term_hermes", codexTitle = "Codex tab") {
+function runtimeSnapshot(
+  codexHandle = "term_codex",
+  hermesHandle = "term_hermes",
+  codexTitle = "Codex tab",
+  codexUpdatedAt = 30,
+) {
   return {
     ok: true,
     result: {
@@ -20,7 +25,7 @@ function runtimeSnapshot(codexHandle = "term_codex", hermesHandle = "term_hermes
             type: "terminal", parentTabId: "tab_codex", leafId: "leaf_codex",
             terminal: codexHandle, title: codexTitle,
             agentStatus: {
-              agentType: "codex", state: "working", updatedAt: 30,
+              agentType: "codex", state: "working", updatedAt: codexUpdatedAt,
               providerSession: { key: "session_id", id: CODEX_SID },
             },
           },
@@ -44,7 +49,7 @@ function runtimeSnapshot(codexHandle = "term_codex", hermesHandle = "term_hermes
 }
 
 describe("multi-agent open-session reader", () => {
-  test("maps Orca provider sessions and Hermes active-session files to exact tabs", async () => {
+  test("keeps raw Orca states and maps provider sessions to exact tabs", async () => {
     const claudeFallback: LiveInfo = {
       pid: 42, status: "busy", waitingFor: "question", name: "fallback",
     };
@@ -64,28 +69,29 @@ describe("multi-agent open-session reader", () => {
 
     const live = await reader.refresh();
     expect(live.get(`codex/${CODEX_SID}`)).toEqual({
-      pid: null, status: "busy", waitingFor: null, name: "Codex tab",
+      pid: null, status: "working", updatedAt: 30, waitingFor: null, name: "Codex tab",
       handle: "term_codex", tabId: "tab_codex", leafId: "leaf_codex",
     });
     expect(live.get(`claude/${CLAUDE_SID}`)).toMatchObject({
-      pid: null, status: "idle", handle: "term_claude", tabId: "tab_claude",
+      pid: null, status: "done", updatedAt: 20, handle: "term_claude", tabId: "tab_claude",
     });
     expect(live.get(`hermes/${HERMES_SID}`)).toEqual({
-      pid: null, status: "waiting", waitingFor: "approval", name: "Hermes tab",
+      pid: null, status: "waiting", updatedAt: 10, waitingFor: "approval", name: "Hermes tab",
       handle: "term_hermes", tabId: "tab_hermes", leafId: "leaf_hermes",
     });
     expect(await reader.findLive("codex", CODEX_SID)).toEqual(live.get(`codex/${CODEX_SID}`)!);
   });
 
-  test("caches runtime reads and versions handle changes", async () => {
+  test("caches runtime reads and versions visible identity changes", async () => {
     let now = 0;
     let calls = 0;
     let handle = "term_one";
     let title = "first title";
+    let updatedAt = 30;
     const reader = createSessionLiveReader({
       now: () => now,
       getClaudeLiveMap: () => new Map(),
-      callRuntime: async () => { calls += 1; return runtimeSnapshot(handle, "term_hermes", title); },
+      callRuntime: async () => { calls += 1; return runtimeSnapshot(handle, "term_hermes", title, updatedAt); },
       listProcessEnvironments: async () => "",
     });
     await reader.refresh();
@@ -97,12 +103,17 @@ describe("multi-agent open-session reader", () => {
     title = "renamed title";
     await reader.refresh();
     expect(calls).toBe(2);
-    expect(reader.getLiveVersion()).toBe(1);
+    expect(reader.getLiveVersion()).toBe(2);
     now = 8_000;
     handle = "term_two";
     await reader.refresh();
     expect(calls).toBe(3);
-    expect(reader.getLiveVersion()).toBe(2);
+    expect(reader.getLiveVersion()).toBe(3);
+    now = 12_000;
+    updatedAt = 31;
+    await reader.refresh();
+    expect(calls).toBe(4);
+    expect(reader.getLiveVersion()).toBe(4);
   });
 
   test("reuses Hermes process mappings while rereading the active session and rescans changed tabs", async () => {

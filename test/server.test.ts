@@ -1,25 +1,30 @@
 import { Database } from "bun:sqlite";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type OrcaTabServer } from "../src/server";
 import type { DiscoveryReaders } from "../src/discovery";
 import { createIndexer } from "../src/indexer";
 import type { FocusDeps } from "../src/focus";
+import type { OrcaWorktreeAuditReader } from "../src/orca-worktree-audit";
 import type { SessionLiveReader } from "../src/session-live";
 import type { LiveInfo } from "../src/types";
 
 const SID = "44444444-4444-4444-4444-444444444444";
 const CODEX_SID = "55555555-5555-5555-5555-555555555555";
 const HERMES_SID = "20260811_031044_76b3bb";
+const LIVE_ONLY_SID = "66666666-6666-6666-6666-666666666666";
 const openTabs = new Map<string, LiveInfo>([
+  [`claude/${LIVE_ONLY_SID}`, {
+    pid: 666, status: "idle", waitingFor: null, name: "Claude process without transcript",
+  }],
   [`codex/${CODEX_SID}`, {
-    pid: null, status: "busy", waitingFor: null, name: "Codex fixture tab",
+    pid: null, status: "working", updatedAt: 30, waitingFor: null, name: "Codex fixture tab",
     handle: "term_codex", tabId: "tab_codex", leafId: "leaf_codex",
   }],
   [`hermes/${HERMES_SID}`, {
-    pid: null, status: "idle", waitingFor: null, name: "Hermes fixture tab",
+    pid: null, status: "done", updatedAt: 20, waitingFor: null, name: "Hermes fixture tab",
     handle: "term_hermes", tabId: "tab_hermes", leafId: "leaf_hermes",
   }],
 ]);
@@ -29,6 +34,24 @@ const sessionLiveReader: SessionLiveReader = {
   getLiveMap: () => openTabs,
   getLiveVersion: () => 1,
   findLive: async (agent, sid) => openTabs.get(`${agent}/${sid}`) ?? null,
+};
+const orcaAuditReader: OrcaWorktreeAuditReader = {
+  getVersion: () => 1,
+  refresh: async () => ({
+    auditedAt: 1,
+    summary: {
+      totalWorktrees: 42, completedWorktrees: 12, archivedWorktrees: 0,
+      ready: 10, review: 1, hold: 1,
+      lumina: { total: 42, completed: 11, inProgress: 29, inReview: 2, archived: 0 },
+    },
+    items: [{
+      id: "lumina::kg-core", name: "kg-core", projectId: "github:feibo-ai/lumina", path: "/fixture/kg-core",
+      branch: "refs/heads/kg-core", head: "abc", isMainWorktree: false, pathExists: true,
+      dirtyFileCount: 0, connectedTerminals: 0, mergeTarget: "integration/main", headInMergeTarget: true,
+      recommendation: "ready", reasons: ["HEAD 已包含在 integration/main"], comment: "merged into integration/main",
+    }],
+    warnings: [],
+  }),
 };
 let root = "";
 let baseUrl = "";
@@ -41,6 +64,7 @@ let fixtureCwd = "";
 let focusOpens = 0;
 const focusCalls: string[][] = [];
 let resourceRoots: string[] = [];
+const unavailablePaths = new Set<string>();
 
 const discovery: DiscoveryReaders = {
   gateway: {
@@ -136,7 +160,9 @@ beforeAll(async () => {
   hermes.close();
   app = await createServer({
     port: 0, claudeDir, codexDir, hermesDb, dataDir: join(root, "data"),
-    orcaBin: join(root, "missing-orca"), focusDeps, sessionLiveReader, discovery, startTimers: false, quiet: true,
+    orcaBin: join(root, "missing-orca"), focusDeps, sessionLiveReader, discovery, orcaAuditReader,
+    startTimers: false, quiet: true,
+    directoryPathExists: (path) => !unavailablePaths.has(path) && existsSync(path),
   });
   baseUrl = `http://127.0.0.1:${app.server.port}`;
 });
@@ -150,7 +176,9 @@ describe("HTTP server", () => {
     expect(await response.json()).toMatchObject({
       ok: true, sessions: 3, goals: 0, agents: ["claude", "codex", "hermes"], version: "p7",
       dataVersion: 1, listVersion: 1, watch: "timer",
-      capabilities: ["worktree-resources", "nginx-gateway"],
+      capabilities: [
+        "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
+      ],
     });
   });
 
@@ -174,6 +202,19 @@ describe("HTTP server", () => {
     expect((await fetch(`${baseUrl}/api/worktree-resources`, {
       headers: { "If-None-Match": '"r-1"' },
     })).status).toBe(304);
+
+    const audit = await fetch(`${baseUrl}/api/orca-worktree-audit`);
+    expect(audit.headers.get("ETag")).toBe('"o-1"');
+    expect(await audit.json()).toMatchObject({
+      summary: {
+        completedWorktrees: 12, ready: 10, review: 1, hold: 1,
+        lumina: { total: 42, completed: 11, inProgress: 29, inReview: 2 },
+      },
+      items: [{ name: "kg-core", recommendation: "ready" }],
+    });
+    expect((await fetch(`${baseUrl}/api/orca-worktree-audit`, {
+      headers: { "If-None-Match": '"o-1"' },
+    })).status).toBe(304);
   });
 
   test("serves projects and sessions", async () => {
@@ -183,22 +224,92 @@ describe("HTTP server", () => {
       name: "fixture-project", sessionCount: 3, pinned: false, archived: false,
     });
     const sessions = await (await fetch(`${baseUrl}/api/sessions?limit=99999`)).json();
-    expect(sessions).toHaveLength(3);
-    expect(sessions.find((row: { agent: string }) => row.agent === "claude"))
+    expect(sessions).toHaveLength(4);
+    expect(sessions[0]).toMatchObject({
+      agent: "claude", sid: LIVE_ONLY_SID, displayTitle: "未索引在线会话",
+      lastPrompt: "Claude process without transcript", indexed: false,
+      live: { pid: 666, status: "idle" },
+    });
+    expect(sessions.find((row: { sid: string }) => row.sid === SID))
       .toMatchObject({ agent: "claude", sid: SID, displayTitle: "课堂树会话", worktreeRoot: fixtureCwd, live: null, goals: [] });
     expect(sessions.find((row: { agent: string }) => row.agent === "codex"))
       .toMatchObject({
         agent: "codex", sid: CODEX_SID, displayTitle: "Codex 测试会话",
         worktreeRoot: fixtureCwd,
-        live: { handle: "term_codex", tabId: "tab_codex", status: "busy" },
+        live: { handle: "term_codex", tabId: "tab_codex", status: "working" },
       });
     expect(sessions.find((row: { agent: string }) => row.agent === "hermes"))
       .toMatchObject({
         agent: "hermes", sid: HERMES_SID, displayTitle: "Hermes 服务测试",
         worktreeRoot: fixtureCwd,
-        live: { handle: "term_hermes", tabId: "tab_hermes", status: "idle" },
+        live: { handle: "term_hermes", tabId: "tab_hermes", status: "done" },
       });
-    expect(await (await fetch(`${baseUrl}/api/sessions?live=1`)).json()).toHaveLength(2);
+    const liveSessions = await (await fetch(`${baseUrl}/api/sessions?live=1`)).json();
+    expect(liveSessions).toHaveLength(3);
+    expect(liveSessions.find((row: { agent: string }) => row.agent === "codex")?.live?.updatedAt).toBe(30);
+    expect(await (await fetch(`${baseUrl}/api/sessions?project=${encodeURIComponent(projects[0].key)}`)).json())
+      .toHaveLength(3);
+  });
+
+  test("batch-loads and paginates recent user inputs for focus cards", async () => {
+    const response = await fetch(`${baseUrl}/api/session-inputs`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessions: [
+        { agent: "claude", sid: SID }, { agent: "codex", sid: CODEX_SID },
+        { agent: "hermes", sid: HERMES_SID }, { agent: "claude", sid: SID },
+      ] }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      listVersion: app.db.getListVersion(),
+      inputs: {
+        [`claude/${SID}`]: ["请解释课堂树结构"],
+        [`codex/${CODEX_SID}`]: ["Codex 页面测试"],
+        [`hermes/${HERMES_SID}`]: ["Hermes 页面测试"],
+      },
+      inputTimes: {
+        [`claude/${SID}`]: [Date.parse("2026-08-25T08:00:00.000Z")],
+        [`codex/${CODEX_SID}`]: [Date.parse("2026-08-25T09:00:01.000Z")],
+        [`hermes/${HERMES_SID}`]: [1_777_777_001_000],
+      },
+      hasMore: {
+        [`claude/${SID}`]: false,
+        [`codex/${CODEX_SID}`]: false,
+        [`hermes/${HERMES_SID}`]: false,
+      },
+    });
+
+    app.db.appendSessionFts(Array.from({ length: 6 }, (_, index) => ({
+      text: `分页输入 ${index + 1}`, agent: "claude" as const, sid: SID, role: "user" as const, ts: index + 101,
+    })));
+    const firstPage = await (await fetch(`${baseUrl}/api/session-inputs`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessions: [{ agent: "claude", sid: SID }], limit: 2, offset: 0 }),
+    })).json();
+    expect(firstPage.inputs[`claude/${SID}`]).toEqual(["分页输入 6", "分页输入 5"]);
+    expect(firstPage.inputTimes[`claude/${SID}`]).toEqual([106, 105]);
+    expect(firstPage.hasMore[`claude/${SID}`]).toBe(true);
+
+    const lastPage = await (await fetch(`${baseUrl}/api/session-inputs`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessions: [{ agent: "claude", sid: SID }], limit: 2, offset: 6 }),
+    })).json();
+    expect(lastPage.inputs[`claude/${SID}`]).toEqual(["请解释课堂树结构"]);
+    expect(lastPage.hasMore[`claude/${SID}`]).toBe(false);
+
+    const invalid = await fetch(`${baseUrl}/api/session-inputs`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessions: [{ agent: "unknown", sid: SID }] }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "invalid session identity" });
+
+    const invalidPage = await fetch(`${baseUrl}/api/session-inputs`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessions: [], offset: -1 }),
+    });
+    expect(invalidPage.status).toBe(400);
+    expect(await invalidPage.json()).toEqual({ error: "offset must be an integer between 0 and 100000" });
   });
 
   test("serves static lists without live refreshes and versions live state separately", async () => {
@@ -214,10 +325,16 @@ describe("HTTP server", () => {
 
     const live = await fetch(`${baseUrl}/api/live`);
     const liveEtag = live.headers.get("ETag");
-    expect(liveEtag).toBe('"l-1"');
-    expect(Object.keys(await live.json()).sort()).toEqual([
-      `codex/${CODEX_SID}`, `hermes/${HERMES_SID}`,
+    expect(liveEtag).toBe(`"l-1-${app.db.getListVersion()}"`);
+    const livePayload = await live.json();
+    expect(Object.keys(livePayload).sort()).toEqual([
+      `claude/${LIVE_ONLY_SID}`, `codex/${CODEX_SID}`, `hermes/${HERMES_SID}`,
     ]);
+    expect(livePayload[`codex/${CODEX_SID}`].status).toBe("working");
+    expect(livePayload[`codex/${CODEX_SID}`].updatedAt).toBe(30);
+    expect(livePayload[`codex/${CODEX_SID}`].projectKey).toBe(app.db.getSession("codex", CODEX_SID)?.projectKey);
+    expect(livePayload[`hermes/${HERMES_SID}`].status).toBe("done");
+    expect(livePayload[`claude/${LIVE_ONLY_SID}`].projectKey).toBeNull();
     expect(liveRefreshes).toBe(1);
     expect((await fetch(`${baseUrl}/api/live`, { headers: { "If-None-Match": liveEtag! } })).status).toBe(304);
 
@@ -245,7 +362,7 @@ describe("HTTP server", () => {
 
     const archived = await patchProject({ projectKey: project.key, archived: true });
     expect(await archived.json()).toMatchObject({ key: project.key, pinned: false, archived: true });
-    expect(await (await fetch(`${baseUrl}/api/sessions`)).json()).toHaveLength(3);
+    expect(await (await fetch(`${baseUrl}/api/sessions?includeLive=0`)).json()).toHaveLength(3);
     const restored = await patchProject({ projectKey: project.key, archived: false });
     expect(await restored.json()).toMatchObject({ key: project.key, pinned: false, archived: false });
 
@@ -256,7 +373,36 @@ describe("HTTP server", () => {
     expect((await patchProject({ projectKey: "/missing", pinned: true })).status).toBe(404);
   });
 
-  test("archives and restores one indexed worktree without deleting sessions", async () => {
+  test("audits missing roots and bulk-archives preferences without deleting indexed sessions or transcripts", async () => {
+    const [project] = await (await fetch(`${baseUrl}/api/projects`)).json();
+    unavailablePaths.add(fixtureCwd);
+    try {
+      const response = await fetch(`${baseUrl}/api/directory-audit`);
+      const audit = await response.json();
+      expect(audit.summary).toMatchObject({
+        projectRoots: 1, missingProjectRoots: 1,
+        directoryGroups: 1, missingDirectoryGroups: 1,
+        gitWorktrees: 1, historicalDirectories: 0,
+      });
+      expect(audit.archivePlan).toEqual({ projectKeys: [project.key], worktrees: [] });
+      const archived = await fetch(`${baseUrl}/api/directory-audit/archive-missing`, { method: "POST" });
+      expect(archived.status).toBe(200);
+      expect(await archived.json()).toMatchObject({
+        applied: { projects: 1, worktrees: 0 }, indexedSessionsPreserved: 3,
+        audit: { archivePlan: { projectKeys: [], worktrees: [] } },
+      });
+      expect(existsSync(sessionPath)).toBeTrue();
+      expect(await (await fetch(`${baseUrl}/api/sessions?includeLive=0`)).json()).toHaveLength(3);
+    } finally {
+      unavailablePaths.delete(fixtureCwd);
+      await fetch(`${baseUrl}/api/projects`, {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectKey: project.key, archived: false }),
+      });
+    }
+  });
+
+  test("pins, archives, and restores one indexed worktree without deleting sessions", async () => {
     const [project] = await (await fetch(`${baseUrl}/api/projects`)).json();
     const initial = await fetch(`${baseUrl}/api/worktrees`);
     const initialEtag = initial.headers.get("ETag");
@@ -266,23 +412,37 @@ describe("HTTP server", () => {
       method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     });
 
-    const archived = await patchWorktree({ projectKey: project.key, root: fixtureCwd, archived: true });
-    expect(archived.status).toBe(200);
-    expect(await archived.json()).toEqual({ projectKey: project.key, root: fixtureCwd, archived: true });
-    expect(await (await fetch(`${baseUrl}/api/sessions`)).json()).toHaveLength(3);
+    const pinned = await patchWorktree({ projectKey: project.key, root: fixtureCwd, pinned: true });
+    expect(pinned.status).toBe(200);
+    expect(await pinned.json()).toEqual({
+      projectKey: project.key, root: fixtureCwd, pinned: true, archived: false,
+    });
+    expect(await (await fetch(`${baseUrl}/api/sessions?includeLive=0`)).json()).toHaveLength(3);
     const changed = await fetch(`${baseUrl}/api/worktrees`, { headers: { "If-None-Match": initialEtag! } });
     expect(changed.status).toBe(200);
     expect(changed.headers.get("ETag")).not.toBe(initialEtag);
-    expect(await changed.json()).toEqual([{ projectKey: project.key, root: fixtureCwd, archived: true }]);
+    expect(await changed.json()).toEqual([{
+      projectKey: project.key, root: fixtureCwd, pinned: true, archived: false,
+    }]);
+
+    const archived = await patchWorktree({ projectKey: project.key, root: fixtureCwd, archived: true });
+    expect(archived.status).toBe(200);
+    expect(await archived.json()).toEqual({
+      projectKey: project.key, root: fixtureCwd, pinned: false, archived: true,
+    });
 
     const restored = await patchWorktree({ projectKey: project.key, root: fixtureCwd, archived: false });
     expect(restored.status).toBe(200);
-    expect(await restored.json()).toEqual({ projectKey: project.key, root: fixtureCwd, archived: false });
+    expect(await restored.json()).toEqual({
+      projectKey: project.key, root: fixtureCwd, pinned: false, archived: false,
+    });
     expect(await (await fetch(`${baseUrl}/api/worktrees`)).json()).toEqual([]);
 
     for (const body of [
-      {}, { projectKey: project.key, archived: true },
+      {}, { projectKey: project.key, root: fixtureCwd }, { projectKey: project.key, archived: true },
+      { projectKey: project.key, root: fixtureCwd, pinned: 1 },
       { projectKey: project.key, root: fixtureCwd, archived: 1 },
+      { projectKey: project.key, root: fixtureCwd, pinned: true, archived: true },
     ]) expect((await patchWorktree(body)).status).toBe(400);
     expect((await patchWorktree({ projectKey: "/missing", root: fixtureCwd, archived: true })).status).toBe(404);
     expect((await patchWorktree({ projectKey: project.key, root: "/missing", archived: true })).status).toBe(404);
@@ -364,12 +524,46 @@ describe("HTTP server", () => {
     expect(html).toContain("agent-hermes");
     expect(html).toContain('row.live ? "跳转" : "恢复"');
     expect(html).toContain('action focus-action ${row.live ? "focus-jump" : "focus-resume"}');
+    expect(html).toContain('return "working · 进行中"');
+    expect(html).toContain('return "done · 等待用户"');
+    expect(html).toContain('live.projectKey === projectKey && live.status === "working"');
+    expect(html).toContain('make("span", "project-working", String(count))');
+    expect(html).toContain('id="focus-view-button" type="button" aria-pressed="false">聚焦</button>');
+    expect(html).toContain('updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow');
+    expect(html).toContain('groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0)');
+    expect(html).toContain('conditionalApi(`/api/sessions?live=1&limit=${LIVE_POOL_LIMIT}`');
+    expect(html).toContain('fetch("/api/session-inputs"');
+    expect(html).toContain('id="focus-monitor" class="focus-monitor" hidden');
+    expect(html).toContain('.focus-monitor.monitor-floating { right: var(--focus-monitor-gap);');
+    expect(html).toContain('.focus-monitor.monitor-docked-left');
+    expect(html).toContain('.focus-monitor.monitor-docked-right');
+    expect(html).toContain('id="focus-monitor-dock-left"');
+    expect(html).toContain('id="focus-monitor-dock-right"');
+    expect(html).toContain('FOCUS_MONITOR_PLACEMENT_STORAGE_KEY');
+    expect(html).toContain('function focusMonitorDockZone(clientX)');
+    expect(html).toContain('head.addEventListener("pointerdown", beginFocusMonitorDrag)');
+    expect(html).toContain('element.addEventListener("mouseenter", () => showFocusMonitor(row))');
+    expect(html).toContain('function focusInputTime(timestamp)');
+    expect(html).toContain('.focus-monitor-messages { display: grid; min-height: 0; flex: 1; align-content: start;');
+    expect(html).toContain('function loadMoreFocusInputs(row, button)');
+    expect(html).toContain('make("button", "focus-monitor-more-button", loading ? "加载中…" : "加载更多")');
+    expect(html).toContain('state.recentInputsHasMoreBySession = body.hasMore || {}');
+    expect(html).not.toContain('focus-monitor-copy');
+    expect(html).not.toContain('focus-workspace.monitor-visible');
+    expect(html).not.toContain('.focus-session-inputs {');
+    expect(html).not.toContain('inputs.setAttribute("role", "tooltip")');
+    expect(html).toContain("state.recentInputsBySession[key]");
+    expect(html).toContain('dot.dataset.state = status');
     expect(html).toContain('make("details", `floating-menu ${className}`.trim())');
     expect(html).toContain('.floating-menu-panel { position: absolute;');
     expect(html).toContain('.floating-menu.open-up > .floating-menu-panel');
     expect(html).toContain('"action-drawer", "action drawer-toggle"');
     expect(html).toContain('event.key === "Escape" && closeFloatingMenus()');
-    expect(html).toContain("drawerPanel.append(copyButton, commandButton)");
+    expect(html).toContain("drawerPanel.append(copyButton)");
+    expect(html).toContain("if (row.indexed !== false) drawerPanel.append(commandButton)");
+    expect(html).toContain('displayTitle: "未索引在线会话"');
+    expect(html).toContain('id="directory-audit-summary"');
+    expect(html).toContain('id="orca-audit-summary"');
     expect(html).toContain("回到 Orca");
     expect(html).toContain("/api/projects/focus");
     expect(html).toContain('conditionalApi("/api/live"');
@@ -387,6 +581,14 @@ describe("HTTP server", () => {
     expect(html).toContain('optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])');
     expect(html).toContain("if (response.status === 404)");
     expect(html).toContain("state.worktreesSupported = false");
+    expect(html).toContain('health.capabilities.includes("worktree-pin")');
+    expect(html).toContain('function pinIndicator(label)');
+    expect(html).toContain('if (project.pinned) label.append(pinIndicator("项目已置顶"))');
+    expect(html).toContain('if (worktreePinned) worktreeTitle.append(pinIndicator("worktree 已置顶"))');
+    expect(html).toContain('const COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.collapsedWorktrees.v1"');
+    expect(html).toContain('const collapsed = !isSearch && state.collapsedWorktrees.has(collapseKey)');
+    expect(html).toContain('toggle.setAttribute("aria-expanded", String(!collapsed))');
+    expect(html).toContain('list.hidden = collapsed');
     expect(html).toContain('id="gateway-view-button"');
     expect(html).toContain('id="gateway-content"');
     expect(html).toContain('optionalConditionalApi("/api/worktree-resources"');
@@ -396,6 +598,8 @@ describe("HTTP server", () => {
     expect(html).toContain("只读展示本机与容器 nginx 配置");
     expect(html).toContain("file.content");
     expect(html).toContain('"button", `action floating-menu-action worktree-archive${worktreeArchived ? " restore" : ""}`');
+    expect(html).toContain('"button", `action floating-menu-action worktree-pin${worktreePinned ? " active" : ""}`');
+    expect(html).toContain("Number(b.pinned) - Number(a.pinned)");
     expect(html).toContain('"project-item-menu", "project-menu-toggle", "⋯"');
     expect(html).toContain('"managed-project-menu", "action compact-menu-toggle"');
     expect(html).toContain("updateWorktreePreference(");
@@ -476,9 +680,21 @@ describe("HTTP server", () => {
     detail = await (await fetch(`${baseUrl}/api/goals/${goal.id}`)).json();
     expect(detail.sessions.map((row: { sid: string }) => row.sid)).toEqual([SID]);
     expect(detail.suggestions.some((row: { sid: string }) => row.sid === SID)).toBeFalse();
+    const getSession = spyOn(app.db, "getSession");
+    const confirmedLinks = spyOn(app.goalsStore, "confirmedLinks");
+    const getSessionsByIdentity = spyOn(app.db, "getSessionsByIdentity");
+    const confirmedLinksByGoal = spyOn(app.goalsStore, "confirmedLinksByGoal");
     goals = await (await fetch(`${baseUrl}/api/goals`)).json();
     expect(goals[0].sessionCount).toBe(1);
     expect(goals[0].lastActivityAt).toBe(Date.parse("2026-08-25T09:00:00.000Z"));
+    expect(getSession).not.toHaveBeenCalled();
+    expect(confirmedLinks).not.toHaveBeenCalled();
+    expect(getSessionsByIdentity).toHaveBeenCalledTimes(1);
+    expect(confirmedLinksByGoal).toHaveBeenCalledTimes(1);
+    getSession.mockRestore();
+    confirmedLinks.mockRestore();
+    getSessionsByIdentity.mockRestore();
+    confirmedLinksByGoal.mockRestore();
 
     await setLink("dismissed");
     detail = await (await fetch(`${baseUrl}/api/goals/${goal.id}`)).json();

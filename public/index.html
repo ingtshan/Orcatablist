@@ -12,6 +12,8 @@
       --busy: #B45309; --waiting: #B91C1C; --idle: #2F855A; --offline: #8A97A0;
       --resume: #9A4E0A; --resume-soft: #FFF0DC;
       --focus-ring: #0E6C75; --danger-soft: #FCE8E8; --shadow: #17222A1A;
+      --topbar-height: 68px; --focus-monitor-gap: 16px; --focus-monitor-inset: 32px; --focus-monitor-width: 340px;
+      --focus-monitor-dock-target-width: clamp(96px, 14vw, 180px);
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -52,7 +54,10 @@
     .project-item:hover { background: var(--hover); }
     .project-button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; min-width: 0; padding: 10px 38px 10px 10px; border: 0; border-radius: 9px; background: transparent; text-align: left; }
     .project-button.active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
-    .project-button .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .project-label { display: flex; min-width: 0; align-items: center; gap: 4px; }
+    .project-button .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .project-working { display: inline-flex; height: 18px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 6px; border: 1px solid transparent; border-radius: 999px; background: var(--resume-soft); color: var(--busy); font: 700 10px ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .project-working::before { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 2px var(--surface); content: ""; }
     .project-control { min-width: 0; padding: 5px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; }
     .project-control:hover, .project-control.active { background: var(--surface); color: var(--accent); }
     .count { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -61,15 +66,25 @@
     .mobile-project { display: none; width: 100%; height: 42px; margin-bottom: 18px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
     .group { margin-bottom: 30px; }
     .color-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: var(--project-color, var(--offline)); }
+    .pin-indicator { display: inline-grid; width: 13px; height: 13px; flex: 0 0 13px; place-items: center; color: var(--accent); opacity: .62; }
+    .pin-indicator svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.45; transform: rotate(-12deg); }
+    :is(.project-item, .worktree-cluster, .managed-project):hover .pin-indicator { opacity: .92; }
     .worktree-stack { display: grid; gap: 15px; }
     .worktree-cluster { min-width: 0; }
     .worktree-header { display: flex; min-width: 0; align-items: center; gap: 9px; margin: 0 3px 10px; }
-    .worktree-name { max-width: 280px; flex: 0 0 auto; overflow: hidden; margin: 0; font: 700 16px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .worktree-cluster.collapsed .worktree-header { margin-bottom: 0; }
+    .worktree-toggle { display: grid; width: 20px; height: 20px; min-width: 20px; padding: 0; border: 0; border-radius: 5px; place-items: center; background: transparent; color: var(--muted); }
+    .worktree-toggle:hover { background: var(--hover); color: var(--accent); }
+    .worktree-toggle::before { width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; content: ""; transform: translateY(-1px) rotate(45deg); }
+    .worktree-toggle[aria-expanded="false"]::before { transform: translateX(-1px) rotate(-45deg); }
+    .worktree-title { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 4px; }
+    .worktree-name { max-width: 280px; min-width: 0; flex: 0 1 auto; overflow: hidden; margin: 0; font: 700 16px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .worktree-kind { flex: 0 0 auto; padding: 2px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 650; }
     .worktree-path { min-width: 0; flex: 1 1 160px; overflow: hidden; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .worktree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
     .worktree-focus { flex: 0 0 auto; min-width: 0; padding: 5px 9px; background: transparent; font-size: 12px; }
-    .worktree-archive { min-width: 0; padding: 6px 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: 11px; text-align: left; }
+    .worktree-pin, .worktree-archive { min-width: 0; padding: 6px 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: 11px; text-align: left; }
+    .worktree-pin:hover, .worktree-pin.active { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
     .worktree-archive:hover { border-color: var(--waiting); color: var(--waiting); }
     .worktree-archive.restore { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
     .session-list { overflow: visible; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
@@ -77,8 +92,9 @@
     .session-row:last-child { border-bottom: 0; }
     .session-row:hover, .session-row.keyboard-active { background: var(--hover); }
     .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--offline); box-shadow: 0 0 0 3px var(--bg); }
-    .status-busy { background: var(--busy); } .status-waiting { background: var(--waiting); }
-    .status-idle, .status-shell { background: var(--idle); } .status-offline { background: var(--offline); }
+    .status-dot[data-state="working"], .status-dot[data-state="busy"] { background: var(--busy); }
+    .status-dot[data-state="waiting"] { background: var(--waiting); }
+    .status-dot[data-state="done"], .status-dot[data-state="idle"], .status-dot[data-state="shell"] { background: var(--idle); }
     .session-main { min-width: 0; }
     .session-title-line { display: flex; min-width: 0; align-items: center; gap: 7px; }
     .session-title { min-width: 0; overflow: hidden; font-size: 15px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -86,6 +102,10 @@
     .agent-claude { border-color: #d68a56; color: #a95d2e; }
     .agent-codex { border-color: #6b9bd2; color: #3d72ad; }
     .agent-hermes { border-color: #8c78c6; color: #674da8; }
+    .live-state { max-width: 150px; flex: 0 0 auto; overflow: hidden; padding: 2px 6px; border-radius: 999px; background: var(--bg); color: var(--muted); font: 10px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .live-state[data-state="working"], .live-state[data-state="busy"] { background: var(--resume-soft); color: var(--busy); }
+    .live-state[data-state="waiting"] { background: var(--danger-soft); color: var(--waiting); }
+    .live-state[data-state="done"] { background: var(--accent-soft); color: var(--accent); }
     .row-last-input { overflow: hidden; margin-top: 4px; color: var(--muted); font-size: 13px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
     .hits { display: grid; gap: 3px; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
     .hit { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -141,6 +161,75 @@
     .manual { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--danger-soft); color: var(--muted); font-size: 12px; }
     .manual code { overflow: hidden; font: 12px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .empty { padding: 70px 20px; border: 1px dashed var(--line); border-radius: 13px; color: var(--muted); text-align: center; }
+    .focus-view { width: min(1420px, 100%); margin: 0 auto; padding: 30px clamp(16px, 3vw, 44px) 64px; }
+    .focus-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+    .focus-title { margin: 0 0 6px; font-size: 25px; letter-spacing: -.02em; }
+    .focus-description { margin: 0; color: var(--muted); font-size: 13px; }
+    .focus-updated { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+    .focus-workspace { min-width: 0; }
+    .focus-monitor { position: fixed; z-index: 12; display: flex; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 34px var(--shadow); }
+    .focus-monitor.monitor-floating { right: var(--focus-monitor-gap); bottom: var(--focus-monitor-gap); width: min(var(--focus-monitor-width), calc(100vw - var(--focus-monitor-inset))); max-height: calc(100vh - var(--topbar-height) - var(--focus-monitor-inset)); border-radius: 14px; }
+    .focus-monitor.monitor-docked-left, .focus-monitor.monitor-docked-right { top: var(--topbar-height); bottom: 0; width: min(var(--focus-monitor-width), calc(100vw - 20px)); }
+    .focus-monitor.monitor-docked-left { left: 0; border-radius: 0 14px 0 0; }
+    .focus-monitor.monitor-docked-right { right: 0; border-radius: 14px 0 0 0; }
+    .focus-monitor-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; align-items: start; padding: 12px; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; user-select: none; }
+    .focus-monitor.dragging .focus-monitor-head { cursor: grabbing; }
+    .focus-monitor-heading { min-width: 0; }
+    .focus-monitor-label { margin-bottom: 5px; color: var(--accent); font: 700 10px ui-monospace, Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    .focus-monitor-session { overflow: hidden; margin: 0; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-monitor-context { grid-column: 1 / -1; overflow: hidden; color: var(--muted); font: 10px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-monitor-close { display: grid; width: 27px; height: 27px; min-width: 27px; padding: 0; border: 1px solid transparent; border-radius: 7px; place-items: center; background: transparent; color: var(--muted); }
+    .focus-monitor-close:hover { border-color: var(--line); color: var(--text); }
+    .focus-monitor-messages { display: grid; min-height: 0; flex: 1; align-content: start; gap: 12px; overflow-y: auto; padding: 12px; background: var(--bg); user-select: text; }
+    .focus-monitor-message { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 8px; align-items: start; }
+    .focus-monitor-message.without-time { grid-template-columns: 1fr; }
+    .focus-monitor-time { padding-top: 8px; color: var(--muted); font: 9px ui-monospace, Menlo, monospace; text-align: right; white-space: nowrap; }
+    .focus-monitor-message-body { min-width: 0; }
+    .focus-monitor-bubble { min-width: 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 3px 10px 10px 10px; background: var(--surface); cursor: text; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; user-select: text; }
+    .focus-monitor-empty { padding: 28px 12px; color: var(--muted); font-size: 11px; text-align: center; }
+    .focus-monitor-more { display: flex; justify-content: center; padding: 2px 0 4px; }
+    .focus-monitor-more-button { min-width: 94px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 10px; }
+    .focus-monitor-more-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .focus-monitor-more-button:disabled { cursor: wait; opacity: .62; }
+    .focus-monitor-dock-target { position: fixed; z-index: 11; top: var(--topbar-height); bottom: 0; display: grid; width: var(--focus-monitor-dock-target-width); place-items: center; border: 1px dashed var(--accent); background: var(--accent-soft); color: var(--accent); font: 700 10px ui-monospace, Menlo, monospace; letter-spacing: .08em; opacity: 0; pointer-events: none; text-transform: uppercase; transition: opacity .12s ease; writing-mode: vertical-rl; }
+    .focus-monitor-dock-target.left { left: 0; border-left: 0; border-radius: 0 12px 12px 0; }
+    .focus-monitor-dock-target.right { right: 0; border-right: 0; border-radius: 12px 0 0 12px; }
+    .focus-view.monitor-dragging .focus-monitor-dock-target { opacity: .42; }
+    .focus-view.monitor-dragging .focus-monitor-dock-target.active { opacity: .92; }
+    .focus-board { display: grid; min-width: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+    .focus-lane { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .focus-lane-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 14px; border-bottom: 1px solid var(--line); }
+    .focus-lane-marker { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    .focus-lane-title { margin: 0; font-size: 15px; }
+    .focus-lane-note { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
+    .focus-lane-count { display: inline-grid; min-width: 26px; height: 22px; padding: 0 7px; place-items: center; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 700 11px ui-monospace, Menlo, monospace; }
+    .focus-lane[data-focus-bucket="working"] .focus-lane-marker { background: var(--busy); }
+    .focus-lane[data-focus-bucket="working"] .focus-lane-count { background: var(--resume-soft); color: var(--busy); }
+    .focus-lane[data-focus-bucket="done-today"] .focus-lane-marker { background: var(--idle); }
+    .focus-lane[data-focus-bucket="done-today"] .focus-lane-count { color: var(--idle); }
+    .focus-lane-body { display: grid; gap: 12px; min-height: 130px; padding: 12px; border-radius: 0 0 13px 13px; background: var(--bg); }
+    .focus-empty { padding: 34px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 12px; text-align: center; }
+    .focus-project-group { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+    .focus-project-head { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 10px 11px; border-bottom: 1px solid var(--line); }
+    .focus-project-name { min-width: 0; flex: 1; overflow: hidden; font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-group-count { flex: 0 0 auto; color: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
+    .focus-worktree-group + .focus-worktree-group { border-top: 1px solid var(--line); }
+    .focus-worktree-head { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 8px 11px; background: var(--hover); }
+    .focus-worktree-name { overflow: hidden; font: 700 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-worktree-kind { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-session-list { display: grid; }
+    .focus-session-card { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 9px; align-items: center; min-width: 0; padding: 10px 11px; border-bottom: 1px solid var(--line); }
+    .focus-session-card:last-child { border-bottom: 0; }
+    .focus-session-card:hover, .focus-session-card:focus-within { background: var(--hover); }
+    .focus-session-card.monitor-source { background: var(--accent-soft); }
+    .focus-session-main { min-width: 0; }
+    .focus-session-title-line { display: flex; min-width: 0; align-items: center; gap: 6px; }
+    .focus-session-title { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-session-meta { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 5px; color: var(--muted); font-size: 10px; }
+    .focus-session-meta .live-state { max-width: 130px; }
+    .focus-session-time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-session-card .focus-action { min-width: 44px; padding: 5px 7px; font-size: 11px; }
+    .focus-session-card .manual { grid-column: 2 / -1; }
     .project-management { width: min(1240px, 100%); margin: 0 auto; padding: 32px clamp(16px, 4vw, 54px) 64px; }
     .project-management-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
     .project-management-title h1 { margin: 0 0 6px; font-size: 25px; letter-spacing: -.02em; }
@@ -158,6 +247,30 @@
     .project-list-head h2 { margin: 0; font-size: 16px; }
     .project-list-head span { color: var(--muted); font-size: 12px; }
     .project-management-list { overflow: visible; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .governance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 26px; }
+    .governance-panel { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
+    .governance-head { display: flex; align-items: start; justify-content: space-between; gap: 14px; margin-bottom: 13px; }
+    .governance-head h2 { margin: 0 0 4px; font-size: 16px; }
+    .governance-head p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .audit-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+    .audit-stat { min-width: 0; padding: 9px 10px; border-radius: 9px; background: var(--bg); }
+    .audit-stat strong { display: block; overflow: hidden; font-size: 17px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+    .audit-stat span { color: var(--muted); font-size: 10px; }
+    .audit-stat.ready strong { color: var(--busy); }
+    .audit-stat.review strong { color: var(--waiting); }
+    .audit-stat.hold strong { color: var(--waiting); }
+    .governance-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 12px; }
+    .governance-note { color: var(--muted); font-size: 10px; }
+    .audit-details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .audit-details summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+    .audit-list { display: grid; max-height: 360px; overflow: auto; gap: 6px; margin-top: 9px; padding-right: 3px; }
+    .audit-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 8px 9px; border-radius: 8px; background: var(--bg); }
+    .audit-entry-title { min-width: 0; overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .audit-entry-path { grid-column: 1 / -1; min-width: 0; overflow: hidden; color: var(--muted); font: 10px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .audit-badge { align-self: start; padding: 2px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 9px; font-weight: 700; }
+    .audit-badge.review { background: var(--danger-soft); color: var(--waiting); }
+    .audit-badge.hold { background: var(--danger-soft); color: var(--waiting); }
+    .audit-reasons { grid-column: 1 / -1; color: var(--muted); font-size: 10px; line-height: 1.45; }
     .managed-project { display: grid; grid-template-columns: minmax(250px, 1.7fr) minmax(110px, .55fr) minmax(120px, .65fr) auto; gap: 16px; align-items: center; min-height: 82px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
     .managed-project:last-child { border-bottom: 0; }
     .managed-project:hover { background: var(--hover); }
@@ -168,7 +281,6 @@
     .managed-project-name { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
     .managed-project-path { overflow: hidden; margin-top: 5px; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .project-status { padding: 2px 7px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 10px; font-weight: 650; }
-    .project-status.pinned { background: var(--accent-soft); color: var(--accent); }
     .managed-project-metric { display: grid; gap: 3px; color: var(--muted); font-size: 11px; }
     .managed-project-metric strong { color: var(--text); font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
     .managed-project-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
@@ -236,9 +348,11 @@
       .goal-detail { padding-top: 18px; }
       .goal-editor { grid-template-columns: 1fr 1fr; }
       .project-management { padding-top: 22px; }
+      .focus-view { padding-top: 22px; }
       .gateway-view { padding-top: 22px; }
       .project-management-head { align-items: stretch; flex-direction: column; gap: 14px; }
       .project-management-search { width: 100%; }
+      .governance-grid { grid-template-columns: 1fr; }
       .managed-project { grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; }
       .managed-project-actions { grid-column: 1 / -1; justify-content: flex-start; }
       main { padding-top: 18px; }
@@ -252,10 +366,14 @@
       .actions { grid-column: 3; grid-row: 2 / 4; flex-direction: column; }
       .manual { grid-column: 2 / -1; }
     }
+    @media (max-width: 1099px) {
+      .focus-board { grid-template-columns: 1fr; }
+    }
     @media (max-width: 560px) {
       .brand span:last-child { display: none; }
       .view-switch button { padding-inline: 9px; }
       .project-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .audit-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .managed-project { grid-template-columns: minmax(0, 1fr) auto; }
       .managed-project-metric.activity { grid-column: 1 / -1; }
       .goal-editor { grid-template-columns: 1fr; }
@@ -263,6 +381,8 @@
       .chips { max-width: 100%; }
       .chip { max-width: 115px; }
       .action { min-width: 54px; padding-inline: 7px; font-size: 12px; }
+      .focus-view { padding-inline: 12px; }
+      .focus-head { align-items: flex-start; flex-direction: column; gap: 8px; }
     }
     @media (hover: none) {
       .project-item-menu { opacity: 1; pointer-events: auto; }
@@ -273,6 +393,7 @@
   <header class="topbar">
     <div class="brand"><span class="brand-mark">O</span><span>OrcaTab</span></div>
     <div class="mode-switch view-switch" aria-label="主视图">
+      <button id="focus-view-button" type="button" aria-pressed="false">聚焦</button>
       <button id="sessions-view-button" type="button" aria-pressed="true">会话</button>
       <button id="projects-view-button" type="button" aria-pressed="false">项目</button>
       <button id="goals-view-button" type="button" aria-pressed="false">目标</button>
@@ -287,6 +408,18 @@
       </div>
     </div>
   </header>
+  <div id="focus-view" class="focus-view" hidden>
+    <header class="focus-head">
+      <div><h1 class="focus-title">聚焦</h1><p class="focus-description">按 Orca 原始状态和本机日期，只看正在执行与最近完成的 session。</p></div>
+      <span id="focus-updated" class="focus-updated">状态尚未读取</span>
+    </header>
+    <div id="focus-workspace" class="focus-workspace">
+      <aside id="focus-monitor" class="focus-monitor" hidden aria-live="polite"></aside>
+      <div id="focus-monitor-dock-left" class="focus-monitor-dock-target left" aria-hidden="true">吸附左侧</div>
+      <div id="focus-monitor-dock-right" class="focus-monitor-dock-target right" aria-hidden="true">吸附右侧</div>
+      <div id="focus-board" class="focus-board" aria-live="polite"></div>
+    </div>
+  </div>
   <div id="sessions-view" class="layout">
     <aside class="sidebar">
       <div class="sidebar-head"><h2 id="project-scope-title">项目</h2><button id="archived-projects" class="archive-scope" type="button" aria-pressed="false">已归档 0</button></div>
@@ -310,6 +443,27 @@
       <button class="project-stat" type="button" data-project-scope="pinned" aria-pressed="false"><span id="pinned-project-count" class="project-stat-value">0</span><span class="project-stat-label">已置顶</span></button>
       <button class="project-stat" type="button" data-project-scope="archived" aria-pressed="false"><span id="archived-project-count" class="project-stat-value">0</span><span class="project-stat-label">已归档</span></button>
       <button class="project-stat" type="button" data-project-scope="all" aria-pressed="false"><span id="all-project-count" class="project-stat-value">0</span><span class="project-stat-label">全部项目</span></button>
+    </div>
+    <div class="governance-grid">
+      <section class="governance-panel" aria-labelledby="directory-health-title">
+        <header class="governance-head">
+          <div><h2 id="directory-health-title">目录健康</h2><p>区分 Git worktree 与历史工作目录；归档只写偏好，不删除 transcript。</p></div>
+        </header>
+        <div id="directory-audit-summary" class="audit-stats"></div>
+        <div class="governance-actions">
+          <button id="archive-missing-directories" class="action danger" type="button" disabled>没有待归档项</button>
+          <span class="governance-note">执行前由服务端重新审计</span>
+        </div>
+        <details class="audit-details"><summary id="directory-audit-label">查看失效清单</summary><div id="directory-audit-list" class="audit-list"></div></details>
+      </section>
+      <section class="governance-panel" aria-labelledby="orca-audit-title">
+        <header class="governance-head">
+          <div><h2 id="orca-audit-title">Orca completed 审计</h2><p>只读检查状态、Git 干净度、合并证据与连接终端；不修改 Orca。</p></div>
+        </header>
+        <div id="orca-audit-summary" class="audit-stats"></div>
+        <div class="governance-actions"><span id="lumina-audit-note" class="governance-note">正在读取 Lumina 条目…</span></div>
+        <details class="audit-details"><summary id="orca-audit-label">查看 completed 清单</summary><div id="orca-audit-list" class="audit-list"></div></details>
+      </section>
     </div>
     <div class="project-list-head"><h2>项目</h2><span id="managed-project-count">显示 0 个</span></div>
     <div id="project-management-list" class="project-management-list" aria-live="polite"></div>
@@ -343,23 +497,56 @@
       const RESULT_RESET_MS = 2000;
       const LIVE_POOL_LIMIT = 5000;
       const VISIBLE_SESSION_LIMIT = 500;
+      const FOCUS_RECENT_DAYS = 3;
+      const FOCUS_INPUT_PAGE_SIZE = 5;
       const FLOATING_MENU_VIEWPORT_GAP = 8;
+      const FOCUS_MONITOR_VIEWPORT_GAP_PX = 16;
+      const FOCUS_MONITOR_TOP_OFFSET_PX = 84;
+      const FOCUS_MONITOR_DRAG_THRESHOLD_PX = 4;
+      const FOCUS_MONITOR_DOCK_RATIO = 0.14;
+      const FOCUS_MONITOR_DOCK_MIN_PX = 96;
+      const FOCUS_MONITOR_DOCK_MAX_PX = 180;
+      const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+      const COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.collapsedWorktrees.v1";
+      const FOCUS_MONITOR_PLACEMENT_STORAGE_KEY = "orcatab.focusMonitorPlacement.v1";
+      const UNINDEXED_LIVE_PROJECT_KEY = "__unindexed_live__";
+      const SESSION_AGENTS = new Set(["claude", "codex", "hermes"]);
+      const FOCUS_LANES = [
+        { key: "working", title: "Working", note: "当前仍在执行", empty: "当前没有 working session" },
+        { key: "done-today", title: "今天 Done", note: "本机时间今天 00:00 起", empty: "今天还没有 done session" },
+        { key: "done-recent", title: "过去 3 天 Done", note: "此前 3 个自然日，不含今天", empty: "过去 3 天没有 done session" },
+      ];
       const state = {
         projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0,
         activeRow: -1, projectEtag: "", sessionEtag: "", view: "sessions",
         goals: [], selectedGoalId: "", goalDetail: null, linkAfterCreate: null,
         sourceSessions: [], liveBySession: {}, liveEtag: "", worktreeEtag: "",
-        archivedWorktrees: new Map(), worktreesSupported: true, showArchived: false,
+        worktreePreferences: new Map(), worktreesSupported: true, worktreePinSupported: false, showArchived: false,
+        collapsedWorktrees: loadCollapsedWorktrees(),
         worktreeResources: new Map(), resourceEtag: "", resourcesSupported: true,
         gateway: null, gatewayEtag: "", gatewaySupported: true,
         projectScope: "active", projectQuery: "",
+        directoryAudit: null, directoryAuditSupported: true,
+        orcaAudit: null, orcaAuditEtag: "", orcaAuditSupported: true,
+        focusSessions: [], focusSessionEtag: "",
+        recentInputsBySession: {}, recentInputTimesBySession: {}, recentInputsVersion: -1,
+        recentInputsHasMoreBySession: {}, recentInputsLoadingBySession: {},
+        recentInputsIdentitySignature: "", recentInputsSupported: true, focusMonitorSessionKey: "",
+        focusMonitorPlacement: loadFocusMonitorPlacement(),
       };
       const searchInput = document.querySelector("#search");
       const content = document.querySelector("#content");
+      const focusView = document.querySelector("#focus-view");
+      const focusMonitor = document.querySelector("#focus-monitor");
+      const focusMonitorDockLeft = document.querySelector("#focus-monitor-dock-left");
+      const focusMonitorDockRight = document.querySelector("#focus-monitor-dock-right");
+      const focusBoard = document.querySelector("#focus-board");
+      const focusUpdated = document.querySelector("#focus-updated");
       const sessionsView = document.querySelector("#sessions-view");
       const projectsView = document.querySelector("#projects-view");
       const goalsView = document.querySelector("#goals-view");
       const gatewayView = document.querySelector("#gateway-view");
+      const focusViewButton = document.querySelector("#focus-view-button");
       const sessionsViewButton = document.querySelector("#sessions-view-button");
       const projectsViewButton = document.querySelector("#projects-view-button");
       const goalsViewButton = document.querySelector("#goals-view-button");
@@ -372,6 +559,14 @@
       const pinnedProjectCount = document.querySelector("#pinned-project-count");
       const archivedProjectCount = document.querySelector("#archived-project-count");
       const allProjectCount = document.querySelector("#all-project-count");
+      const directoryAuditSummary = document.querySelector("#directory-audit-summary");
+      const directoryAuditLabel = document.querySelector("#directory-audit-label");
+      const directoryAuditList = document.querySelector("#directory-audit-list");
+      const archiveMissingDirectories = document.querySelector("#archive-missing-directories");
+      const orcaAuditSummary = document.querySelector("#orca-audit-summary");
+      const orcaAuditLabel = document.querySelector("#orca-audit-label");
+      const orcaAuditList = document.querySelector("#orca-audit-list");
+      const luminaAuditNote = document.querySelector("#lumina-audit-note");
       const projectList = document.querySelector("#project-list");
       const mobileProject = document.querySelector("#mobile-project");
       const projectScopeTitle = document.querySelector("#project-scope-title");
@@ -392,6 +587,8 @@
       const toast = document.querySelector("#toast");
       let searchTimer = 0;
       let toastTimer = 0;
+      let focusMonitorDrag = null;
+      let focusMonitorRenderPending = false;
 
       async function api(path, options) {
         const response = await fetch(path, options);
@@ -442,14 +639,78 @@
         return `${Math.floor(hours / 24)} 天前`;
       }
 
+      function focusDayBoundaries(now = Date.now()) {
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const recent = new Date(today);
+        recent.setDate(recent.getDate() - FOCUS_RECENT_DAYS);
+        return { recent: recent.getTime(), today: today.getTime(), tomorrow: tomorrow.getTime() };
+      }
+
+      function focusBucket(row, boundaries) {
+        const status = rawLiveState(row.live);
+        if (status === "working") return "working";
+        const updatedAt = row.live?.updatedAt;
+        if (status !== "done" || typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return null;
+        if (updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow) return "done-today";
+        if (updatedAt >= boundaries.recent && updatedAt < boundaries.today) return "done-recent";
+        return null;
+      }
+
+      function focusInputText(value) {
+        return String(value || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+      }
+
+      function focusInputTime(timestamp) {
+        if (timestamp === null || timestamp === undefined || timestamp === "") return "";
+        const numeric = Number(timestamp);
+        if (!Number.isFinite(numeric)) return "";
+        const date = new Date(numeric);
+        if (Number.isNaN(date.getTime())) return "";
+        return date.toLocaleString("zh-CN", {
+          month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+        });
+      }
+
+      function focusMonitorInputs(row) {
+        const key = sessionKey(row);
+        const values = state.recentInputsBySession[key] || [];
+        const timestamps = state.recentInputTimesBySession[key] || [];
+        return values.map((value, index) => {
+          const record = typeof value === "object" && value !== null ? value : { text: value, ts: timestamps[index] };
+          const numericTimestamp = record.ts === null || record.ts === undefined ? null : Number(record.ts);
+          return {
+            text: focusInputText(record.text),
+            ts: Number.isFinite(numericTimestamp) ? numericTimestamp : null,
+          };
+        }).filter(({ text }) => text);
+      }
+
       function projectFor(key) {
+        if (key === UNINDEXED_LIVE_PROJECT_KEY) {
+          return { key, name: "未索引在线会话", root: "", color: null, pinned: false, archived: false };
+        }
         return state.projects.find((project) => project.key === key)
           || { key, name: basename(key) || "未知", root: "", color: null, pinned: false, archived: false };
       }
 
+      function orderedProjectKeys(groups) {
+        const ordered = state.projects.map((project) => project.key).filter((key) => groups.has(key));
+        groups.forEach((_rows, key) => { if (!ordered.includes(key)) ordered.push(key); });
+        if (groups.has(UNINDEXED_LIVE_PROJECT_KEY)) {
+          ordered.splice(ordered.indexOf(UNINDEXED_LIVE_PROJECT_KEY), 1);
+          ordered.unshift(UNINDEXED_LIVE_PROJECT_KEY);
+        }
+        return ordered;
+      }
+
       function visibleProjects() {
         if (!state.showArchived) return state.projects.filter((project) => !project.archived);
-        const projectKeys = new Set(state.archivedWorktrees.values());
+        const projectKeys = new Set([...state.worktreePreferences.values()]
+          .filter((preference) => preference.archived)
+          .map((preference) => preference.projectKey));
         return state.projects.filter((project) => project.archived || projectKeys.has(project.key));
       }
 
@@ -458,41 +719,102 @@
       }
 
       function applyWorktreePreferences(preferences) {
-        state.archivedWorktrees = new Map(preferences
-          .filter((preference) => preference.archived)
-          .map((preference) => [preference.root, preference.projectKey]));
+        state.worktreePreferences = new Map(preferences.map((preference) => [preference.root, preference]));
       }
 
       function applyWorktreeResources(snapshot) {
         state.worktreeResources = new Map(Object.entries(snapshot?.resources || {}));
       }
 
-      function groupedWorktrees(rows, project) {
+      function groupedWorktrees(rows, project, activityAt = (row) => row.lastInputAt || 0) {
         const groups = new Map();
         rows.forEach((row) => {
           const root = worktreeRootFor(row, project);
           const key = root || "__unknown_worktree__";
-          const group = groups.get(key) || { root, detected: false, latest: 0, rows: [] };
+          const preference = state.worktreePreferences.get(root);
+          const group = groups.get(key) || { root, detected: false, pinned: false, latest: 0, rows: [] };
           group.detected ||= Boolean(row.worktreeRoot);
-          group.latest = Math.max(group.latest, row.lastInputAt || 0);
+          group.pinned ||= Boolean(preference?.pinned);
+          group.latest = Math.max(group.latest, activityAt(row) || 0);
           group.rows.push(row);
           groups.set(key, group);
         });
-        return [...groups.values()].sort((a, b) => b.latest - a.latest || a.root.localeCompare(b.root));
+        return [...groups.values()].sort((a, b) => Number(b.pinned) - Number(a.pinned)
+          || b.latest - a.latest || a.root.localeCompare(b.root));
       }
 
       function worktreeKind(group, project) {
+        if (project.key === UNINDEXED_LIVE_PROJECT_KEY) return "未索引";
         if (!group.detected) return "工作目录";
         return group.root === project.root ? "主 worktree" : "关联 worktree";
       }
 
       function sessionKey(row) { return `${row.agent}/${row.sid}`; }
 
+      function unindexedLiveRows(indexedKeys) {
+        return Object.entries(state.liveBySession).flatMap(([key, live]) => {
+          if (indexedKeys.has(key)) return [];
+          const separator = key.indexOf("/");
+          const agent = key.slice(0, separator);
+          const sid = key.slice(separator + 1);
+          if (separator < 1 || !SESSION_AGENTS.has(agent) || !sid) return [];
+          return [{
+            agent, sid, projectKey: UNINDEXED_LIVE_PROJECT_KEY, cwd: null, worktreeRoot: null,
+            branch: null, title: null, firstPrompt: null, lastPrompt: live.name || null,
+            displayTitle: "未索引在线会话", lastInputAt: null, promptCount: 0,
+            live, goals: [], indexed: false,
+          }];
+        });
+      }
+
+      function rawLiveState(live) {
+        return typeof live?.status === "string" && live.status ? live.status : "unknown";
+      }
+
+      function projectWorkingCount(projectKey) {
+        return Object.values(state.liveBySession)
+          .filter((live) => live.projectKey === projectKey && live.status === "working").length;
+      }
+
+      function projectWorkingIndicator(projectKey) {
+        const count = projectWorkingCount(projectKey);
+        if (!count) return null;
+        const indicator = make("span", "project-working", String(count));
+        const label = `${count} 个 working session`;
+        indicator.setAttribute("aria-label", label);
+        indicator.title = label;
+        return indicator;
+      }
+
+      function liveStateText(live) {
+        const status = rawLiveState(live);
+        if (status === "working") return "working · 进行中";
+        if (status === "done") return "done · 等待用户";
+        if (status === "waiting" && live.waitingFor) return `waiting · ${live.waitingFor}`;
+        return status;
+      }
+
+      function updateLivePresentation(dot, badge, live) {
+        const status = live ? rawLiveState(live) : "offline";
+        const title = live
+          ? [status, live.waitingFor, live.name].filter(Boolean).join(" · ")
+          : "offline";
+        dot.dataset.state = status;
+        dot.title = title;
+        badge.hidden = !live;
+        badge.dataset.state = status;
+        badge.textContent = live ? liveStateText(live) : "";
+        badge.title = title;
+      }
+
       function syncSessionLive() {
         state.sourceSessions.forEach((row) => { row.live = state.liveBySession[sessionKey(row)] || null; });
-        const scoped = state.sourceSessions.filter((row) => {
+        const indexedKeys = new Set(state.sourceSessions.map(sessionKey));
+        const unindexed = !state.selectedProject && !state.query ? unindexedLiveRows(indexedKeys) : [];
+        const combined = [...unindexed, ...state.sourceSessions];
+        const scoped = combined.filter((row) => {
           const project = projectFor(row.projectKey);
-          const worktreeArchived = state.archivedWorktrees.has(worktreeRootFor(row, project));
+          const worktreeArchived = Boolean(state.worktreePreferences.get(worktreeRootFor(row, project))?.archived);
           return state.showArchived
             ? project.archived || (!project.archived && worktreeArchived)
             : !project.archived && !worktreeArchived;
@@ -501,31 +823,83 @@
         state.sessions = rows.slice(0, VISIBLE_SESSION_LIMIT);
       }
 
-      function patchSessionLive() {
-        const rows = new Map(state.sessions.map((row) => [sessionKey(row), row]));
-        document.querySelectorAll(".session-row").forEach((element) => {
-          const row = rows.get(`${element.dataset.agent}/${element.dataset.sid}`);
-          if (!row) return;
-          const status = row.live?.status || "offline";
-          const dot = element.querySelector(".status-dot");
-          if (dot) {
-            dot.className = `status-dot status-${status}`;
-            dot.title = row.live ? `${status}${row.live.name ? ` · ${row.live.name}` : ""}` : "offline";
-          }
-          const button = element.querySelector(".focus-action");
-          if (button && (button.textContent === "跳转" || button.textContent === "恢复")) {
-            button.textContent = row.live ? "跳转" : "恢复";
-            button.classList.toggle("focus-jump", Boolean(row.live));
-            button.classList.toggle("focus-resume", !row.live);
-          }
-        });
-      }
-
       function make(tag, className, text) {
         const element = document.createElement(tag);
         if (className) element.className = className;
         if (text != null) element.textContent = text;
         return element;
+      }
+
+      function pinIndicator(label) {
+        const indicator = make("span", "pin-indicator");
+        indicator.setAttribute("role", "img");
+        indicator.setAttribute("aria-label", label);
+        indicator.title = label;
+        const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+        svg.setAttribute("viewBox", "0 0 16 16");
+        svg.setAttribute("aria-hidden", "true");
+        const path = document.createElementNS(SVG_NAMESPACE, "path");
+        path.setAttribute("d", "M5 2.5h6M6 2.5v3L4.5 7v1.5h7V7L10 5.5v-3M8 8.5v5");
+        svg.append(path);
+        indicator.append(svg);
+        return indicator;
+      }
+
+      function loadCollapsedWorktrees() {
+        try {
+          const stored = JSON.parse(localStorage.getItem(COLLAPSED_WORKTREES_STORAGE_KEY) || "[]");
+          if (!Array.isArray(stored)) throw new Error("stored value is not an array");
+          return new Set(stored.filter((root) => typeof root === "string" && root));
+        } catch (error) {
+          console.warn("Unable to load collapsed worktrees", error);
+          return new Set();
+        }
+      }
+
+      function saveCollapsedWorktrees(collapsedWorktrees) {
+        try {
+          localStorage.setItem(COLLAPSED_WORKTREES_STORAGE_KEY, JSON.stringify([...collapsedWorktrees].sort()));
+        } catch (error) {
+          console.warn("Unable to save collapsed worktrees", error);
+        }
+      }
+
+      function defaultFocusMonitorPlacement() {
+        return { mode: "floating", left: null, top: null };
+      }
+
+      function loadFocusMonitorPlacement() {
+        try {
+          const raw = localStorage.getItem(FOCUS_MONITOR_PLACEMENT_STORAGE_KEY);
+          if (!raw) return defaultFocusMonitorPlacement();
+          const stored = JSON.parse(raw);
+          if (stored?.mode === "left" || stored?.mode === "right") return { mode: stored.mode };
+          if (stored?.mode !== "floating") throw new Error("unknown placement mode");
+          if (Number.isFinite(stored.left) && Number.isFinite(stored.top)) {
+            return { mode: "floating", left: stored.left, top: stored.top };
+          }
+          return defaultFocusMonitorPlacement();
+        } catch (error) {
+          console.warn("Unable to load Focus Monitor placement", error);
+          return defaultFocusMonitorPlacement();
+        }
+      }
+
+      function saveFocusMonitorPlacement(placement) {
+        try {
+          localStorage.setItem(FOCUS_MONITOR_PLACEMENT_STORAGE_KEY, JSON.stringify(placement));
+        } catch (error) {
+          console.warn("Unable to save Focus Monitor placement", error);
+        }
+      }
+
+      function setWorktreeCollapsed(root, collapsed) {
+        const next = new Set(state.collapsedWorktrees);
+        if (collapsed) next.add(root);
+        else next.delete(root);
+        state.collapsedWorktrees = next;
+        saveCollapsedWorktrees(next);
+        render();
       }
 
       function closeFloatingMenus(except = null) {
@@ -682,17 +1056,19 @@
         element.tabIndex = -1;
         element.dataset.sid = row.sid;
         element.dataset.agent = row.agent;
-        const status = row.live?.status || "offline";
-        const dot = make("span", `status-dot status-${status}`);
-        dot.title = row.live ? `${status}${row.live.name ? ` · ${row.live.name}` : ""}` : "offline";
+        const dot = make("span", "status-dot");
         element.append(dot);
 
         const main = make("div", "session-main");
         const titleLine = make("div", "session-title-line");
         titleLine.append(make("span", `agent-badge agent-${row.agent}`, row.agent));
         const title = make("div", "session-title", row.displayTitle);
-        if (row.title && row.firstPrompt) title.title = row.firstPrompt;
+        if (row.indexed === false) title.title = [row.live?.name, row.sid].filter(Boolean).join(" · ");
+        else if (row.title && row.firstPrompt) title.title = row.firstPrompt;
         titleLine.append(title);
+        const liveState = make("span", "live-state");
+        updateLivePresentation(dot, liveState, row.live);
+        titleLine.append(liveState);
         main.append(titleLine);
         if (!isSearch && row.lastPrompt && row.lastPrompt !== row.displayTitle) {
           const lastInput = make("div", "row-last-input", row.lastPrompt);
@@ -711,6 +1087,7 @@
         element.append(main);
 
         const chips = make("div", "chips");
+        if (row.indexed === false) chips.append(make("span", "chip", "无 transcript"));
         if (row.cwd && row.cwd !== (row.worktreeRoot || project.root)) chips.append(make("span", "chip", basename(row.cwd)));
         if (row.branch && row.branch !== "HEAD") chips.append(make("span", "chip", row.branch));
         (row.goals || []).forEach((goal) => {
@@ -724,7 +1101,9 @@
         element.append(chips);
 
         const facts = make("div", "facts");
-        facts.append(make("span", "", relativeTime(row.lastInputAt)), make("span", "", `${row.promptCount} 轮`));
+        if (row.indexed === false) {
+          facts.append(make("span", "", row.live?.pid ? `PID ${row.live.pid}` : "在线"), make("span", "", "未索引"));
+        } else facts.append(make("span", "", relativeTime(row.lastInputAt)), make("span", "", `${row.promptCount} 轮`));
         element.append(facts);
 
         const actions = make("div", "actions");
@@ -751,9 +1130,10 @@
           await copyText(command, "已复制命令");
           drawer.open = false;
         });
-        drawerPanel.append(copyButton, commandButton);
+        drawerPanel.append(copyButton);
+        if (row.indexed !== false) drawerPanel.append(commandButton);
         actions.append(focusButton, drawer);
-        if (options.goalPicker) {
+        if (options.goalPicker && row.indexed !== false) {
           const picker = make("select", "goal-picker");
           picker.setAttribute("aria-label", "添加到目标");
           picker.append(new Option("＋目标", ""));
@@ -778,6 +1158,375 @@
         });
         element.append(actions);
         return element;
+      }
+
+      function focusMonitorDockZone(clientX) {
+        const dockWidth = Math.min(
+          FOCUS_MONITOR_DOCK_MAX_PX,
+          Math.max(FOCUS_MONITOR_DOCK_MIN_PX, window.innerWidth * FOCUS_MONITOR_DOCK_RATIO),
+        );
+        if (clientX <= dockWidth) return "left";
+        if (clientX >= window.innerWidth - dockWidth) return "right";
+        return null;
+      }
+
+      function setFocusMonitorDockTarget(zone) {
+        focusMonitorDockLeft.classList.toggle("active", zone === "left");
+        focusMonitorDockRight.classList.toggle("active", zone === "right");
+      }
+
+      function boundedFocusMonitorPosition(left, top) {
+        const rect = focusMonitor.getBoundingClientRect();
+        const maxLeft = Math.max(
+          FOCUS_MONITOR_VIEWPORT_GAP_PX,
+          window.innerWidth - rect.width - FOCUS_MONITOR_VIEWPORT_GAP_PX,
+        );
+        const maxTop = Math.max(
+          FOCUS_MONITOR_TOP_OFFSET_PX,
+          window.innerHeight - rect.height - FOCUS_MONITOR_VIEWPORT_GAP_PX,
+        );
+        return {
+          left: Math.min(maxLeft, Math.max(FOCUS_MONITOR_VIEWPORT_GAP_PX, left)),
+          top: Math.min(maxTop, Math.max(FOCUS_MONITOR_TOP_OFFSET_PX, top)),
+        };
+      }
+
+      function resetFocusMonitorPosition() {
+        focusMonitor.classList.remove("monitor-floating", "monitor-docked-left", "monitor-docked-right");
+        ["left", "right", "top", "bottom"].forEach((property) => focusMonitor.style.removeProperty(property));
+      }
+
+      function positionFloatingFocusMonitor(left, top) {
+        resetFocusMonitorPosition();
+        focusMonitor.classList.add("monitor-floating");
+        const bounded = boundedFocusMonitorPosition(left, top);
+        focusMonitor.style.right = "auto";
+        focusMonitor.style.bottom = "auto";
+        focusMonitor.style.left = `${bounded.left}px`;
+        focusMonitor.style.top = `${bounded.top}px`;
+        return bounded;
+      }
+
+      function applyFocusMonitorPlacement() {
+        resetFocusMonitorPosition();
+        const placement = state.focusMonitorPlacement;
+        focusMonitor.dataset.placement = placement.mode;
+        if (placement.mode === "left" || placement.mode === "right") {
+          focusMonitor.classList.add(`monitor-docked-${placement.mode}`);
+          return;
+        }
+        focusMonitor.classList.add("monitor-floating");
+        if (!Number.isFinite(placement.left) || !Number.isFinite(placement.top)) return;
+        const bounded = boundedFocusMonitorPosition(placement.left, placement.top);
+        focusMonitor.style.right = "auto";
+        focusMonitor.style.bottom = "auto";
+        focusMonitor.style.left = `${bounded.left}px`;
+        focusMonitor.style.top = `${bounded.top}px`;
+        if (bounded.left === placement.left && bounded.top === placement.top) return;
+        state.focusMonitorPlacement = { mode: "floating", ...bounded };
+        saveFocusMonitorPlacement(state.focusMonitorPlacement);
+      }
+
+      function beginFocusMonitorDrag(event) {
+        if (event.button !== 0 || !event.isPrimary) return;
+        if (event.target instanceof Element && event.target.closest("button")) return;
+        const rect = focusMonitor.getBoundingClientRect();
+        focusMonitorDrag = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          offsetX: event.clientX - rect.left,
+          offsetY: event.clientY - rect.top,
+          handle: event.currentTarget,
+          moving: false,
+        };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+      }
+
+      function moveFocusMonitor(event) {
+        const drag = focusMonitorDrag;
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        if (!drag.moving) {
+          const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+          if (distance < FOCUS_MONITOR_DRAG_THRESHOLD_PX) return;
+          focusMonitorDrag = { ...drag, moving: true };
+          focusMonitor.classList.add("dragging");
+          focusView.classList.add("monitor-dragging");
+        }
+        const current = focusMonitorDrag;
+        positionFloatingFocusMonitor(event.clientX - current.offsetX, event.clientY - current.offsetY);
+        setFocusMonitorDockTarget(focusMonitorDockZone(event.clientX));
+        event.preventDefault();
+      }
+
+      function finishFocusMonitorDrag(event, cancelled = false) {
+        const drag = focusMonitorDrag;
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        let nextPlacement = state.focusMonitorPlacement;
+        if (drag.moving) {
+          const zone = cancelled ? null : focusMonitorDockZone(event.clientX);
+          if (zone) nextPlacement = { mode: zone };
+          else {
+            const rect = focusMonitor.getBoundingClientRect();
+            nextPlacement = { mode: "floating", left: rect.left, top: rect.top };
+          }
+        }
+        try { drag.handle.releasePointerCapture?.(drag.pointerId); } catch (_error) { /* capture already lost */ }
+        focusMonitorDrag = null;
+        focusMonitor.classList.remove("dragging");
+        focusView.classList.remove("monitor-dragging");
+        setFocusMonitorDockTarget(null);
+        if (drag.moving) {
+          state.focusMonitorPlacement = nextPlacement;
+          saveFocusMonitorPlacement(nextPlacement);
+          applyFocusMonitorPlacement();
+        }
+        if (!focusMonitorRenderPending) return;
+        focusMonitorRenderPending = false;
+        renderFocusMonitor();
+      }
+
+      function hideFocusMonitor() {
+        state.focusMonitorSessionKey = "";
+        focusMonitor.hidden = true;
+        focusMonitor.replaceChildren();
+        document.querySelectorAll(".focus-session-card.monitor-source")
+          .forEach((card) => card.classList.remove("monitor-source"));
+      }
+
+      function focusMonitorRow() {
+        if (!state.focusMonitorSessionKey) return null;
+        const boundaries = focusDayBoundaries();
+        return visibleFocusRows().find((row) => sessionKey(row) === state.focusMonitorSessionKey
+          && focusBucket(row, boundaries) !== null) || null;
+      }
+
+      function showFocusMonitor(row) {
+        if (focusMonitorDrag?.moving) return;
+        state.focusMonitorSessionKey = sessionKey(row);
+        renderFocusMonitor();
+      }
+
+      async function loadMoreFocusInputs(row, button) {
+        const key = sessionKey(row);
+        if (state.recentInputsLoadingBySession[key]) return;
+        const previousScrollTop = focusMonitor.querySelector(".focus-monitor-messages")?.scrollTop ?? null;
+        state.recentInputsLoadingBySession = { ...state.recentInputsLoadingBySession, [key]: true };
+        button.disabled = true;
+        button.textContent = "加载中…";
+        try {
+          const currentInputs = state.recentInputsBySession[key] || [];
+          const response = await fetch("/api/session-inputs", jsonRequest("POST", {
+            sessions: [{ agent: row.agent, sid: row.sid }],
+            limit: FOCUS_INPUT_PAGE_SIZE,
+            offset: currentInputs.length,
+          }));
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+          const nextInputs = Array.isArray(body.inputs?.[key]) ? body.inputs[key] : [];
+          const nextTimes = Array.isArray(body.inputTimes?.[key]) ? body.inputTimes[key] : [];
+          state.recentInputsBySession = {
+            ...state.recentInputsBySession, [key]: [...currentInputs, ...nextInputs],
+          };
+          state.recentInputTimesBySession = {
+            ...state.recentInputTimesBySession,
+            [key]: [...(state.recentInputTimesBySession[key] || []), ...nextTimes],
+          };
+          state.recentInputsHasMoreBySession = {
+            ...state.recentInputsHasMoreBySession, [key]: Boolean(body.hasMore?.[key]),
+          };
+        } catch (error) {
+          showToast(`加载更多输入失败：${error.message}`);
+        } finally {
+          const loading = { ...state.recentInputsLoadingBySession };
+          delete loading[key];
+          state.recentInputsLoadingBySession = loading;
+          if (state.focusMonitorSessionKey === key) renderFocusMonitor(previousScrollTop);
+        }
+      }
+
+      function renderFocusMonitor(preservedScrollTop = null) {
+        if (focusMonitorDrag) { focusMonitorRenderPending = true; return; }
+        const row = focusMonitorRow();
+        if (!row) { hideFocusMonitor(); return; }
+        const key = sessionKey(row);
+        const inputs = focusMonitorInputs(row);
+        const project = projectFor(row.projectKey);
+        const root = worktreeRootFor(row, project);
+        const head = make("header", "focus-monitor-head");
+        const heading = make("div", "focus-monitor-heading");
+        heading.append(
+          make("div", "focus-monitor-label", "Monitor"),
+          make("h2", "focus-monitor-session", row.displayTitle),
+        );
+        const close = make("button", "focus-monitor-close", "×");
+        close.type = "button";
+        close.setAttribute("aria-label", "关闭 Monitor");
+        close.addEventListener("click", hideFocusMonitor);
+        const context = [row.agent, project.name, basename(root)].filter(Boolean).join(" · ");
+        head.title = "拖动到浏览器左右边缘可吸附";
+        head.addEventListener("pointerdown", beginFocusMonitorDrag);
+        head.append(heading, close, make("div", "focus-monitor-context", context));
+
+        const messages = make("div", "focus-monitor-messages");
+        if (!inputs.length) {
+          const message = state.recentInputsSupported ? "暂无已索引输入" : "服务更新后可查看输入记录";
+          messages.append(make("div", "focus-monitor-empty", message));
+        } else {
+          inputs.forEach((input) => {
+            const message = make("article", "focus-monitor-message");
+            const formattedTime = focusInputTime(input.ts);
+            if (formattedTime) {
+              const time = make("time", "focus-monitor-time", formattedTime);
+              time.dateTime = new Date(input.ts).toISOString();
+              message.append(time);
+            } else {
+              message.classList.add("without-time");
+            }
+            const body = make("div", "focus-monitor-message-body");
+            const bubble = make("div", "focus-monitor-bubble", input.text);
+            body.append(bubble);
+            message.append(body);
+            messages.append(message);
+          });
+        }
+        if (state.recentInputsHasMoreBySession[key]) {
+          const more = make("div", "focus-monitor-more");
+          const loading = Boolean(state.recentInputsLoadingBySession[key]);
+          const button = make("button", "focus-monitor-more-button", loading ? "加载中…" : "加载更多");
+          button.type = "button";
+          button.disabled = loading;
+          button.setAttribute("aria-label", "加载更早的用户输入");
+          button.addEventListener("click", () => loadMoreFocusInputs(row, button));
+          more.append(button);
+          messages.append(more);
+        }
+        focusMonitor.replaceChildren(head, messages);
+        focusMonitor.hidden = false;
+        applyFocusMonitorPlacement();
+        if (Number.isFinite(preservedScrollTop)) messages.scrollTop = preservedScrollTop;
+        document.querySelectorAll(".focus-session-card").forEach((card) => {
+          card.classList.toggle("monitor-source", card.dataset.agent === row.agent && card.dataset.sid === row.sid);
+        });
+      }
+
+      function focusSessionCard(row) {
+        const element = make("article", "focus-session-card");
+        element.dataset.sid = row.sid;
+        element.dataset.agent = row.agent;
+        if (state.focusMonitorSessionKey === sessionKey(row)) element.classList.add("monitor-source");
+        const dot = make("span", "status-dot");
+        const main = make("div", "focus-session-main");
+        const titleLine = make("div", "focus-session-title-line");
+        titleLine.append(
+          make("span", `agent-badge agent-${row.agent}`, row.agent),
+          make("span", "focus-session-title", row.displayTitle),
+        );
+        const meta = make("div", "focus-session-meta");
+        const liveState = make("span", "live-state");
+        updateLivePresentation(dot, liveState, row.live);
+        const updatedAt = row.live?.updatedAt;
+        const status = rawLiveState(row.live);
+        const timeLabel = typeof updatedAt === "number" && Number.isFinite(updatedAt)
+          ? `${status === "done" ? "完成" : "状态更新"} ${relativeTime(updatedAt)}`
+          : "状态时间未知";
+        meta.append(liveState, make("span", "focus-session-time", timeLabel));
+        if (row.branch && row.branch !== "HEAD") meta.append(make("span", "chip", row.branch));
+        main.append(titleLine, meta);
+        const jump = make("button", "action focus-action focus-jump", "跳转");
+        jump.type = "button";
+        jump.addEventListener("click", () => focusSession(row, jump, element));
+        element.addEventListener("mouseenter", () => showFocusMonitor(row));
+        element.addEventListener("focusin", () => showFocusMonitor(row));
+        element.append(dot, main, jump);
+        return element;
+      }
+
+      function visibleFocusRows() {
+        return state.focusSessions.filter((row) => {
+          if (!row.live) return false;
+          const project = projectFor(row.projectKey);
+          const worktreeArchived = Boolean(state.worktreePreferences.get(worktreeRootFor(row, project))?.archived);
+          return !project.archived && !worktreeArchived;
+        });
+      }
+
+      function renderFocusGroups(parent, rows) {
+        if (!rows.length) return;
+        const projectGroups = new Map();
+        rows.forEach((row) => {
+          const group = projectGroups.get(row.projectKey) || [];
+          group.push(row);
+          projectGroups.set(row.projectKey, group);
+        });
+        orderedProjectKeys(projectGroups).forEach((projectKey) => {
+          const projectRows = projectGroups.get(projectKey);
+          const project = projectFor(projectKey);
+          const projectGroup = make("article", "focus-project-group");
+          projectGroup.dataset.projectKey = projectKey;
+          const projectHead = make("header", "focus-project-head");
+          const color = make("span", "color-dot");
+          if (project.color) color.style.setProperty("--project-color", project.color);
+          projectHead.append(
+            color,
+            make("span", "focus-project-name", project.name),
+            make("span", "focus-group-count", String(projectRows.length)),
+          );
+          projectGroup.append(projectHead);
+          groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0).forEach((worktree) => {
+            const worktreeGroup = make("section", "focus-worktree-group");
+            worktreeGroup.dataset.worktreeRoot = worktree.root;
+            const unindexed = project.key === UNINDEXED_LIVE_PROJECT_KEY;
+            const worktreeName = basename(worktree.root) || (unindexed ? "在线进程" : "未知目录");
+            const pathLabel = worktree.root || (unindexed ? "尚无 transcript" : "未识别 worktree");
+            const kind = worktreeKind(worktree, project);
+            const worktreeHead = make("header", "focus-worktree-head");
+            worktreeHead.title = `${kind} · ${pathLabel}`;
+            worktreeHead.append(
+              make("span", "focus-worktree-name", worktreeName),
+              make("span", "focus-worktree-kind", kind),
+              make("span", "focus-group-count", String(worktree.rows.length)),
+            );
+            const list = make("div", "focus-session-list");
+            [...worktree.rows]
+              .sort((left, right) => (right.live?.updatedAt || 0) - (left.live?.updatedAt || 0))
+              .forEach((row) => list.append(focusSessionCard(row)));
+            worktreeGroup.append(worktreeHead, list);
+            projectGroup.append(worktreeGroup);
+          });
+          parent.append(projectGroup);
+        });
+      }
+
+      function renderFocus() {
+        const boundaries = focusDayBoundaries();
+        const buckets = new Map(FOCUS_LANES.map((lane) => [lane.key, []]));
+        visibleFocusRows().forEach((row) => {
+          const bucket = focusBucket(row, boundaries);
+          if (bucket !== null) buckets.get(bucket).push(row);
+        });
+        focusBoard.replaceChildren();
+        FOCUS_LANES.forEach((definition) => {
+          const rows = buckets.get(definition.key)
+            .sort((left, right) => (right.live?.updatedAt || 0) - (left.live?.updatedAt || 0));
+          const lane = make("section", "focus-lane");
+          lane.dataset.focusBucket = definition.key;
+          const head = make("header", "focus-lane-head");
+          const copy = make("div");
+          copy.append(make("h2", "focus-lane-title", definition.title), make("p", "focus-lane-note", definition.note));
+          head.append(
+            make("span", "focus-lane-marker"),
+            copy,
+            make("span", "focus-lane-count", String(rows.length)),
+          );
+          const body = make("div", "focus-lane-body");
+          if (rows.length) renderFocusGroups(body, rows);
+          else body.append(make("div", "focus-empty", definition.empty));
+          lane.append(head, body);
+          focusBoard.append(lane);
+        });
+        renderFocusMonitor();
       }
 
       function worktreeResourceDrawer(root, name) {
@@ -826,8 +1575,7 @@
           rows.push(row);
           groups.set(row.projectKey, rows);
         });
-        const orderedKeys = visibleProjects().map((project) => project.key).filter((key) => groups.has(key));
-        groups.forEach((_rows, key) => { if (!orderedKeys.includes(key)) orderedKeys.push(key); });
+        const orderedKeys = orderedProjectKeys(groups);
         orderedKeys.forEach((key) => {
           const rows = groups.get(key);
           const project = projectFor(key);
@@ -839,15 +1587,35 @@
             const worktreeRows = [...worktree.rows]
               .sort((a, b) => (b.lastInputAt || 0) - (a.lastInputAt || 0));
             const firstSession = worktreeRows[0];
+            const collapseKey = worktree.root || `${project.key}:unknown`;
+            const collapsed = !isSearch && state.collapsedWorktrees.has(collapseKey);
+            const unindexedGroup = project.key === UNINDEXED_LIVE_PROJECT_KEY;
+            const worktreeName = basename(worktree.root) || (unindexedGroup ? "在线进程" : "未知目录");
+            cluster.classList.toggle("collapsed", collapsed);
             const worktreeHeader = make("header", "worktree-header");
+            if (!isSearch) {
+              const toggle = make("button", "worktree-toggle");
+              toggle.type = "button";
+              toggle.setAttribute("aria-expanded", String(!collapsed));
+              toggle.setAttribute("aria-controls", `worktree-sessions-${firstSession.agent}-${firstSession.sid}`);
+              toggle.setAttribute("aria-label", `${collapsed ? "展开" : "收起"} worktree：${worktreeName}`);
+              toggle.title = `${collapsed ? "展开" : "收起"} worktree：${worktreeName}`;
+              toggle.addEventListener("click", () => setWorktreeCollapsed(collapseKey, !collapsed));
+              worktreeHeader.append(toggle);
+            }
             const color = make("span", "color-dot");
             if (project.color) color.style.setProperty("--project-color", project.color);
-            const worktreeName = basename(worktree.root) || "未知目录";
             const name = make("h2", "worktree-name", worktreeName);
-            name.title = worktree.root || "未识别 worktree";
-            const path = make("span", "worktree-path", worktree.root || "未识别 worktree");
-            path.title = worktree.root || "未识别 worktree";
-            const worktreeArchived = state.archivedWorktrees.has(worktree.root);
+            name.title = worktree.root || (unindexedGroup ? "live provider 已报告进程，但没有可读取的 transcript" : "未识别 worktree");
+            const worktreeTitle = make("div", "worktree-title");
+            worktreeTitle.append(name);
+            const pathLabel = worktree.root || (unindexedGroup ? "live process · transcript 尚未建立或不可见" : "未识别 worktree");
+            const path = make("span", "worktree-path", pathLabel);
+            path.title = pathLabel;
+            const worktreePreference = state.worktreePreferences.get(worktree.root);
+            const worktreeArchived = Boolean(worktreePreference?.archived);
+            const worktreePinned = Boolean(worktreePreference?.pinned);
+            if (worktreePinned) worktreeTitle.append(pinIndicator("worktree 已置顶"));
             const focus = make("button", "action worktree-focus", "回到 Orca");
             focus.type = "button";
             focus.dataset.agent = firstSession.agent;
@@ -856,10 +1624,12 @@
             focus.addEventListener("click", () => focusWorktreeSession(firstSession, worktreeName, focus));
             worktreeHeader.append(
               color,
-              name,
+              worktreeTitle,
               make("span", "worktree-kind", worktreeKind(worktree, project)),
               path,
-              make("span", "worktree-meta", `${worktree.rows.length} 个会话 · 最近 ${relativeTime(worktree.latest || null)}`),
+              make("span", "worktree-meta", unindexedGroup
+                ? `${worktree.rows.length} 个在线进程`
+                : `${worktree.rows.length} 个会话 · 最近 ${relativeTime(worktree.latest || null)}`),
             );
             const resourceDrawer = worktreeResourceDrawer(worktree.root, worktreeName);
             if (resourceDrawer) worktreeHeader.append(resourceDrawer);
@@ -872,15 +1642,29 @@
               archive.type = "button";
               archive.title = `${worktreeArchived ? "恢复" : "归档"} worktree：${worktreeName}`;
               archive.addEventListener("click", () => updateWorktreePreference(
-                project, worktree.root, !worktreeArchived, archive,
+                project, worktree.root, { archived: !worktreeArchived }, archive,
               ));
               const { menu, panel } = floatingMenu(
                 `更多 worktree 操作：${worktreeName}`, "worktree-menu", "action compact-menu-toggle",
               );
+              if (!worktreeArchived && state.worktreePinSupported) {
+                const pin = make(
+                  "button", `action floating-menu-action worktree-pin${worktreePinned ? " active" : ""}`,
+                  worktreePinned ? "取消置顶" : "置顶",
+                );
+                pin.type = "button";
+                pin.title = `${worktreePinned ? "取消置顶" : "置顶"} worktree：${worktreeName}`;
+                pin.addEventListener("click", () => updateWorktreePreference(
+                  project, worktree.root, { pinned: !worktreePinned }, pin,
+                ));
+                panel.append(pin);
+              }
               panel.append(archive);
               worktreeHeader.append(menu);
             }
             const list = make("div", "session-list");
+            list.id = `worktree-sessions-${firstSession.agent}-${firstSession.sid}`;
+            list.hidden = collapsed;
             worktreeRows.forEach((row) => list.append(sessionRow(row, project, isSearch, { goalPicker: true })));
             cluster.append(worktreeHeader, list);
             stack.append(cluster);
@@ -895,8 +1679,8 @@
         const archivedProjectKeys = new Set(state.projects.filter((project) => project.archived).map((project) => project.key));
         const activeProjectKeys = new Set(state.projects.filter((project) => !project.archived).map((project) => project.key));
         const archivedProjectCount = archivedProjectKeys.size;
-        const archivedWorktreeCount = [...state.archivedWorktrees.values()]
-          .filter((projectKey) => activeProjectKeys.has(projectKey)).length;
+        const archivedWorktreeCount = [...state.worktreePreferences.values()]
+          .filter((preference) => preference.archived && activeProjectKeys.has(preference.projectKey)).length;
         const archivedCount = archivedProjectCount + archivedWorktreeCount;
         const scopeLabel = state.showArchived ? "返回项目" : `已归档 ${archivedCount}`;
         projectScopeTitle.textContent = state.showArchived ? "已归档" : "项目";
@@ -909,7 +1693,12 @@
           const item = make("div", "project-item");
           const button = make("button", `project-button${state.selectedProject === project.key ? " active" : ""}`);
           button.type = "button";
-          button.append(make("span", "name", project.name), make("span", "count", String(project.sessionCount)));
+          const label = make("span", "project-label");
+          label.append(make("span", "name", project.name));
+          if (project.pinned) label.append(pinIndicator("项目已置顶"));
+          const working = projectWorkingIndicator(project.key);
+          if (working) label.append(working);
+          button.append(label, make("span", "count", String(project.sessionCount)));
           button.addEventListener("click", () => selectProject(state.selectedProject === project.key ? "" : project.key));
           const { menu, panel } = floatingMenu(
             `项目操作：${project.name}`, "project-item-menu", "project-menu-toggle", "⋯",
@@ -924,9 +1713,159 @@
           ));
           item.append(button, menu);
           projectList.append(item);
-          mobileProject.append(new Option(`${project.name} (${project.sessionCount})`, project.key));
+          const workingCount = projectWorkingCount(project.key);
+          const workingLabel = workingCount ? ` · ${workingCount} working` : "";
+          mobileProject.append(new Option(`${project.name}${workingLabel} (${project.sessionCount})`, project.key));
         });
         mobileProject.value = state.selectedProject;
+      }
+
+      function auditStat(value, label, tone = "") {
+        const stat = make("div", `audit-stat ${tone}`.trim());
+        stat.append(make("strong", "", String(value)), make("span", "", label));
+        return stat;
+      }
+
+      function auditEntry(title, path, badge, tone = "", reasons = "") {
+        const entry = make("div", "audit-entry");
+        const name = make("div", "audit-entry-title", title);
+        name.title = title;
+        entry.append(name, make("span", `audit-badge ${tone}`.trim(), badge));
+        const pathRow = make("div", "audit-entry-path", path || "未解析路径");
+        pathRow.title = path || "未解析路径";
+        entry.append(pathRow);
+        if (reasons) entry.append(make("div", "audit-reasons", reasons));
+        return entry;
+      }
+
+      function renderDirectoryAudit() {
+        directoryAuditSummary.replaceChildren();
+        directoryAuditList.replaceChildren();
+        if (!state.directoryAuditSupported) {
+          directoryAuditSummary.append(auditStat("—", "服务尚未支持"));
+          archiveMissingDirectories.disabled = true;
+          archiveMissingDirectories.textContent = "服务尚未支持";
+          return;
+        }
+        const audit = state.directoryAudit;
+        if (!audit) {
+          directoryAuditSummary.append(auditStat("…", "正在审计"));
+          return;
+        }
+        const summary = audit.summary;
+        directoryAuditSummary.append(
+          auditStat(`${summary.missingProjectRoots}/${summary.projectRoots}`, "失效项目根", summary.missingProjectRoots ? "review" : "ready"),
+          auditStat(`${summary.missingDirectoryGroups}/${summary.directoryGroups}`, "失效目录组", summary.missingDirectoryGroups ? "review" : "ready"),
+          auditStat(summary.gitWorktrees, "Git worktree"),
+          auditStat(summary.historicalDirectories, "历史工作目录"),
+          auditStat(summary.unknownProjectRoots + summary.unknownDirectories, "未解析路径"),
+        );
+        const projectTargets = audit.archivePlan.projectKeys.length;
+        const directoryTargets = audit.archivePlan.worktrees.length;
+        const targetCount = projectTargets + directoryTargets;
+        archiveMissingDirectories.disabled = targetCount === 0;
+        archiveMissingDirectories.textContent = targetCount
+          ? `归档 ${projectTargets} 个项目 + ${directoryTargets} 个目录`
+          : "没有待归档项";
+        const missingProjects = audit.projects.filter((project) => project.missing);
+        const missingDirectories = audit.directories.filter((directory) => directory.missing);
+        const unknownProjects = audit.projects.filter((project) => !project.root);
+        const unknownDirectories = audit.directories.filter((directory) => directory.kind === "unknown");
+        directoryAuditLabel.textContent = `失效清单：${missingProjects.length} 个项目根 · ${missingDirectories.length} 个目录组 · ${unknownDirectories.length} 个未解析组`;
+        missingProjects.forEach((project) => directoryAuditList.append(auditEntry(
+          `${project.name} · ${project.sessionCount} 个会话`, project.root, "项目根", project.archived ? "" : "review",
+          project.archived ? "已归档" : "待归档项目；仅隐藏索引分组",
+        )));
+        const plannedProjects = new Set(audit.archivePlan.projectKeys);
+        const plannedDirectories = new Set(audit.archivePlan.worktrees.map((item) => `${item.projectKey}\0${item.root}`));
+        const kindLabel = { "git-worktree": "Git worktree", "historical-directory": "历史工作目录", unknown: "未解析目录" };
+        missingDirectories.forEach((directory) => {
+          const planned = plannedDirectories.has(`${directory.projectKey}\0${directory.root}`);
+          const covered = plannedProjects.has(directory.projectKey);
+          const reason = directory.archived ? "已归档" : covered ? "将随失效项目归档"
+            : planned ? "待归档目录组" : "保留审计记录，不创建空路径偏好";
+          directoryAuditList.append(auditEntry(
+            `${directory.projectName} · ${directory.sessionCount} 个会话`, directory.root,
+            kindLabel[directory.kind] || directory.kind, directory.archived ? "" : "review", reason,
+          ));
+        });
+        unknownProjects.forEach((project) => directoryAuditList.append(auditEntry(
+          `${project.name} · ${project.sessionCount} 个会话`, "", "未解析项目", "review", "没有路径证据，不自动归档",
+        )));
+        unknownDirectories.forEach((directory) => directoryAuditList.append(auditEntry(
+          `${directory.projectName} · ${directory.sessionCount} 个会话`, "", "未解析目录", "review", "没有 cwd，不自动归档",
+        )));
+      }
+
+      function renderOrcaAudit() {
+        orcaAuditSummary.replaceChildren();
+        orcaAuditList.replaceChildren();
+        if (!state.orcaAuditSupported) {
+          orcaAuditSummary.append(auditStat("—", "服务尚未支持"));
+          luminaAuditNote.textContent = "当前版本没有只读 Orca 审计接口";
+          return;
+        }
+        const audit = state.orcaAudit;
+        if (!audit) {
+          orcaAuditSummary.append(auditStat("…", "正在审计"));
+          return;
+        }
+        const summary = audit.summary;
+        orcaAuditSummary.append(
+          auditStat(summary.completedWorktrees, "completed"),
+          auditStat(summary.ready, "可归档", "ready"),
+          auditStat(summary.review, "需复核", "review"),
+          auditStat(summary.hold, "暂缓", "hold"),
+        );
+        const lumina = summary.lumina;
+        luminaAuditNote.textContent = `Lumina ${lumina.total}：${lumina.completed} completed · ${lumina.inProgress} in-progress · ${lumina.inReview} in-review`;
+        orcaAuditLabel.textContent = `${summary.completedWorktrees} 条 completed：${summary.ready} 可归档 · ${summary.review} 需复核 · ${summary.hold} 暂缓`;
+        const labels = { ready: "可归档", review: "需复核", hold: "暂缓" };
+        audit.items.forEach((item) => orcaAuditList.append(auditEntry(
+          `${item.projectId.split("/").pop()} · ${item.name}`,
+          item.path,
+          labels[item.recommendation] || item.recommendation,
+          item.recommendation === "ready" ? "" : item.recommendation,
+          [item.reasons.join(" · "), item.comment].filter(Boolean).join("；"),
+        )));
+        (audit.warnings || []).forEach((warning) => orcaAuditList.append(auditEntry(
+          "审计警告", "", "警告", "review", warning,
+        )));
+      }
+
+      async function archiveMissingDirectoryGroups() {
+        const audit = state.directoryAudit;
+        if (!audit) return;
+        const projects = audit.archivePlan.projectKeys.length;
+        const directories = audit.archivePlan.worktrees.length;
+        if (projects + directories === 0) return;
+        const confirmed = window.confirm(
+          `将归档 ${projects} 个失效项目和 ${directories} 个失效目录组。\n\n只写 OrcaTab 归档偏好；不会删除索引行或 transcript。`,
+        );
+        if (!confirmed) return;
+        archiveMissingDirectories.disabled = true;
+        try {
+          const result = await api("/api/directory-audit/archive-missing", { method: "POST" });
+          state.directoryAudit = result.audit;
+          const [projectResult, worktreeResult] = await Promise.all([
+            conditionalApi("/api/projects", ""),
+            optionalConditionalApi("/api/worktrees", "", []),
+          ]);
+          state.projects = projectResult.body;
+          state.projectEtag = projectResult.etag;
+          applyWorktreePreferences(worktreeResult.body);
+          state.worktreeEtag = worktreeResult.etag;
+          if (state.selectedProject && state.projects.find((project) => project.key === state.selectedProject)?.archived) {
+            state.selectedProject = "";
+          }
+          syncSessionLive();
+          renderProjects();
+          render();
+          renderProjectManagement();
+          renderDirectoryAudit();
+          showToast(`已归档 ${result.applied.projects} 个项目和 ${result.applied.worktrees} 个目录组；${result.indexedSessionsPreserved} 条索引会话保留`);
+        } catch (error) { showToast(`批量归档失败：${error.message}`); }
+        finally { renderDirectoryAudit(); }
       }
 
       function filteredManagedProjects() {
@@ -949,6 +1888,8 @@
       }
 
       function renderProjectManagement() {
+        renderDirectoryAudit();
+        renderOrcaAudit();
         const active = state.projects.filter((project) => !project.archived).length;
         const pinned = state.projects.filter((project) => project.pinned).length;
         const archived = state.projects.filter((project) => project.archived).length;
@@ -977,7 +1918,9 @@
           const identity = make("div", "managed-project-identity");
           const title = make("div", "managed-project-title");
           title.append(make("span", "managed-project-name", project.name));
-          if (project.pinned) title.append(make("span", "project-status pinned", "置顶"));
+          if (project.pinned) title.append(pinIndicator("项目已置顶"));
+          const working = projectWorkingIndicator(project.key);
+          if (working) title.append(working);
           if (project.archived) title.append(make("span", "project-status", "已归档"));
           identity.append(title, make("div", "managed-project-path", project.root || project.key));
           main.append(color, identity);
@@ -1044,22 +1987,24 @@
         finally { button.disabled = false; }
       }
 
-      async function updateWorktreePreference(project, root, archived, button) {
+      async function updateWorktreePreference(project, root, patch, button) {
         button.disabled = true;
         const name = basename(root) || root;
         try {
-          await api("/api/worktrees", jsonRequest("PATCH", { projectKey: project.key, root, archived }));
+          await api("/api/worktrees", jsonRequest("PATCH", { projectKey: project.key, root, ...patch }));
           const preferences = await conditionalApi("/api/worktrees", "");
           applyWorktreePreferences(preferences.body);
           state.worktreeEtag = preferences.etag;
-          if (!archived && state.showArchived
-            && ![...state.archivedWorktrees.values()].includes(project.key)) state.selectedProject = "";
+          const projectHasArchivedWorktree = [...state.worktreePreferences.values()]
+            .some((preference) => preference.archived && preference.projectKey === project.key);
+          if (patch.archived === false && state.showArchived && !projectHasArchivedWorktree) state.selectedProject = "";
           syncSessionLive();
           renderProjects();
           render();
-          showToast(archived
-            ? `已归档 worktree ${name}，可在“已归档”中恢复`
-            : `已恢复 worktree ${name}`);
+          const message = patch.archived === true ? `已归档 worktree ${name}，可在“已归档”中恢复`
+            : patch.archived === false ? `已恢复 worktree ${name}`
+              : patch.pinned ? `已置顶 worktree ${name}` : `已取消置顶 worktree ${name}`;
+          showToast(message);
         } catch (error) { showToast(`更新 worktree 失败：${error.message}`); }
         finally { button.disabled = false; }
       }
@@ -1180,22 +2125,96 @@
         }
       }
 
+      async function loadFocus() {
+        const worktreesRequest = state.worktreesSupported
+          ? optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])
+          : Promise.resolve({ unchanged: true, etag: state.worktreeEtag, body: [] });
+        const [projects, sessions, worktrees, health] = await Promise.all([
+          conditionalApi("/api/projects", state.projectEtag),
+          conditionalApi(`/api/sessions?live=1&limit=${LIVE_POOL_LIMIT}`, state.focusSessionEtag),
+          worktreesRequest,
+          api("/healthz"),
+        ]);
+        indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
+        if (!projects.unchanged) {
+          state.projects = projects.body;
+          state.projectEtag = projects.etag;
+        }
+        if (!sessions.unchanged) {
+          state.focusSessions = sessions.body;
+          state.focusSessionEtag = sessions.etag;
+        }
+        if (worktrees.unsupported) state.worktreesSupported = false;
+        else if (!worktrees.unchanged) {
+          applyWorktreePreferences(worktrees.body);
+          state.worktreeEtag = worktrees.etag;
+        }
+        await loadFocusInputs(health.listVersion);
+        focusUpdated.textContent = `Orca 状态更新于 ${new Date().toLocaleTimeString("zh-CN", {
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+        })}`;
+        renderFocus();
+      }
+
+      async function loadFocusInputs(listVersion) {
+        if (!state.recentInputsSupported) return;
+        const boundaries = focusDayBoundaries();
+        const identities = [...new Map(visibleFocusRows()
+          .filter((row) => row.indexed !== false && focusBucket(row, boundaries) !== null)
+          .map((row) => [sessionKey(row), { agent: row.agent, sid: row.sid }])).entries()]
+          .sort(([left], [right]) => left.localeCompare(right));
+        const signature = identities.map(([key]) => key).join("\u0000");
+        if (state.recentInputsVersion === listVersion && state.recentInputsIdentitySignature === signature) return;
+        if (!identities.length) {
+          state.recentInputsBySession = {};
+          state.recentInputTimesBySession = {};
+          state.recentInputsHasMoreBySession = {};
+          state.recentInputsLoadingBySession = {};
+          state.recentInputsVersion = listVersion;
+          state.recentInputsIdentitySignature = signature;
+          return;
+        }
+        const response = await fetch("/api/session-inputs", jsonRequest("POST", {
+          sessions: identities.map(([, identity]) => identity),
+          limit: FOCUS_INPUT_PAGE_SIZE,
+        }));
+        if (response.status === 404) {
+          state.recentInputsSupported = false;
+          state.recentInputsBySession = {};
+          state.recentInputTimesBySession = {};
+          state.recentInputsHasMoreBySession = {};
+          state.recentInputsLoadingBySession = {};
+          return;
+        }
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        state.recentInputsBySession = body.inputs || {};
+        state.recentInputTimesBySession = body.inputTimes || {};
+        state.recentInputsHasMoreBySession = body.hasMore || {};
+        state.recentInputsVersion = body.listVersion;
+        state.recentInputsIdentitySignature = signature;
+      }
+
       async function setView(view, refresh = true) {
         state.view = view;
+        const focusActive = view === "focus";
         const sessionsActive = view === "sessions";
         const projectsActive = view === "projects";
         const goalsActive = view === "goals";
         const gatewayActive = view === "gateway";
+        focusView.hidden = !focusActive;
         sessionsView.hidden = !sessionsActive;
         projectsView.hidden = !projectsActive;
         goalsView.hidden = !goalsActive;
         gatewayView.hidden = !gatewayActive;
         document.querySelectorAll(".session-only").forEach((element) => { element.hidden = !sessionsActive; });
+        focusViewButton.setAttribute("aria-pressed", String(focusActive));
         sessionsViewButton.setAttribute("aria-pressed", String(sessionsActive));
         projectsViewButton.setAttribute("aria-pressed", String(projectsActive));
         goalsViewButton.setAttribute("aria-pressed", String(goalsActive));
         gatewayViewButton.setAttribute("aria-pressed", String(gatewayActive));
         state.activeRow = -1;
+        if (focusActive && refresh) await loadFocus();
         if (projectsActive && refresh) await loadProjectManagement();
         if (goalsActive && refresh) await loadGoals(true);
         if (gatewayActive && refresh) await loadGateway();
@@ -1377,15 +2396,39 @@
       }
 
       async function loadProjectManagement() {
-        const [projects, health] = await Promise.all([
+        const directoryRequest = state.directoryAuditSupported
+          ? optionalConditionalApi("/api/directory-audit", "", null)
+          : Promise.resolve({ unchanged: true, etag: "", body: null });
+        const orcaRequest = state.orcaAuditSupported
+          ? optionalConditionalApi("/api/orca-worktree-audit", state.orcaAuditEtag, null)
+          : Promise.resolve({ unchanged: true, etag: state.orcaAuditEtag, body: null });
+        const worktreeRequest = state.worktreesSupported
+          ? optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])
+          : Promise.resolve({ unchanged: true, etag: state.worktreeEtag, body: [] });
+        const [projects, health, directory, orcaAudit, worktrees] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
           api("/healthz"),
+          directoryRequest,
+          orcaRequest,
+          worktreeRequest,
         ]);
         indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
         if (!projects.unchanged) {
           state.projects = projects.body;
           state.projectEtag = projects.etag;
           renderProjects();
+        }
+        if (directory.unsupported) state.directoryAuditSupported = false;
+        else if (!directory.unchanged) state.directoryAudit = directory.body;
+        if (orcaAudit.unsupported) state.orcaAuditSupported = false;
+        else if (!orcaAudit.unchanged) {
+          state.orcaAudit = orcaAudit.body;
+          state.orcaAuditEtag = orcaAudit.etag;
+        }
+        if (worktrees.unsupported) state.worktreesSupported = false;
+        else if (!worktrees.unchanged) {
+          applyWorktreePreferences(worktrees.body);
+          state.worktreeEtag = worktrees.etag;
         }
         renderProjectManagement();
       }
@@ -1413,6 +2456,8 @@
         ]);
         if (requestId !== state.requestId || state.query) return;
         indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
+        state.worktreePinSupported = Array.isArray(health.capabilities)
+          && health.capabilities.includes("worktree-pin");
         state.goals = goals;
         const projectsChanged = !projects.unchanged;
         const sessionsChanged = !sessions.unchanged;
@@ -1442,10 +2487,9 @@
           state.liveEtag = live.etag;
         }
         syncSessionLive();
-        if (projectsChanged || worktreesChanged) renderProjects();
-        if (projectsChanged) renderProjectManagement();
-        if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || (liveChanged && state.liveOnly)) render();
-        else if (liveChanged) patchSessionLive();
+        if (projectsChanged || worktreesChanged || liveChanged) renderProjects();
+        if (projectsChanged || liveChanged) renderProjectManagement();
+        if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || liveChanged) render();
       }
 
       async function refreshLive() {
@@ -1454,8 +2498,9 @@
         state.liveBySession = live.body;
         state.liveEtag = live.etag;
         syncSessionLive();
-        if (state.liveOnly) render();
-        else patchSessionLive();
+        renderProjects();
+        if (state.view === "projects") renderProjectManagement();
+        render();
       }
 
       async function runSearch() {
@@ -1509,6 +2554,9 @@
         rows[state.activeRow].scrollIntoView({ block: "nearest" });
       }
 
+      focusViewButton.addEventListener("click", () => {
+        setView("focus").catch((error) => showToast("加载聚焦看板失败：" + error.message));
+      });
       sessionsViewButton.addEventListener("click", async () => {
         await setView("sessions", false);
         state.sessionEtag = "";
@@ -1525,6 +2573,7 @@
         setView("gateway").catch((error) => showToast("加载网关失败：" + error.message));
       });
       newGoalButton.addEventListener("click", () => openGoalDialog());
+      archiveMissingDirectories.addEventListener("click", archiveMissingDirectoryGroups);
       cancelGoal.addEventListener("click", () => goalDialog.close());
       goalDialog.addEventListener("close", () => { state.linkAfterCreate = null; });
       goalDialogForm.addEventListener("submit", async (event) => {
@@ -1574,11 +2623,15 @@
         .catch((error) => showToast(error.message)));
       allMode.addEventListener("click", () => setLiveOnly(false));
       liveMode.addEventListener("click", () => setLiveOnly(true));
+      document.addEventListener("pointermove", moveFocusMonitor);
+      document.addEventListener("pointerup", (event) => finishFocusMonitorDrag(event));
+      document.addEventListener("pointercancel", (event) => finishFocusMonitorDrag(event, true));
       document.addEventListener("click", (event) => {
         if (event.target instanceof Element && !event.target.closest(".floating-menu")) closeFloatingMenus();
       });
       window.addEventListener("resize", () => {
         requestAnimationFrame(() => {
+          if (!focusMonitor.hidden && !focusMonitorDrag) applyFocusMonitorPlacement();
           document.querySelectorAll(".floating-menu[open]").forEach((menu) => {
             const panel = menu.querySelector(".floating-menu-panel");
             if (panel) positionFloatingMenu(menu, panel);
@@ -1601,6 +2654,10 @@
 
       loadList().catch((error) => showToast(`加载失败：${error.message}`));
       setInterval(() => {
+        if (state.view === "focus") {
+          loadFocus().catch((error) => showToast(error.message));
+          return;
+        }
         if (state.view === "projects") {
           loadProjectManagement().catch((error) => showToast(error.message));
           return;

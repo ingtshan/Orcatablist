@@ -13,7 +13,7 @@ function temporaryDirectory(): string {
 afterEach(() => { while (temporaryDirectories.length) rmSync(temporaryDirectories.pop()!, { recursive: true, force: true }); });
 
 describe("live session reader", () => {
-  test("keeps live pids, drops ESRCH pids, and maps unknown status to idle", () => {
+  test("keeps raw statuses for live pids and drops ESRCH pids", () => {
     const root = temporaryDirectory();
     const directory = join(root, "sessions");
     mkdirSync(directory);
@@ -22,7 +22,7 @@ describe("live session reader", () => {
     writeFileSync(join(directory, "dead.json"), JSON.stringify({ sessionId: "dead", pid: 2_147_483_000, status: "busy" }));
     writeFileSync(join(directory, "bad.json"), "not json");
     const reader = createLiveReader({ claudeDir: root });
-    expect(reader.findLive("live")).toEqual({ pid: process.pid, status: "idle", waitingFor: null, name: "self" });
+    expect(reader.findLive("live")).toEqual({ pid: process.pid, status: "mystery", waitingFor: null, name: "self" });
     expect(reader.findLive("waiting")).toMatchObject({ status: "waiting", waitingFor: "dialog open" });
     expect(reader.findLive("dead")).toBeNull();
   });

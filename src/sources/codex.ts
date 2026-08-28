@@ -52,7 +52,11 @@ function sessionMeta(line: string | null): JsonRecord | null {
   }
 }
 
-function discoverDirectory(directory: string, files: SessionFileInfo[], sessionIds: Map<string, string>): void {
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+function discoverDirectory(directory: string, files: SessionFileInfo[], sessionIds: Map<string, string | null>): void {
   let entries;
   try { entries = readdirSync(directory, { withFileTypes: true }); }
   catch { return; }
@@ -67,14 +71,21 @@ function discoverDirectory(directory: string, files: SessionFileInfo[], sessionI
     const stat = statSync(path);
     const fallbackSid = match[1]!;
     const cachedSid = sessionIds.get(path);
-    const metaSid = cachedSid ?? sessionMeta(readFirstLine(path, stat.size))?.session_id;
-    const sid = typeof metaSid === "string" && UUID_PATTERN.test(metaSid) ? metaSid : fallbackSid;
+    if (cachedSid === null) continue;
+    const meta = cachedSid === undefined ? sessionMeta(readFirstLine(path, stat.size)) : null;
+    const metaSid = cachedSid ?? meta?.session_id;
+    const rolloutId = meta?.id;
+    if (isUuid(rolloutId) && isUuid(metaSid) && rolloutId !== metaSid) {
+      sessionIds.set(path, null);
+      continue;
+    }
+    const sid = isUuid(metaSid) ? metaSid : fallbackSid;
     if (sid === metaSid) sessionIds.set(path, sid);
     files.push({ agent: "codex", sid, path, size: stat.size, mtime: Math.trunc(stat.mtimeMs) });
   }
 }
 
-function discoverCodexSessionFilesCached(codexDir: string, sessionIds: Map<string, string>): SessionFileInfo[] {
+function discoverCodexSessionFilesCached(codexDir: string, sessionIds: Map<string, string | null>): SessionFileInfo[] {
   const files: SessionFileInfo[] = [];
   discoverDirectory(join(codexDir, "sessions"), files, sessionIds);
   return files.sort((a, b) => a.path.localeCompare(b.path));
@@ -169,7 +180,7 @@ function loadTitles(codexDir: string): Map<string, string> {
 
 export function createCodexSource(codexDir: string): SessionSource {
   let titles = new Map<string, string>();
-  const sessionIds = new Map<string, string>();
+  const sessionIds = new Map<string, string | null>();
   return {
     agent: "codex",
     discover: () => discoverCodexSessionFilesCached(codexDir, sessionIds),

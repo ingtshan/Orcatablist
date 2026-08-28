@@ -1,9 +1,12 @@
 export type Agent = "claude" | "codex" | "hermes";
-export type LiveStatus = "busy" | "waiting" | "idle" | "shell";
+/** Raw state reported by Orca or the fallback live-session source. Intentionally not normalized. */
+export type LiveStatus = string;
 export type GoalStatus = "active" | "done" | "archived";
 export interface LiveInfo {
   pid: number | null;
   status: LiveStatus;
+  /** Raw Orca agentStatus.updatedAt timestamp when the live provider exposes it. */
+  updatedAt?: number | null;
   waitingFor: string | null;
   name: string | null;
   handle?: string;
@@ -31,6 +34,8 @@ export interface SessionRow {
   promptCount: number;
   live: LiveInfo | null;
   goals: GoalRef[];
+  /** False only for a live provider identity that has no indexed transcript. */
+  indexed?: boolean;
 }
 export interface SuggestionReason { code: "branch" | "project" | "title"; label: string; }
 export interface SessionSuggestion extends SessionRow { score: number; reasons: SuggestionReason[]; }

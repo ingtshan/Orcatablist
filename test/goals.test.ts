@@ -100,6 +100,13 @@ describe("GoalsStore", () => {
     expect(refs.get(sessionIdentityKey("hermes", SECOND_SID))).toEqual([]);
     expect(store.goalsForSessions([]).size).toBe(0);
 
+    const confirmedByGoal = store.confirmedLinksByGoal();
+    expect(confirmedByGoal.get(first.id)?.sort((left, right) => left.agent.localeCompare(right.agent))).toEqual([
+      { agent: "claude", sid: SID }, { agent: "codex", sid: SID },
+    ]);
+    expect(confirmedByGoal.has(second.id)).toBeTrue();
+    expect(confirmedByGoal.get(second.id)).toEqual([{ agent: "claude", sid: SID }]);
+
     store.deleteGoal(first.id);
     expect(store.excludedLinks(first.id)).toEqual([]);
     expect(store.goalsForSession("codex", SID)).toEqual([]);

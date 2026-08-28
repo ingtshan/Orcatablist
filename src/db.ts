@@ -1,13 +1,15 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { DISPLAY_TITLE_MAX_CHARS, ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
+import { escapeLike, likeSnippet, sessionIdentityKey, sessionRow, storedSession } from "./db-rows";
+import { openDatabase } from "./db-schema";
 import type { Agent, ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
 
-const SCHEMA_VERSION = "7"; // bump whenever parse/derivation rules change so stale caches rebuild
 const SEARCH_ROWS_MULTIPLIER = 3;
 const MAX_HITS_PER_SESSION = 3;
-const LIKE_CONTEXT_CHARS = 40;
+const RECENT_USER_INPUT_LIMIT = 5;
+const RECENT_USER_INPUT_MAX_CHARS = 320;
 
 export interface StoredSession {
   agent: Agent; sid: string; projectKey: string; cwd: string | null; worktreeRoot: string | null; branch: string | null;
@@ -16,100 +18,10 @@ export interface StoredSession {
 }
 
 export interface FtsRow { text: string; agent: Agent; sid: string; role: "user" | "assistant"; ts: number | null; }
+export interface RecentUserInput { text: string; ts: number | null; }
+export interface RecentUserInputPage { inputs: RecentUserInput[]; hasMore: boolean; }
+export interface RecentUserInputPageOptions { limit?: number; offset?: number; }
 export interface ProjectRecord { key: string; name: string; root: string; color: string | null; }
-
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS sessions (
-  agent TEXT NOT NULL, sid TEXT NOT NULL, project_key TEXT NOT NULL, cwd TEXT, worktree_root TEXT, git_branch TEXT,
-  title TEXT, first_prompt TEXT,
-  last_prompt TEXT, last_input_at INTEGER, prompt_count INTEGER NOT NULL DEFAULT 0,
-  file_path TEXT NOT NULL, file_size INTEGER NOT NULL DEFAULT 0, file_mtime INTEGER NOT NULL DEFAULT 0,
-  parsed_offset INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (agent, sid)
-);
-CREATE INDEX IF NOT EXISTS sessions_last ON sessions(last_input_at DESC);
-CREATE TABLE IF NOT EXISTS projects (key TEXT PRIMARY KEY, name TEXT NOT NULL, root TEXT NOT NULL, color TEXT);
-CREATE TABLE IF NOT EXISTS cwd_cache (cwd TEXT PRIMARY KEY, project_key TEXT NOT NULL);
-CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(text, agent UNINDEXED, sid UNINDEXED, role UNINDEXED, ts UNINDEXED, tokenize='trigram');`;
-
-function removeDatabaseFiles(path: string): void {
-  for (const candidate of [path, `${path}-wal`, `${path}-shm`]) {
-    if (existsSync(candidate)) unlinkSync(candidate);
-  }
-}
-
-function configureWritableDatabase(database: Database): void {
-  database.exec("PRAGMA busy_timeout = 5000;");
-  database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
-}
-
-function openDatabase(path: string): Database {
-  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-  let database = new Database(path, { create: true });
-  configureWritableDatabase(database);
-  database.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);");
-  let row = database.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null;
-  if (row !== null && row.value !== SCHEMA_VERSION) {
-    database.close();
-    if (path !== ":memory:") removeDatabaseFiles(path);
-    database = new Database(path, { create: true });
-    configureWritableDatabase(database);
-    database.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);");
-    row = null;
-  }
-  database.exec(SCHEMA_SQL);
-  if (row === null) {
-    database.query("INSERT INTO meta(key, value) VALUES ('schema_version', ?)").run(SCHEMA_VERSION);
-  }
-  database.exec(`INSERT INTO meta(key, value)
-    SELECT 'list_version', COALESCE((SELECT value FROM meta WHERE key = 'data_version'), '0')
-    WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'list_version');`);
-  return database;
-}
-
-function sessionRow(row: Record<string, unknown>): SessionRow {
-  const agent: Agent = row.agent === "codex" || row.agent === "hermes" ? row.agent : "claude";
-  const sid = String(row.sid);
-  const title = typeof row.title === "string" && row.title ? row.title : null;
-  const firstPrompt = typeof row.first_prompt === "string" && row.first_prompt ? row.first_prompt : null;
-  const lastPrompt = typeof row.last_prompt === "string" && row.last_prompt ? row.last_prompt : null;
-  return {
-    agent,
-    sid,
-    projectKey: String(row.project_key),
-    cwd: typeof row.cwd === "string" ? row.cwd : null,
-    worktreeRoot: typeof row.worktree_root === "string" ? row.worktree_root : null,
-    branch: typeof row.git_branch === "string" ? row.git_branch : null,
-    title,
-    firstPrompt,
-    lastPrompt,
-    displayTitle: (title ?? firstPrompt ?? sid.slice(0, 8)).slice(0, DISPLAY_TITLE_MAX_CHARS),
-    lastInputAt: typeof row.last_input_at === "number" ? row.last_input_at : null,
-    promptCount: Number(row.prompt_count),
-    live: null,
-    goals: [],
-  };
-}
-
-function storedSession(row: Record<string, unknown>): StoredSession {
-  return {
-    ...sessionRow(row),
-    filePath: String(row.file_path), fileSize: Number(row.file_size),
-    fileMtime: Number(row.file_mtime), parsedOffset: Number(row.parsed_offset),
-  };
-}
-
-function escapeLike(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-}
-
-function likeSnippet(text: string, query: string): string {
-  const index = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
-  if (index < 0) return text.slice(0, LIKE_CONTEXT_CHARS * 2);
-  const start = Math.max(0, index - LIKE_CONTEXT_CHARS);
-  const end = Math.min(text.length, index + query.length + LIKE_CONTEXT_CHARS);
-  return `${start > 0 ? "…" : ""}${text.slice(start, index)}‹${text.slice(index, index + query.length)}›${text.slice(index + query.length, end)}${end < text.length ? "…" : ""}`;
-}
 
 export class OrcaDatabase {
   readonly raw: Database;
@@ -168,6 +80,37 @@ export class OrcaDatabase {
     const row = this.raw.query("SELECT * FROM sessions WHERE agent = ? AND sid = ?").get(agent, sid) as Record<string, unknown> | null;
     return row ? sessionRow(row) : null;
   }
+  getSessionsByIdentity(
+    pairs: ReadonlyArray<{ agent: Agent; sid: string }>,
+  ): Map<`${string}/${string}`, SessionRow> {
+    const unique = [...new Map(pairs.map((pair) => [sessionIdentityKey(pair.agent, pair.sid), pair])).values()];
+    const result = new Map<`${string}/${string}`, SessionRow>();
+    if (unique.length === 0) return result;
+    const rows = this.raw.query(`WITH requested(agent, sid) AS (
+      SELECT json_extract(value, '$.agent'), json_extract(value, '$.sid') FROM json_each(?)
+    )
+    SELECT sessions.* FROM sessions JOIN requested
+      ON requested.agent = sessions.agent AND requested.sid = sessions.sid`)
+      .all(JSON.stringify(unique)) as Record<string, unknown>[];
+    for (const row of rows) {
+      const session = sessionRow(row);
+      result.set(sessionIdentityKey(session.agent, session.sid), session);
+    }
+    return result;
+  }
+  getSessionsBySid(sids: readonly string[]): Map<string, SessionRow> {
+    const unique = [...new Set(sids)];
+    const result = new Map<string, SessionRow>();
+    if (unique.length === 0) return result;
+    const rows = this.raw.query(`WITH requested(sid) AS (SELECT value FROM json_each(?))
+      SELECT sessions.* FROM sessions JOIN requested ON requested.sid = sessions.sid
+      ORDER BY sessions.rowid`).all(JSON.stringify(unique)) as Record<string, unknown>[];
+    for (const row of rows) {
+      const session = sessionRow(row);
+      if (!result.has(session.sid)) result.set(session.sid, session);
+    }
+    return result;
+  }
   getSessionBySid(sid: string): SessionRow | null {
     const row = this.raw.query("SELECT * FROM sessions WHERE sid = ? LIMIT 1").get(sid) as Record<string, unknown> | null;
     return row ? sessionRow(row) : null;
@@ -176,6 +119,60 @@ export class OrcaDatabase {
     const row = this.raw.query("SELECT COUNT(*) AS count FROM msg_fts WHERE sid = ? AND role = 'user' AND ts > ?")
       .get(sid, since) as { count: number };
     return Number(row.count);
+  }
+  countUserActivitySinceBySid(sids: readonly string[], since: number): Map<string, number> {
+    const unique = [...new Set(sids)];
+    const result = new Map(unique.map((sid) => [sid, 0]));
+    if (unique.length === 0) return result;
+    const rows = this.raw.query(`WITH requested(sid) AS (SELECT value FROM json_each(?))
+      SELECT msg_fts.sid, COUNT(*) AS count FROM msg_fts JOIN requested ON requested.sid = msg_fts.sid
+      WHERE msg_fts.role = 'user' AND msg_fts.ts > ? GROUP BY msg_fts.sid`)
+      .all(JSON.stringify(unique), since) as Array<{ sid: string; count: number }>;
+    for (const row of rows) result.set(row.sid, Number(row.count));
+    return result;
+  }
+  getRecentUserInputs(
+    pairs: ReadonlyArray<{ agent: Agent; sid: string }>,
+  ): Map<`${string}/${string}`, RecentUserInput[]> {
+    return new Map([...this.getRecentUserInputPages(pairs)].map(([key, page]) => [key, page.inputs]));
+  }
+  getRecentUserInputPages(
+    pairs: ReadonlyArray<{ agent: Agent; sid: string }>,
+    options: RecentUserInputPageOptions = {},
+  ): Map<`${string}/${string}`, RecentUserInputPage> {
+    const limit = options.limit ?? RECENT_USER_INPUT_LIMIT;
+    const offset = options.offset ?? 0;
+    if (!Number.isInteger(limit) || limit < 1) throw new RangeError("user input page limit must be a positive integer");
+    if (!Number.isInteger(offset) || offset < 0) throw new RangeError("user input page offset must be a non-negative integer");
+    const unique = [...new Map(pairs.map((pair) => [sessionIdentityKey(pair.agent, pair.sid), pair])).values()];
+    const grouped = new Map<`${string}/${string}`, RecentUserInput[]>(
+      unique.map((pair) => [sessionIdentityKey(pair.agent, pair.sid), []]),
+    );
+    if (unique.length === 0) return new Map();
+    const rows = this.raw.query(`WITH requested(agent, sid) AS (
+      SELECT json_extract(value, '$.agent'), json_extract(value, '$.sid') FROM json_each(?)
+    ), ranked AS (
+      SELECT msg_fts.agent, msg_fts.sid,
+        CASE WHEN length(msg_fts.text) > ? THEN substr(msg_fts.text, 1, ?) || '…' ELSE msg_fts.text END AS text,
+        msg_fts.ts,
+        ROW_NUMBER() OVER (PARTITION BY msg_fts.agent, msg_fts.sid ORDER BY msg_fts.rowid DESC) AS input_rank
+      FROM msg_fts JOIN requested
+        ON requested.agent = msg_fts.agent AND requested.sid = msg_fts.sid
+      WHERE msg_fts.role = 'user' AND length(trim(msg_fts.text)) > 0
+    )
+    SELECT agent, sid, text, ts FROM ranked
+      WHERE input_rank > ? AND input_rank <= ? ORDER BY agent, sid, input_rank`)
+      .all(JSON.stringify(unique), RECENT_USER_INPUT_MAX_CHARS, RECENT_USER_INPUT_MAX_CHARS - 1,
+        offset, offset + limit + 1) as Array<{ agent: string; sid: string; text: string; ts: number | null }>;
+    for (const row of rows) {
+      const timestamp = row.ts === null ? null : Number(row.ts);
+      grouped.get(sessionIdentityKey(row.agent, row.sid))?.push({
+        text: row.text, ts: Number.isFinite(timestamp) ? timestamp : null,
+      });
+    }
+    return new Map([...grouped].map(([key, inputs]) => [key, {
+      inputs: inputs.slice(0, limit), hasMore: inputs.length > limit,
+    }]));
   }
   replaceSessionFts(agent: Agent, sid: string, rows: FtsRow[]): void {
     this.deleteSessionFts(agent, sid); this.appendSessionFts(rows);
@@ -261,9 +258,11 @@ export class OrcaDatabase {
       entry.score = Math.max(entry.score, row.score);
       grouped.set(key, entry);
     }
-    return [...grouped.values()]
+    const entries = [...grouped.values()];
+    const sessions = this.getSessionsByIdentity(entries);
+    return entries
       .map((entry) => {
-        const session = this.getSession(entry.agent, entry.sid);
+        const session = sessions.get(sessionIdentityKey(entry.agent, entry.sid));
         return session ? { ...session, hits: entry.hits, score: entry.score } : null;
       })
       .filter((row): row is SearchResult => row !== null)
