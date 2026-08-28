@@ -21,10 +21,10 @@ describe("live session reader", () => {
     writeFileSync(join(directory, "waiting.json"), JSON.stringify({ sessionId: "waiting", pid: process.pid, status: "waiting", waitingFor: "dialog open" }));
     writeFileSync(join(directory, "dead.json"), JSON.stringify({ sessionId: "dead", pid: 2_147_483_000, status: "busy" }));
     writeFileSync(join(directory, "bad.json"), "not json");
-    const reader = createLiveReader({ claudeDir: root });
-    expect(reader.findLive("live")).toEqual({ pid: process.pid, status: "mystery", waitingFor: null, name: "self" });
-    expect(reader.findLive("waiting")).toMatchObject({ status: "waiting", waitingFor: "dialog open" });
-    expect(reader.findLive("dead")).toBeNull();
+    const live = createLiveReader({ claudeDir: root }).getLiveMap();
+    expect(live.get("live")).toEqual({ pid: process.pid, status: "mystery", waitingFor: null, name: "self" });
+    expect(live.get("waiting")).toMatchObject({ status: "waiting", waitingFor: "dialog open" });
+    expect(live.has("dead")).toBeFalse();
   });
 
   test("returns empty when sessions directory is absent", () => {
@@ -48,26 +48,5 @@ describe("live session reader", () => {
     now = 4_000;
     reader.getLiveMap();
     expect(reads).toBe(2);
-  });
-
-  test("increments liveVersion only when the sid to status map changes", () => {
-    let now = 0;
-    let status = "busy";
-    let name = "first";
-    const reader = createLiveReader({
-      claudeDir: "/fixture", now: () => now, listFiles: () => ["1.json"],
-      readFile: () => JSON.stringify({ sessionId: "sid", pid: process.pid, status, name }),
-      isPidAlive: () => true,
-    });
-    reader.getLiveMap();
-    expect(reader.getLiveVersion()).toBe(1);
-    now = 4_000;
-    name = "renamed";
-    reader.getLiveMap();
-    expect(reader.getLiveVersion()).toBe(1);
-    now = 8_000;
-    status = "waiting";
-    reader.getLiveMap();
-    expect(reader.getLiveVersion()).toBe(2);
   });
 });

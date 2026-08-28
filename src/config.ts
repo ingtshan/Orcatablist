@@ -24,6 +24,8 @@ export const RESCAN_INTERVAL_MS = 60_000;
 export const FALLBACK_RESCAN_INTERVAL_MS = 10_000;
 export const WATCH_DEBOUNCE_MS = 500;
 export const LIVE_CACHE_MS = 3_000;
+// How long a failed live source keeps serving its last good read before the board drops it.
+export const STALE_LIVE_BUDGET_MS = 30_000;
 export const HERMES_PROCESS_CACHE_MS = 30_000;
 export const RESOURCE_DISCOVERY_CACHE_MS = 15_000;
 export const GATEWAY_DISCOVERY_CACHE_MS = 30_000;

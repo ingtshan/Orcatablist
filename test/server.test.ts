@@ -8,6 +8,7 @@ import type { DiscoveryReaders } from "../src/discovery";
 import { createIndexer } from "../src/indexer";
 import type { FocusDeps } from "../src/focus";
 import type { OrcaWorktreeAuditReader } from "../src/orca-worktree-audit";
+import type { LiveSnapshot } from "../src/live-source";
 import type { SessionLiveReader } from "../src/session-live";
 import type { LiveInfo } from "../src/types";
 
@@ -29,9 +30,15 @@ const openTabs = new Map<string, LiveInfo>([
   }],
 ]);
 let liveRefreshes = 0;
+const openTabsSnapshot: LiveSnapshot = {
+  at: 1, live: openTabs,
+  sources: [{ name: "orca-tab", ok: true, readAt: 1, stale: false, sessions: openTabs.size, error: null }],
+};
 const sessionLiveReader: SessionLiveReader = {
   refresh: async () => { liveRefreshes += 1; return openTabs; },
+  refreshSnapshot: async () => { liveRefreshes += 1; return openTabsSnapshot; },
   getLiveMap: () => openTabs,
+  getSnapshot: () => openTabsSnapshot,
   getLiveVersion: () => 1,
   findLive: async (agent, sid) => openTabs.get(`${agent}/${sid}`) ?? null,
 };

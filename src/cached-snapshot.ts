@@ -11,7 +11,7 @@
 
 export interface CachedSnapshotOptions<Input, T> {
   ttlMs: number;
-  load(input: Input, startedAt: number): Promise<T>;
+  load(input: Input, startedAt: number, force: boolean): Promise<T>;
   /**
    * Version advances only when this changes. Defaults to a JSON signature, which is right for
    * plain snapshots and wrong for anything holding a Map or a Date — pass your own for those.
@@ -23,8 +23,12 @@ export interface CachedSnapshotOptions<Input, T> {
 }
 
 export interface CachedSnapshot<Input, T> {
-  /** Loads at most once per TTL per cache key; concurrent callers share the in-flight load. */
-  refresh(input: Input): Promise<T>;
+  /**
+   * Loads at most once per TTL per cache key; concurrent callers share the in-flight load.
+   * `force` skips the TTL for a caller that just changed the thing being polled, but still joins
+   * an in-flight load rather than stampeding.
+   */
+  refresh(input: Input, force?: boolean): Promise<T>;
   /** Last loaded value, without triggering a load. Null until the first load resolves. */
   peek(): T | null;
   getVersion(): number;
@@ -45,8 +49,8 @@ export function createCachedSnapshot<Input = void, T = unknown>(
   let version = 0;
   let signature: string | null = null;
 
-  async function load(input: Input, startedAt: number): Promise<T> {
-    const value = await options.load(input, startedAt);
+  async function load(input: Input, startedAt: number, force: boolean): Promise<T> {
+    const value = await options.load(input, startedAt, force);
     const next = signatureOf(value);
     if (next !== signature) {
       signature = next;
@@ -58,16 +62,16 @@ export function createCachedSnapshot<Input = void, T = unknown>(
   }
 
   return {
-    refresh: (input) => {
+    refresh: (input, force = false) => {
       const key = keyOf(input);
       const current = now();
       // A key change invalidates the slot outright: the cached value answers a different question.
-      if (cached !== null && key === cachedKey && current - cachedAt < options.ttlMs) {
+      if (!force && cached !== null && key === cachedKey && current - cachedAt < options.ttlMs) {
         return Promise.resolve(cached);
       }
       if (pending !== null && key === cachedKey) return pending;
       cachedKey = key;
-      pending = load(input, current).finally(() => { pending = null; });
+      pending = load(input, current, force).finally(() => { pending = null; });
       return pending;
     },
     peek: () => cached,
