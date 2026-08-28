@@ -205,19 +205,22 @@
     .focus-lane-count { display: inline-grid; min-width: 26px; height: 22px; padding: 0 7px; place-items: center; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 700 11px ui-monospace, Menlo, monospace; }
     .focus-lane[data-focus-bucket="working"] .focus-lane-marker { background: var(--busy); }
     .focus-lane[data-focus-bucket="working"] .focus-lane-count { background: var(--resume-soft); color: var(--busy); }
-    .focus-lane[data-focus-bucket="done-today"] .focus-lane-marker { background: var(--idle); }
-    .focus-lane[data-focus-bucket="done-today"] .focus-lane-count { color: var(--idle); }
+    .focus-lane[data-focus-bucket="idle-today"] .focus-lane-marker { background: var(--idle); }
+    .focus-lane[data-focus-bucket="idle-today"] .focus-lane-count { color: var(--idle); }
     .focus-lane-body { display: grid; gap: 12px; min-height: 130px; padding: 12px; border-radius: 0 0 13px 13px; background: var(--bg); }
     .focus-empty { padding: 34px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 12px; text-align: center; }
     .focus-project-group { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
     .focus-project-head { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 10px 11px; border-bottom: 1px solid var(--line); }
+    .focus-project-group.collapsed .focus-project-head { border-bottom: 0; }
+    .focus-project-body { min-width: 0; }
     .focus-project-name { min-width: 0; flex: 1; overflow: hidden; font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
     .focus-group-count { flex: 0 0 auto; color: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
     .focus-worktree-group + .focus-worktree-group { border-top: 1px solid var(--line); }
-    .focus-worktree-head { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 8px 11px; background: var(--hover); }
+    .focus-worktree-head { display: grid; grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 8px 11px; background: var(--hover); }
     .focus-worktree-name { overflow: hidden; font: 700 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .focus-worktree-kind { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
     .focus-session-list { display: grid; }
+    .focus-project-body[hidden], .focus-session-list[hidden] { display: none; }
     .focus-session-card { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 9px; align-items: center; min-width: 0; padding: 10px 11px; border-bottom: 1px solid var(--line); }
     .focus-session-card:last-child { border-bottom: 0; }
     .focus-session-card:hover, .focus-session-card:focus-within { background: var(--hover); }
@@ -410,7 +413,7 @@
   </header>
   <div id="focus-view" class="focus-view" hidden>
     <header class="focus-head">
-      <div><h1 class="focus-title">聚焦</h1><p class="focus-description">按 Orca 原始状态和本机日期，只看正在执行与最近完成的 session。</p></div>
+      <div><h1 class="focus-title">聚焦</h1><p class="focus-description">按 Orca 原始状态和本机日期，只看 working 与最近更新的非 working session。</p></div>
       <span id="focus-updated" class="focus-updated">状态尚未读取</span>
     </header>
     <div id="focus-workspace" class="focus-workspace">
@@ -508,13 +511,15 @@
       const FOCUS_MONITOR_DOCK_MAX_PX = 180;
       const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
       const COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.collapsedWorktrees.v1";
+      const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v1";
+      const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v1";
       const FOCUS_MONITOR_PLACEMENT_STORAGE_KEY = "orcatab.focusMonitorPlacement.v1";
       const UNINDEXED_LIVE_PROJECT_KEY = "__unindexed_live__";
       const SESSION_AGENTS = new Set(["claude", "codex", "hermes"]);
       const FOCUS_LANES = [
         { key: "working", title: "Working", note: "当前仍在执行", empty: "当前没有 working session" },
-        { key: "done-today", title: "今天 Done", note: "本机时间今天 00:00 起", empty: "今天还没有 done session" },
-        { key: "done-recent", title: "过去 3 天 Done", note: "此前 3 个自然日，不含今天", empty: "过去 3 天没有 done session" },
+        { key: "idle-today", title: "Idle 今日", note: "非 working · 本机今天 00:00 起", empty: "今天没有 idle session" },
+        { key: "idle-recent", title: "Idle 过去 3 天", note: "非 working · 此前 3 个自然日", empty: "过去 3 天没有 idle session" },
       ];
       const state = {
         projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0,
@@ -523,6 +528,8 @@
         sourceSessions: [], liveBySession: {}, liveEtag: "", worktreeEtag: "",
         worktreePreferences: new Map(), worktreesSupported: true, worktreePinSupported: false, showArchived: false,
         collapsedWorktrees: loadCollapsedWorktrees(),
+        focusCollapsedProjects: loadStoredStringSet(FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY, "Focus projects"),
+        focusCollapsedWorktrees: loadStoredStringSet(FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY, "Focus worktrees"),
         worktreeResources: new Map(), resourceEtag: "", resourcesSupported: true,
         gateway: null, gatewayEtag: "", gatewaySupported: true,
         projectScope: "active", projectQuery: "",
@@ -653,9 +660,9 @@
         const status = rawLiveState(row.live);
         if (status === "working") return "working";
         const updatedAt = row.live?.updatedAt;
-        if (status !== "done" || typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return null;
-        if (updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow) return "done-today";
-        if (updatedAt >= boundaries.recent && updatedAt < boundaries.today) return "done-recent";
+        if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return null;
+        if (updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow) return "idle-today";
+        if (updatedAt >= boundaries.recent && updatedAt < boundaries.today) return "idle-recent";
         return null;
       }
 
@@ -780,7 +787,7 @@
         const count = projectWorkingCount(projectKey);
         if (!count) return null;
         const indicator = make("span", "project-working", String(count));
-        const label = `${count} 个 working session`;
+        const label = `${count} 个进行中的会话`;
         indicator.setAttribute("aria-label", label);
         indicator.title = label;
         return indicator;
@@ -788,22 +795,28 @@
 
       function liveStateText(live) {
         const status = rawLiveState(live);
-        if (status === "working") return "working · 进行中";
-        if (status === "done") return "done · 等待用户";
-        if (status === "waiting" && live.waitingFor) return `waiting · ${live.waitingFor}`;
-        return status;
+        if (status === "working") return "进行中";
+        if (status === "done") return "等待用户";
+        if (status === "waiting") return "等待中";
+        if (status === "idle") return "空闲";
+        if (status === "busy") return "忙碌";
+        if (status === "shell") return "终端中";
+        if (status === "error") return "异常";
+        if (status === "unknown") return "状态未知";
+        return "其他状态";
       }
 
       function updateLivePresentation(dot, badge, live) {
         const status = live ? rawLiveState(live) : "offline";
+        const label = live ? liveStateText(live) : "离线";
         const title = live
-          ? [status, live.waitingFor, live.name].filter(Boolean).join(" · ")
-          : "offline";
+          ? [label, live.name].filter(Boolean).join(" · ")
+          : label;
         dot.dataset.state = status;
         dot.title = title;
         badge.hidden = !live;
         badge.dataset.state = status;
-        badge.textContent = live ? liveStateText(live) : "";
+        badge.textContent = live ? label : "";
         badge.title = title;
       }
 
@@ -845,23 +858,31 @@
         return indicator;
       }
 
-      function loadCollapsedWorktrees() {
+      function loadStoredStringSet(storageKey, label) {
         try {
-          const stored = JSON.parse(localStorage.getItem(COLLAPSED_WORKTREES_STORAGE_KEY) || "[]");
+          const stored = JSON.parse(localStorage.getItem(storageKey) || "[]");
           if (!Array.isArray(stored)) throw new Error("stored value is not an array");
-          return new Set(stored.filter((root) => typeof root === "string" && root));
+          return new Set(stored.filter((value) => typeof value === "string" && value));
         } catch (error) {
-          console.warn("Unable to load collapsed worktrees", error);
+          console.warn(`Unable to load ${label}`, error);
           return new Set();
         }
       }
 
-      function saveCollapsedWorktrees(collapsedWorktrees) {
+      function saveStoredStringSet(storageKey, label, values) {
         try {
-          localStorage.setItem(COLLAPSED_WORKTREES_STORAGE_KEY, JSON.stringify([...collapsedWorktrees].sort()));
+          localStorage.setItem(storageKey, JSON.stringify([...values].sort()));
         } catch (error) {
-          console.warn("Unable to save collapsed worktrees", error);
+          console.warn(`Unable to save ${label}`, error);
         }
+      }
+
+      function loadCollapsedWorktrees() {
+        return loadStoredStringSet(COLLAPSED_WORKTREES_STORAGE_KEY, "collapsed worktrees");
+      }
+
+      function saveCollapsedWorktrees(collapsedWorktrees) {
+        saveStoredStringSet(COLLAPSED_WORKTREES_STORAGE_KEY, "collapsed worktrees", collapsedWorktrees);
       }
 
       function defaultFocusMonitorPlacement() {
@@ -900,6 +921,28 @@
         state.collapsedWorktrees = next;
         saveCollapsedWorktrees(next);
         render();
+      }
+
+      function focusWorktreeCollapseKey(projectKey, worktreeRoot) {
+        return JSON.stringify([projectKey, worktreeRoot]);
+      }
+
+      function setFocusProjectCollapsed(projectKey, collapsed) {
+        const next = new Set(state.focusCollapsedProjects);
+        if (collapsed) next.add(projectKey);
+        else next.delete(projectKey);
+        state.focusCollapsedProjects = next;
+        saveStoredStringSet(FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY, "Focus projects", next);
+        renderFocus();
+      }
+
+      function setFocusWorktreeCollapsed(collapseKey, collapsed) {
+        const next = new Set(state.focusCollapsedWorktrees);
+        if (collapsed) next.add(collapseKey);
+        else next.delete(collapseKey);
+        state.focusCollapsedWorktrees = next;
+        saveStoredStringSet(FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY, "Focus worktrees", next);
+        renderFocus();
       }
 
       function closeFloatingMenus(except = null) {
@@ -1463,38 +1506,70 @@
         orderedProjectKeys(projectGroups).forEach((projectKey) => {
           const projectRows = projectGroups.get(projectKey);
           const project = projectFor(projectKey);
+          const projectCollapsed = state.focusCollapsedProjects.has(projectKey);
+          const firstProjectSession = projectRows[0];
+          const projectBodyId = `focus-project-worktrees-${firstProjectSession.agent}-${firstProjectSession.sid}`;
           const projectGroup = make("article", "focus-project-group");
           projectGroup.dataset.projectKey = projectKey;
+          projectGroup.classList.toggle("collapsed", projectCollapsed);
           const projectHead = make("header", "focus-project-head");
+          const projectToggle = make("button", "worktree-toggle focus-group-toggle");
+          projectToggle.type = "button";
+          projectToggle.setAttribute("aria-expanded", String(!projectCollapsed));
+          projectToggle.setAttribute("aria-controls", projectBodyId);
+          projectToggle.setAttribute("aria-label", `${projectCollapsed ? "展开" : "收起"}项目：${project.name}`);
+          projectToggle.title = `${projectCollapsed ? "展开" : "收起"}项目：${project.name}`;
+          projectToggle.addEventListener("click", () => setFocusProjectCollapsed(projectKey, !projectCollapsed));
           const color = make("span", "color-dot");
           if (project.color) color.style.setProperty("--project-color", project.color);
           projectHead.append(
+            projectToggle,
             color,
             make("span", "focus-project-name", project.name),
             make("span", "focus-group-count", String(projectRows.length)),
           );
-          projectGroup.append(projectHead);
+          const projectBody = make("div", "focus-project-body");
+          projectBody.id = projectBodyId;
+          projectBody.hidden = projectCollapsed;
           groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0).forEach((worktree) => {
+            const worktreeCollapseKey = focusWorktreeCollapseKey(projectKey, worktree.root);
+            const worktreeCollapsed = state.focusCollapsedWorktrees.has(worktreeCollapseKey);
+            const firstWorktreeSession = worktree.rows[0];
+            const sessionListId = `focus-worktree-sessions-${firstWorktreeSession.agent}-${firstWorktreeSession.sid}`;
             const worktreeGroup = make("section", "focus-worktree-group");
             worktreeGroup.dataset.worktreeRoot = worktree.root;
+            worktreeGroup.classList.toggle("collapsed", worktreeCollapsed);
             const unindexed = project.key === UNINDEXED_LIVE_PROJECT_KEY;
             const worktreeName = basename(worktree.root) || (unindexed ? "在线进程" : "未知目录");
             const pathLabel = worktree.root || (unindexed ? "尚无 transcript" : "未识别 worktree");
             const kind = worktreeKind(worktree, project);
             const worktreeHead = make("header", "focus-worktree-head");
             worktreeHead.title = `${kind} · ${pathLabel}`;
+            const worktreeToggle = make("button", "worktree-toggle focus-group-toggle");
+            worktreeToggle.type = "button";
+            worktreeToggle.setAttribute("aria-expanded", String(!worktreeCollapsed));
+            worktreeToggle.setAttribute("aria-controls", sessionListId);
+            worktreeToggle.setAttribute("aria-label", `${worktreeCollapsed ? "展开" : "收起"} worktree：${worktreeName}`);
+            worktreeToggle.title = `${worktreeCollapsed ? "展开" : "收起"} worktree：${worktreeName}`;
+            worktreeToggle.addEventListener("click", () => {
+              setFocusWorktreeCollapsed(worktreeCollapseKey, !worktreeCollapsed);
+            });
             worktreeHead.append(
+              worktreeToggle,
               make("span", "focus-worktree-name", worktreeName),
               make("span", "focus-worktree-kind", kind),
               make("span", "focus-group-count", String(worktree.rows.length)),
             );
             const list = make("div", "focus-session-list");
+            list.id = sessionListId;
+            list.hidden = worktreeCollapsed;
             [...worktree.rows]
               .sort((left, right) => (right.live?.updatedAt || 0) - (left.live?.updatedAt || 0))
               .forEach((row) => list.append(focusSessionCard(row)));
             worktreeGroup.append(worktreeHead, list);
-            projectGroup.append(worktreeGroup);
+            projectBody.append(worktreeGroup);
           });
+          projectGroup.append(projectHead, projectBody);
           parent.append(projectGroup);
         });
       }
