@@ -54,5 +54,6 @@ pm2 start ecosystem.config.cjs && pm2 save
 | `ORCATAB_CLAUDE_DIR` | `~/.claude` | Claude Code 只读数据目录 |
 | `ORCATAB_DATA_DIR` | `~/.orcatab` | SQLite 索引数据目录 |
 | `ORCATAB_ORCA_BIN` | `orca` | Orca CLI 可执行文件名或路径 |
+| `ORCATAB_ORCHESTRATION_DB` | `~/Library/Application Support/orca/orchestration.db` | Orca 编排状态（只读），用于把被指派的会话折叠到协调者下 |
 
 详细设计与数据契约见 [`docs/PLAN.md`](docs/PLAN.md)。

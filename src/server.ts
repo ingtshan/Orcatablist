@@ -15,6 +15,7 @@ import {
 import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
 import { handleOrcaAuditRequest } from "./orca-audit-route";
+import { createOrchestrationReader, type OrchestrationReader } from "./orchestration";
 import { createOrcaWorktreeAuditReader, type OrcaWorktreeAuditReader } from "./orca-worktree-audit";
 import { openProjectPreferencesDatabase, ProjectPreferencesStore } from "./project-preferences";
 import { handleProjectRequest, NotFoundError } from "./project-routes";
@@ -39,6 +40,7 @@ export interface ServerOptions {
   db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; discovery?: DiscoveryReaders; startTimers?: boolean; quiet?: boolean;
   directoryPathExists?(path: string): boolean;
   orcaAuditReader?: OrcaWorktreeAuditReader;
+  orchestrationReader?: OrchestrationReader;
 }
 export interface OrcaTabServer {
   server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary;
@@ -77,6 +79,8 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     orcaBin, getClaudeLiveMap: createLiveReader({ claudeDir }).getLiveMap,
     onError: options.quiet ? () => {} : undefined,
   });
+  const orchestrationReader = options.orchestrationReader
+    ?? createOrchestrationReader({ db, getLiveMap: sessionLiveReader.getLiveMap });
   const focusDeps = options.focusDeps ?? createFocusDeps(db, {
     claudeDir, codexDir, hermesDb, orcaBin, liveFinder: sessionLiveReader.findLive,
   });
@@ -139,8 +143,14 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           watch: watcher.mode, agents: [...AGENTS], version: "p7",
           capabilities: [
             "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
+            "orchestration-runs",
           ],
         });
+      }
+      if (request.method === "GET" && url.pathname === "/api/orchestration") {
+        await sessionLiveReader.refresh();
+        const snapshot = orchestrationReader.refresh();
+        return conditionalJson(request, `"c-${orchestrationReader.getVersion()}"`, () => snapshot);
       }
       if (request.method === "GET" && url.pathname === "/api/live") {
         const live = await sessionLiveReader.refresh();

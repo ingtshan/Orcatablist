@@ -2,9 +2,12 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ORCATAB_DATA_DIR, SEARCH_MIN_FTS_CHARS } from "./config";
+import { querySessionMentions, type SessionMention } from "./db-mentions";
 import { escapeLike, likeSnippet, sessionIdentityKey, sessionRow, storedSession } from "./db-rows";
 import { openDatabase } from "./db-schema";
 import type { Agent, ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
+
+export type { SessionMention } from "./db-mentions";
 
 const SEARCH_ROWS_MULTIPLIER = 3;
 const MAX_HITS_PER_SESSION = 3;
@@ -233,6 +236,13 @@ export class OrcaDatabase {
         AND COALESCE(NULLIF(s.worktree_root, ''), NULLIF(s.cwd, ''), NULLIF(p.root, ''), '') = ?
       LIMIT 1`).get(projectKey, root) as { found: number } | null;
     return row !== null;
+  }
+  /**
+   * Sessions whose indexed text contains any of the exact tokens, most mentions first.
+   * Used to map opaque external ids (Orca orchestration runs, tasks, dispatches) onto sessions.
+   */
+  findSessionsMentioning(tokens: readonly string[]): SessionMention[] {
+    return querySessionMentions(this.raw, tokens);
   }
   search(query: string, limit: number): SearchResult[] {
     const q = query.trim();

@@ -178,6 +178,7 @@ describe("HTTP server", () => {
       dataVersion: 1, listVersion: 1, watch: "timer",
       capabilities: [
         "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
+        "orchestration-runs",
       ],
     });
   });
