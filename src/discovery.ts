@@ -1,5 +1,5 @@
 import { createGatewayReader, type GatewayReader } from "./nginx-config";
-import { conditionalJson } from "./http";
+import { serveFresh, versionSource } from "./freshness";
 import type { OrcaDatabase } from "./db";
 import { createWorktreeResourceReader, type WorktreeResourceReader } from "./worktree-resources";
 
@@ -24,13 +24,17 @@ export async function handleDiscoveryRequest(
   if (request.method !== "GET") return null;
   if (url.pathname === "/api/gateway") {
     const snapshot = await readers.gateway.refresh();
-    return conditionalJson(request, `"g-${readers.gateway.getVersion()}"`, () => snapshot);
+    return serveFresh(request, "gateway", [
+      versionSource("gateway", readers.gateway.getVersion),
+    ], () => snapshot);
   }
   if (url.pathname === "/api/worktree-resources") {
     const roots = db.listSessions({ limit: DISCOVERY_SESSION_LIMIT })
       .map((session) => session.worktreeRoot || session.cwd).filter((root): root is string => Boolean(root));
     const snapshot = await readers.resources.refresh(roots);
-    return conditionalJson(request, `"r-${readers.resources.getVersion()}"`, () => snapshot);
+    return serveFresh(request, "resources", [
+      versionSource("resources", readers.resources.getVersion),
+    ], () => snapshot);
   }
   return null;
 }

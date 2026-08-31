@@ -99,20 +99,23 @@ describe("multi-agent open-session reader", () => {
     now = 100;
     await reader.refresh();
     expect(calls).toBe(1);
+    await reader.refresh(true);
+    expect(calls).toBe(2);
+    expect(reader.getLiveVersion()).toBe(1);
     now = 4_000;
     title = "renamed title";
     await reader.refresh();
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     expect(reader.getLiveVersion()).toBe(2);
     now = 8_000;
     handle = "term_two";
     await reader.refresh();
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
     expect(reader.getLiveVersion()).toBe(3);
     now = 12_000;
     updatedAt = 31;
     await reader.refresh();
-    expect(calls).toBe(4);
+    expect(calls).toBe(5);
     expect(reader.getLiveVersion()).toBe(4);
   });
 
@@ -158,10 +161,16 @@ describe("multi-agent open-session reader", () => {
       listProcessEnvironments: async () => { throw new Error("must not run"); },
       onError: (error) => errors.push(error),
     });
-    const live = await reader.refresh();
-    expect(live.get(`claude/${CLAUDE_SID}`)?.pid).toBe(7);
+    const snapshot = await reader.refreshSnapshot();
+    expect(snapshot.live.get(`claude/${CLAUDE_SID}`)?.pid).toBe(7);
+    // Both Orca-derived sources share one tab snapshot, so one dead runtime is reported once.
     expect(errors).toHaveLength(1);
-    expect(errors[0]!.message).toContain("Orca open-tab refresh failed");
+    expect(errors[0]!.message).toContain("socket missing");
+    expect(errors[0]!.message).toContain("orca-tab, hermes-process");
+    // The failure is legible in the snapshot, not just the log.
+    expect(snapshot.sources.find((source) => source.name === "claude-pid")).toMatchObject({ ok: true });
+    expect(snapshot.sources.filter((source) => !source.ok).map((source) => source.name))
+      .toEqual(["orca-tab", "hermes-process"]);
   });
 
   test("ignores malformed providers and untrusted Hermes active-file paths", async () => {

@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
+import { createCachedSnapshot } from "./cached-snapshot";
 import { ORCATAB_PM2_DUMP, RESOURCE_DISCOVERY_CACHE_MS } from "./config";
 import type { GatewayReader, GatewayRoute } from "./nginx-config";
 
@@ -211,12 +212,6 @@ export function createWorktreeResourceReader(options: WorktreeResourceReaderOpti
   const listProcesses = options.listProcesses ?? (() => commandText(["ps", "-axo", "pid=,ppid=,command="]));
   const listListeners = options.listListeners ?? (() => commandText(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]));
   const probe = options.probe ?? probeUrl;
-  let cached: WorktreeResourcesSnapshot | null = null;
-  let cachedAt = Number.NEGATIVE_INFINITY;
-  let cachedKey = "";
-  let pending: Promise<WorktreeResourcesSnapshot> | null = null;
-  let version = 0;
-  let signature = "";
   const probeCache = new Map<string, { checkedAt: number; status: number | null }>();
 
   async function load(roots: string[], startedAt: number): Promise<WorktreeResourcesSnapshot> {
@@ -252,26 +247,20 @@ export function createWorktreeResourceReader(options: WorktreeResourceReaderOpti
       });
       return links.length ? [{ worktreeRoot: item.root, appName: item.app.name, pid: item.app.pid, port: item.port, links }] : [];
     });
-    const resources = toRecord(rows);
-    const snapshot = { scannedAt: startedAt, cacheTtlMs: RESOURCE_DISCOVERY_CACHE_MS, resources, warnings };
-    const nextSignature = JSON.stringify({ resources, warnings });
-    if (nextSignature !== signature) { signature = nextSignature; version += 1; }
-    cached = snapshot;
-    cachedAt = startedAt;
-    return snapshot;
+    return {
+      scannedAt: startedAt, cacheTtlMs: RESOURCE_DISCOVERY_CACHE_MS, resources: toRecord(rows), warnings,
+    };
   }
 
+  const snapshot = createCachedSnapshot<string[], WorktreeResourcesSnapshot>({
+    ttlMs: RESOURCE_DISCOVERY_CACHE_MS, now, load,
+    // The scan answers a question about a specific set of roots, so each set gets its own slot.
+    cacheKey: (roots) => roots.join("\0"),
+    // scannedAt moves on every load; the version must track content only.
+    signature: ({ resources, warnings }) => JSON.stringify({ resources, warnings }),
+  });
   return {
-    refresh: async (worktreeRoots) => {
-      const roots = [...new Set(worktreeRoots.filter(Boolean))].sort();
-      const key = roots.join("\0");
-      const current = now();
-      if (cached !== null && key === cachedKey && current - cachedAt < RESOURCE_DISCOVERY_CACHE_MS) return cached;
-      if (pending !== null && key === cachedKey) return pending;
-      cachedKey = key;
-      pending = load(roots, current).finally(() => { pending = null; });
-      return pending;
-    },
-    getVersion: () => version,
+    refresh: (worktreeRoots) => snapshot.refresh([...new Set(worktreeRoots.filter(Boolean))].sort()),
+    getVersion: snapshot.getVersion,
   };
 }

@@ -9,7 +9,7 @@
       color-scheme: light dark;
       --bg: #F4F7F6; --surface: #FFFFFF; --text: #17222A; --muted: #5C6B75;
       --line: #D5DEE1; --accent: #0E6C75; --accent-soft: #E1F0F1; --hover: #EDF3F2;
-      --busy: #B45309; --waiting: #B91C1C; --idle: #2F855A; --offline: #8A97A0;
+      --busy: #B45309; --waiting: #B91C1C; --idle: #2F855A; --success-soft: #E6F4EC; --offline: #8A97A0;
       --resume: #9A4E0A; --resume-soft: #FFF0DC;
       --focus-ring: #0E6C75; --danger-soft: #FCE8E8; --shadow: #17222A1A;
       --topbar-height: 68px; --focus-monitor-gap: 16px; --focus-monitor-inset: 32px; --focus-monitor-width: 340px;
@@ -19,7 +19,7 @@
       :root {
         --bg: #0E1417; --surface: #151C21; --text: #E4E9EC; --muted: #93A1AB;
         --line: #263039; --accent: #62C6CD; --accent-soft: #18343A; --hover: #1C272D;
-        --busy: #F5A524; --waiting: #F87171; --idle: #4ADE80; --offline: #6B7A85;
+        --busy: #F5A524; --waiting: #F87171; --idle: #4ADE80; --success-soft: #173324; --offline: #6B7A85;
         --resume: #F5A524; --resume-soft: #3A2815;
         --focus-ring: #62C6CD; --danger-soft: #3A2024; --shadow: #00000040;
       }
@@ -91,6 +91,16 @@
     .session-row { display: grid; grid-template-columns: 12px minmax(180px, 1fr) minmax(90px, auto) auto auto; gap: 12px; align-items: center; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
     .session-row:last-child { border-bottom: 0; }
     .session-row:hover, .session-row.keyboard-active { background: var(--hover); }
+    .run-cluster { box-shadow: inset 2px 0 0 var(--accent-soft); border-bottom: 1px solid var(--line); }
+    .run-cluster:last-child { border-bottom: 0; }
+    .run-cluster > .session-row { border-bottom: 0; }
+    .run-worker-list { margin-left: 22px; }
+    .run-worker-list > .session-row { border-top: 1px dashed var(--line); border-bottom: 0; }
+    button.run-chip { background: var(--accent-soft); color: var(--accent); font-family: inherit; }
+    button.run-chip:hover { border-color: var(--accent); }
+    button.run-chip::after { margin-left: 5px; content: "\25B8"; }
+    button.run-chip[aria-expanded="true"]::after { content: "\25BE"; }
+    .run-origin-chip { background: var(--bg); }
     .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--offline); box-shadow: 0 0 0 3px var(--bg); }
     .status-dot[data-state="working"], .status-dot[data-state="busy"] { background: var(--busy); }
     .status-dot[data-state="waiting"] { background: var(--waiting); }
@@ -126,6 +136,56 @@
     .focus-jump:hover { border-color: var(--accent); color: var(--surface); filter: brightness(.95); }
     .focus-resume { border-color: var(--resume); background: var(--resume-soft); color: var(--resume); }
     .focus-resume:hover { border-color: var(--resume); color: var(--resume); filter: brightness(.96); }
+    .session-send { --session-send-height: 36px; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-column: 2 / -1; min-width: 0; height: var(--session-send-height); overflow: hidden; margin-top: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); transition: border-color .12s ease, box-shadow .12s ease, background .12s ease; }
+    .session-send:focus-within { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .session-send-input { width: 100%; min-width: 0; height: 100%; padding: 0 11px; border: 0; border-radius: 0; appearance: none; background: transparent; color: var(--text); font: 12px/1.2 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; }
+    .session-send-input:focus { outline: none; }
+    .session-send-input::placeholder { color: var(--muted); opacity: .82; }
+    .session-send-button { display: grid; min-width: 60px; height: 100%; padding: 0 13px; border: 0; border-left: 1px solid var(--accent); border-radius: 0; appearance: none; place-items: center; background: var(--accent); color: var(--surface); cursor: pointer; font-size: 12px; font-weight: 700; line-height: 1; }
+    .session-send-button:hover { filter: brightness(.96); }
+    .session-send-button:focus-visible { outline: 2px solid var(--surface); outline-offset: -4px; }
+    .session-send-button:disabled { cursor: wait; opacity: .62; }
+    .session-send-note { display: flex; grid-column: 2 / -1; min-width: 0; align-items: center; gap: 4px; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .session-send-state, .session-send-icon-button { display: grid; flex: 0 0 auto; padding: 0; border-radius: 6px; place-items: center; }
+    .session-send-state { width: 20px; height: 20px; background: var(--bg); color: var(--muted); }
+    .session-send-state svg, .session-send-icon-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+    .session-send-note[data-state="verifying"] .session-send-state { background: var(--resume-soft); color: var(--busy); }
+    .session-send-note[data-state="verifying"] .session-send-state svg { animation: session-send-spin .9s linear infinite; }
+    .session-send-note[data-state="confirmed"] .session-send-state { background: var(--success-soft); color: var(--idle); }
+    .session-send-note:is([data-state="stalled"], [data-state="failed"]) .session-send-state { background: var(--danger-soft); color: var(--waiting); }
+    .session-send-text { min-width: 0; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+    .session-send-icon-button { width: 24px; height: 24px; border: 1px solid transparent; background: transparent; color: var(--muted); }
+    .session-send-icon-button:hover { background: var(--hover); }
+    .session-send-copy:hover { color: var(--accent); }
+    .session-send-dismiss:hover { color: var(--muted); }
+    .session-send-icon-button:focus-visible { outline-width: 2px; outline-offset: 0; }
+    @keyframes session-send-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .session-send-note[data-state="verifying"] .session-send-state svg { animation: none; }
+    }
+    .focus-session-card .session-send { --session-send-height: 32px; margin-top: 5px; border-radius: 8px; }
+    .focus-session-card .session-send-input { padding-inline: 8px; font-size: 11px; }
+    .focus-session-card .session-send-button { min-width: 48px; padding-inline: 9px; font-size: 11px; }
+    .session-tasks { display: grid; grid-column: 2 / -1; gap: 5px; margin-top: 8px; }
+    .session-task { display: flex; min-width: 0; align-items: center; gap: 7px; font-size: 12px; }
+    .session-task-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 999px; background: var(--busy); }
+    .session-task[data-kind="done"] .session-task-dot { background: var(--muted); }
+    .session-task-number { flex: 0 0 auto; padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
+    .session-task-title { min-width: 0; overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
+    .session-task[data-kind="done"] .session-task-title { color: var(--muted); text-decoration: line-through; }
+    .session-task .action { min-width: 0; padding: 3px 7px; border-radius: 6px; font-size: 11px; }
+    .session-task-open { display: inline-flex; align-items: center; text-decoration: none; }
+    .session-capture { display: flex; grid-column: 2 / -1; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
+    .session-capture-row { display: flex; grid-column: 2 / -1; margin-top: 6px; }
+    .session-capture-input { min-width: 120px; flex: 1; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+    .session-capture-input:focus { border-color: var(--accent); outline: none; }
+    .session-capture-button { min-width: 54px; border-color: var(--accent); background: var(--accent); color: var(--surface); font-weight: 700; }
+    .session-capture-button:disabled { cursor: wait; opacity: .62; }
+    .session-capture-open, .session-capture-target, .session-capture-cancel { padding: 3px 8px; font-size: 11px; }
+    .session-capture-target { max-width: 240px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+    .session-capture-picker { min-width: 0; max-width: 240px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; }
+    .focus-session-card .session-capture-input { padding: 5px 8px; font-size: 11px; }
+    .focus-session-card .session-capture-button { min-width: 44px; padding: 5px 7px; font-size: 11px; }
     .floating-menu { position: relative; min-width: 0; flex: 0 0 auto; }
     .floating-menu-toggle { cursor: pointer; list-style: none; user-select: none; }
     .floating-menu-toggle::-webkit-details-marker { display: none; }
@@ -166,6 +226,10 @@
     .focus-title { margin: 0 0 6px; font-size: 25px; letter-spacing: -.02em; }
     .focus-description { margin: 0; color: var(--muted); font-size: 13px; }
     .focus-updated { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+    .focus-updated[data-degraded] { color: var(--waiting); font-weight: 600; }
+    .focus-head-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 14px; }
+    .focus-project-sort-control { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+    .focus-project-sort-control select { min-width: 104px; padding: 6px 25px 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 11px; }
     .focus-workspace { min-width: 0; }
     .focus-monitor { position: fixed; z-index: 12; display: flex; min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 34px var(--shadow); }
     .focus-monitor.monitor-floating { right: var(--focus-monitor-gap); bottom: var(--focus-monitor-gap); width: min(var(--focus-monitor-width), calc(100vw - var(--focus-monitor-inset))); max-height: calc(100vh - var(--topbar-height) - var(--focus-monitor-inset)); border-radius: 14px; }
@@ -200,13 +264,14 @@
     .focus-lane { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
     .focus-lane-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 14px; border-bottom: 1px solid var(--line); }
     .focus-lane-marker { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-    .focus-lane-title { margin: 0; font-size: 15px; }
+    .focus-lane-title { display: flex; align-items: baseline; gap: 6px; margin: 0; font-size: 15px; }
+    .focus-lane-range { color: var(--muted); font-size: 9px; font-weight: 650; letter-spacing: .02em; }
     .focus-lane-note { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
     .focus-lane-count { display: inline-grid; min-width: 26px; height: 22px; padding: 0 7px; place-items: center; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 700 11px ui-monospace, Menlo, monospace; }
     .focus-lane[data-focus-bucket="working"] .focus-lane-marker { background: var(--busy); }
     .focus-lane[data-focus-bucket="working"] .focus-lane-count { background: var(--resume-soft); color: var(--busy); }
-    .focus-lane[data-focus-bucket="idle-today"] .focus-lane-marker { background: var(--idle); }
-    .focus-lane[data-focus-bucket="idle-today"] .focus-lane-count { color: var(--idle); }
+    .focus-lane[data-focus-bucket="non-working-today"] .focus-lane-marker { background: var(--idle); }
+    .focus-lane[data-focus-bucket="non-working-today"] .focus-lane-count { color: var(--idle); }
     .focus-lane-body { display: grid; gap: 12px; min-height: 130px; padding: 12px; border-radius: 0 0 13px 13px; background: var(--bg); }
     .focus-empty { padding: 34px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 12px; text-align: center; }
     .focus-project-group { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
@@ -217,6 +282,7 @@
     .focus-group-count { flex: 0 0 auto; color: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
     .focus-worktree-group + .focus-worktree-group { border-top: 1px solid var(--line); }
     .focus-worktree-head { display: grid; grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 8px 11px; background: var(--hover); }
+    .focus-worktree-head.search-result { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; }
     .focus-worktree-name { overflow: hidden; font: 700 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .focus-worktree-kind { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
     .focus-session-list { display: grid; }
@@ -231,6 +297,8 @@
     .focus-session-meta { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 5px; color: var(--muted); font-size: 10px; }
     .focus-session-meta .live-state { max-width: 130px; }
     .focus-session-time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-search-hit { overflow: hidden; margin-top: 6px; color: var(--muted); font-size: 10px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-search-hit strong { color: var(--accent); font-weight: 750; }
     .focus-session-card .focus-action { min-width: 44px; padding: 5px 7px; font-size: 11px; }
     .focus-session-card .manual { grid-column: 2 / -1; }
     .project-management { width: min(1240px, 100%); margin: 0 auto; padding: 32px clamp(16px, 4vw, 54px) 64px; }
@@ -402,7 +470,7 @@
       <button id="goals-view-button" type="button" aria-pressed="false">目标</button>
       <button id="gateway-view-button" type="button" aria-pressed="false">网关</button>
     </div>
-    <div class="search-wrap session-only"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
+    <div class="search-wrap session-search"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
     <div class="top-actions">
       <span id="index-status">索引更新时间未知</span>
       <div class="mode-switch session-only" aria-label="会话范围">
@@ -413,8 +481,18 @@
   </header>
   <div id="focus-view" class="focus-view" hidden>
     <header class="focus-head">
-      <div><h1 class="focus-title">聚焦</h1><p class="focus-description">按 Orca 原始状态和本机日期，只看 working 与最近更新的非 working session。</p></div>
-      <span id="focus-updated" class="focus-updated">状态尚未读取</span>
+      <div><h1 class="focus-title">聚焦</h1><p class="focus-description">按 Orca 原始状态和本机日期分组，分列不会改变状态值。</p></div>
+      <div class="focus-head-actions">
+        <label class="focus-project-sort-control" for="focus-project-sort">
+          <span>项目排序</span>
+          <select id="focus-project-sort">
+            <option value="az">A–Z</option>
+            <option value="za">Z–A</option>
+            <option value="recent">最近活动</option>
+          </select>
+        </label>
+        <span id="focus-updated" class="focus-updated">状态尚未读取</span>
+      </div>
     </header>
     <div id="focus-workspace" class="focus-workspace">
       <aside id="focus-monitor" class="focus-monitor" hidden aria-live="polite"></aside>
@@ -496,11 +574,12 @@
   <script>
     (() => {
       const POLL_MS = 5000;
+      const CAPTURE_PLACEHOLDER = "捕捉一个想法…";
       const SEARCH_DEBOUNCE_MS = 200;
       const RESULT_RESET_MS = 2000;
+      const SEND_CONFIRMATION_FEEDBACK_MS = 1400;
       const LIVE_POOL_LIMIT = 5000;
       const VISIBLE_SESSION_LIMIT = 500;
-      const FOCUS_RECENT_DAYS = 3;
       const FOCUS_INPUT_PAGE_SIZE = 5;
       const FLOATING_MENU_VIEWPORT_GAP = 8;
       const FOCUS_MONITOR_VIEWPORT_GAP_PX = 16;
@@ -511,15 +590,32 @@
       const FOCUS_MONITOR_DOCK_MAX_PX = 180;
       const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
       const COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.collapsedWorktrees.v1";
-      const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v1";
-      const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v1";
+      const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v2";
+      const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v2";
+      const FOCUS_PROJECT_SORT_STORAGE_KEY = "orcatab.focusProjectSort.v1";
+      const EXPANDED_RUNS_STORAGE_KEY = "orcatab.expandedRuns.v1";
       const FOCUS_MONITOR_PLACEMENT_STORAGE_KEY = "orcatab.focusMonitorPlacement.v1";
+      const FOCUS_PROJECT_SORT_MODES = new Set(["az", "za", "recent"]);
+      const FOCUS_PROJECT_NAME_COLLATOR = new Intl.Collator(["zh-CN", "en"], { numeric: true, sensitivity: "base" });
       const UNINDEXED_LIVE_PROJECT_KEY = "__unindexed_live__";
       const SESSION_AGENTS = new Set(["claude", "codex", "hermes"]);
+      const SEND_STATE_LABELS = {
+        pending: "等待确认", verifying: "正在核对", confirmed: "已确认", stalled: "确认失败", failed: "确认失败",
+      };
+      const SEND_STATE_ICONS = {
+        pending: "clock", verifying: "spinner", confirmed: "check", stalled: "x", failed: "x",
+      };
+      const SEND_CONFLICT_MESSAGES = {
+        offline: "会话已不在线，输入没有发出",
+        "not-waiting": "会话已不在等待输入，输入没有发出",
+        "status-changed": "会话状态已变化，输入没有发出",
+        "handle-changed": "会话已换到另一个 Orca 终端，输入没有发出",
+        "running-outside-orca": "该会话在 Orca 外运行，无法发送",
+      };
       const FOCUS_LANES = [
-        { key: "working", title: "Working", note: "当前仍在执行", empty: "当前没有 working session" },
-        { key: "idle-today", title: "Idle 今日", note: "非 working · 本机今天 00:00 起", empty: "今天没有 idle session" },
-        { key: "idle-recent", title: "Idle 过去 3 天", note: "非 working · 此前 3 个自然日", empty: "过去 3 天没有 idle session" },
+        { key: "working", title: "进行中", range: "", note: "当前仍在执行", empty: "当前没有进行中的会话" },
+        { key: "non-working-today", title: "操作/就绪", range: "今天", note: "今天更新的非进行中会话", empty: "今天没有操作或就绪的会话" },
+        { key: "non-working-recent", title: "操作/就绪", range: "三天内", note: "此前 3 个自然日，不含今天", empty: "三天内没有操作或就绪的会话" },
       ];
       const state = {
         projects: [], sessions: [], selectedProject: "", liveOnly: false, query: "", requestId: 0,
@@ -530,15 +626,24 @@
         collapsedWorktrees: loadCollapsedWorktrees(),
         focusCollapsedProjects: loadStoredStringSet(FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY, "Focus projects"),
         focusCollapsedWorktrees: loadStoredStringSet(FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY, "Focus worktrees"),
+        focusProjectSort: loadFocusProjectSort(),
+        orchestrationRuns: [], orchestrationEtag: "", orchestrationSupported: true,
+        expandedRuns: loadStoredStringSet(EXPANDED_RUNS_STORAGE_KEY, "expanded orchestration runs"),
         worktreeResources: new Map(), resourceEtag: "", resourcesSupported: true,
         gateway: null, gatewayEtag: "", gatewaySupported: true,
         projectScope: "active", projectQuery: "",
         directoryAudit: null, directoryAuditSupported: true,
         orcaAudit: null, orcaAuditEtag: "", orcaAuditSupported: true,
-        focusSessions: [], focusSessionEtag: "",
+        focusBoard: null, focusBoardEtag: "", focusBoardSupported: true,
+        focusSearchMatches: new Map(), focusSearchQuery: "", focusSearchPending: false,
         recentInputsBySession: {}, recentInputTimesBySession: {}, recentInputsVersion: -1,
         recentInputsHasMoreBySession: {}, recentInputsLoadingBySession: {},
         recentInputsIdentitySignature: "", recentInputsSupported: true, focusMonitorSessionKey: "",
+        sendRecords: {}, sendDrafts: {}, sendSupported: true, sendRecordsSignature: "",
+        sendConfirmationFlashes: {}, sendConfirmationSeen: {},
+        sendCompositionKey: "", sendRenderPending: false,
+        sessionTasks: {}, sessionTasksEtag: "", tasksSupported: true, boards: null,
+        captureKey: "", captureDrafts: {}, capturePickerKey: "", captureTarget: "",
         focusMonitorPlacement: loadFocusMonitorPlacement(),
       };
       const searchInput = document.querySelector("#search");
@@ -549,6 +654,8 @@
       const focusMonitorDockRight = document.querySelector("#focus-monitor-dock-right");
       const focusBoard = document.querySelector("#focus-board");
       const focusUpdated = document.querySelector("#focus-updated");
+      const focusProjectSort = document.querySelector("#focus-project-sort");
+      focusProjectSort.value = state.focusProjectSort;
       const sessionsView = document.querySelector("#sessions-view");
       const projectsView = document.querySelector("#projects-view");
       const goalsView = document.querySelector("#goals-view");
@@ -646,25 +753,6 @@
         return `${Math.floor(hours / 24)} 天前`;
       }
 
-      function focusDayBoundaries(now = Date.now()) {
-        const today = new Date(now);
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const recent = new Date(today);
-        recent.setDate(recent.getDate() - FOCUS_RECENT_DAYS);
-        return { recent: recent.getTime(), today: today.getTime(), tomorrow: tomorrow.getTime() };
-      }
-
-      function focusBucket(row, boundaries) {
-        const status = rawLiveState(row.live);
-        if (status === "working") return "working";
-        const updatedAt = row.live?.updatedAt;
-        if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return null;
-        if (updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow) return "idle-today";
-        if (updatedAt >= boundaries.recent && updatedAt < boundaries.today) return "idle-recent";
-        return null;
-      }
 
       function focusInputText(value) {
         return String(value || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -711,6 +799,35 @@
           ordered.unshift(UNINDEXED_LIVE_PROJECT_KEY);
         }
         return ordered;
+      }
+
+      function focusProjectLatest(rows) {
+        return rows.reduce((latest, row) => Math.max(latest, row.live?.updatedAt || 0), 0);
+      }
+
+      function compareFocusProjectNames(leftKey, rightKey, direction = 1) {
+        const left = projectFor(leftKey);
+        const right = projectFor(rightKey);
+        return direction * (
+          FOCUS_PROJECT_NAME_COLLATOR.compare(left.name, right.name)
+          || left.key.localeCompare(right.key)
+        );
+      }
+
+      function orderedFocusProjectKeys(groups) {
+        return [...groups.keys()].sort((leftKey, rightKey) => {
+          if (leftKey === UNINDEXED_LIVE_PROJECT_KEY) return -1;
+          if (rightKey === UNINDEXED_LIVE_PROJECT_KEY) return 1;
+          const pinOrder = Number(Boolean(projectFor(rightKey).pinned))
+            - Number(Boolean(projectFor(leftKey).pinned));
+          if (pinOrder) return pinOrder;
+          if (state.focusProjectSort === "recent") {
+            const activityOrder = focusProjectLatest(groups.get(rightKey))
+              - focusProjectLatest(groups.get(leftKey));
+            if (activityOrder) return activityOrder;
+          }
+          return compareFocusProjectNames(leftKey, rightKey, state.focusProjectSort === "za" ? -1 : 1);
+        });
       }
 
       function visibleProjects() {
@@ -796,8 +913,9 @@
       function liveStateText(live) {
         const status = rawLiveState(live);
         if (status === "working") return "进行中";
-        if (status === "done") return "等待用户";
-        if (status === "waiting") return "等待中";
+        if (status === "done") return "已就绪";
+        if (status === "waiting") return "需操作";
+        if (status === "blocked") return "已受阻";
         if (status === "idle") return "空闲";
         if (status === "busy") return "忙碌";
         if (status === "shell") return "终端中";
@@ -843,6 +961,32 @@
         return element;
       }
 
+      function lineIcon(name) {
+        const paths = {
+          check: "M5 12.5l4.25 4L19 7",
+          clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M12 7v5l3 2",
+          copy: "M9 8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1",
+          spinner: "M20 12a8 8 0 1 1-2.34-5.66",
+          x: "M7 7l10 10M17 7L7 17",
+        };
+        const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+        const path = document.createElementNS(SVG_NAMESPACE, "path");
+        path.setAttribute("d", paths[name] || paths.clock);
+        svg.append(path);
+        return svg;
+      }
+
+      function iconButton(className, label, iconName) {
+        const button = make("button", `session-send-icon-button ${className}`);
+        button.type = "button";
+        button.setAttribute("aria-label", label);
+        button.title = label;
+        button.append(lineIcon(iconName));
+        return button;
+      }
+
       function pinIndicator(label) {
         const indicator = make("span", "pin-indicator");
         indicator.setAttribute("role", "img");
@@ -875,6 +1019,27 @@
         } catch (error) {
           console.warn(`Unable to save ${label}`, error);
         }
+      }
+
+      function loadFocusProjectSort() {
+        try {
+          const value = localStorage.getItem(FOCUS_PROJECT_SORT_STORAGE_KEY) || "az";
+          return FOCUS_PROJECT_SORT_MODES.has(value) ? value : "az";
+        } catch (error) {
+          console.warn("Unable to load Focus project sort", error);
+          return "az";
+        }
+      }
+
+      function setFocusProjectSort(value) {
+        if (!FOCUS_PROJECT_SORT_MODES.has(value) || value === state.focusProjectSort) return;
+        state.focusProjectSort = value;
+        try {
+          localStorage.setItem(FOCUS_PROJECT_SORT_STORAGE_KEY, value);
+        } catch (error) {
+          console.warn("Unable to save Focus project sort", error);
+        }
+        renderFocus();
       }
 
       function loadCollapsedWorktrees() {
@@ -923,14 +1088,18 @@
         render();
       }
 
-      function focusWorktreeCollapseKey(projectKey, worktreeRoot) {
-        return JSON.stringify([projectKey, worktreeRoot]);
+      function focusProjectCollapseKey(laneKey, projectKey) {
+        return JSON.stringify([laneKey, projectKey]);
       }
 
-      function setFocusProjectCollapsed(projectKey, collapsed) {
+      function focusWorktreeCollapseKey(laneKey, projectKey, worktreeRoot) {
+        return JSON.stringify([laneKey, projectKey, worktreeRoot]);
+      }
+
+      function setFocusProjectCollapsed(collapseKey, collapsed) {
         const next = new Set(state.focusCollapsedProjects);
-        if (collapsed) next.add(projectKey);
-        else next.delete(projectKey);
+        if (collapsed) next.add(collapseKey);
+        else next.delete(collapseKey);
         state.focusCollapsedProjects = next;
         saveStoredStringSet(FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY, "Focus projects", next);
         renderFocus();
@@ -943,6 +1112,15 @@
         state.focusCollapsedWorktrees = next;
         saveStoredStringSet(FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY, "Focus worktrees", next);
         renderFocus();
+      }
+
+      function setRunExpanded(runId, expanded) {
+        const next = new Set(state.expandedRuns);
+        if (expanded) next.add(runId);
+        else next.delete(runId);
+        state.expandedRuns = next;
+        saveStoredStringSet(EXPANDED_RUNS_STORAGE_KEY, "expanded orchestration runs", next);
+        render();
       }
 
       function closeFloatingMenus(except = null) {
@@ -1094,6 +1272,450 @@
         } finally { button.disabled = false; }
       }
 
+      function canSendInput(row) {
+        return Boolean(state.sendSupported && row.live && row.live.handle && rawLiveState(row.live) === "done");
+      }
+
+      function sendPath(row) {
+        return `/api/session-send/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`;
+      }
+
+      function sendInputElement(key) {
+        return document.querySelector(`.session-send[data-send-key="${CSS.escape(key)}"] .session-send-input`);
+      }
+
+      function activeSendFocus() {
+        const active = document.activeElement;
+        const form = active && active.closest ? active.closest(".session-send") : null;
+        if (!form || !form.dataset.sendKey) return null;
+        const caret = typeof active.selectionStart === "number" ? active.selectionStart : null;
+        return { key: form.dataset.sendKey, caret };
+      }
+
+      function restoreSendFocus(previous) {
+        if (!previous) return;
+        const input = sendInputElement(previous.key);
+        if (!input) return;
+        input.focus();
+        if (previous.caret !== null) input.setSelectionRange(previous.caret, previous.caret);
+      }
+
+      function finishSendComposition(key) {
+        if (state.sendCompositionKey === key) state.sendCompositionKey = "";
+        if (!state.sendRenderPending) return;
+        state.sendRenderPending = false;
+        requestAnimationFrame(renderCurrentView);
+      }
+
+      function renderCurrentView() {
+        if (state.view === "focus") renderFocus();
+        else render();
+      }
+
+      function registerSendConfirmation(entry) {
+        const key = sessionKey(entry);
+        const signature = `${entry.sentAt || 0}:${entry.confirmedAt || 0}`;
+        if (state.sendConfirmationSeen[key] === signature) return;
+        state.sendConfirmationSeen[key] = signature;
+        const flash = { ...entry, state: "confirmed" };
+        state.sendConfirmationFlashes[key] = flash;
+        setTimeout(() => {
+          const current = state.sendConfirmationFlashes[key];
+          if (!current || current.sentAt !== flash.sentAt) return;
+          delete state.sendConfirmationFlashes[key];
+          if (state.sendRecords[key]?.state === "confirmed"
+            && state.sendRecords[key].sentAt === flash.sentAt) delete state.sendRecords[key];
+          state.sendRecordsSignature = "";
+          renderCurrentView();
+        }, SEND_CONFIRMATION_FEEDBACK_MS);
+      }
+
+      async function loadSendRecords() {
+        if (!state.sendSupported) return false;
+        const response = await fetch("/api/session-send");
+        if (response.status === 404) {
+          state.sendSupported = false;
+          const had = Object.keys(state.sendRecords).length > 0;
+          state.sendRecords = {};
+          state.sendConfirmationFlashes = {};
+          return had;
+        }
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        const records = { ...(body.records || {}) };
+        Object.entries(records).forEach(([key, record]) => {
+          if (record.state !== "confirmed") return;
+          registerSendConfirmation(record);
+          delete records[key];
+        });
+        (Array.isArray(body.confirmed) ? body.confirmed : []).forEach(registerSendConfirmation);
+        Object.entries(state.sendConfirmationFlashes).forEach(([key, record]) => {
+          if (!records[key]) records[key] = record;
+        });
+        const signature = JSON.stringify(records);
+        if (signature === state.sendRecordsSignature) return false;
+        state.sendRecords = records;
+        state.sendRecordsSignature = signature;
+        return true;
+      }
+
+      async function submitSessionInput(row, input, button) {
+        const key = sessionKey(row);
+        const text = input.value.trim();
+        if (!text) { input.focus(); return; }
+        const original = button.textContent;
+        button.disabled = true;
+        input.disabled = true;
+        button.textContent = "发送中…";
+        try {
+          const response = await fetch(sendPath(row), jsonRequest("POST", {
+            text, expectedHandle: row.live?.handle, expectedStatus: rawLiveState(row.live),
+          }));
+          const body = await response.json();
+          if (!response.ok) throw new Error(SEND_CONFLICT_MESSAGES[body.code] || body.error || `HTTP ${response.status}`);
+          delete state.sendConfirmationFlashes[key];
+          state.sendRecords[key] = body.record;
+          state.sendRecordsSignature = "";
+          delete state.sendDrafts[key];
+          input.value = "";
+          showToast("已发送，已加入自动确认队列");
+          renderCurrentView();
+          sendInputElement(key)?.focus();
+        } catch (error) {
+          showToast(`发送失败：${error.message}`);
+        } finally {
+          input.disabled = false;
+          button.disabled = false;
+          button.textContent = original;
+        }
+      }
+
+      function sessionSendForm(row) {
+        if (!canSendInput(row)) return null;
+        const key = sessionKey(row);
+        const form = make("form", "session-send");
+        form.dataset.sendKey = key;
+        const input = make("input", "session-send-input");
+        input.type = "text";
+        input.value = state.sendDrafts[key] || "";
+        input.placeholder = `发送给 ${row.agent}…`;
+        input.setAttribute("aria-label", `发送输入到会话：${row.displayTitle}`);
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        let composing = false;
+        let suppressCompositionSubmit = false;
+        input.addEventListener("input", () => { state.sendDrafts[key] = input.value; });
+        input.addEventListener("compositionstart", () => {
+          composing = true;
+          state.sendCompositionKey = key;
+        });
+        input.addEventListener("compositionend", () => {
+          composing = false;
+          suppressCompositionSubmit = true;
+          state.sendDrafts[key] = input.value;
+          finishSendComposition(key);
+          setTimeout(() => { suppressCompositionSubmit = false; }, 0);
+        });
+        input.addEventListener("keydown", (event) => {
+          if (event.isComposing || composing || event.keyCode === 229) {
+            if (event.key === "Enter") suppressCompositionSubmit = true;
+          }
+        });
+        const button = make("button", "session-send-button", "发送");
+        button.type = "submit";
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          if (composing || suppressCompositionSubmit) return;
+          submitSessionInput(row, input, button);
+        });
+        form.append(input, button);
+        return form;
+      }
+
+      async function reuseSentInput(row, record) {
+        const key = sessionKey(row);
+        const input = sendInputElement(key);
+        if (input) {
+          input.value = record.text;
+          state.sendDrafts[key] = record.text;
+          input.focus();
+          input.setSelectionRange(record.text.length, record.text.length);
+        }
+        await copyText(record.text, input ? "已复制并回填上次输入" : "已复制上次输入");
+      }
+
+      async function dismissSentInput(row) {
+        const key = sessionKey(row);
+        delete state.sendConfirmationFlashes[key];
+        delete state.sendRecords[key];
+        state.sendRecordsSignature = "";
+        renderCurrentView();
+        try { await api(sendPath(row), { method: "DELETE" }); }
+        catch (error) { showToast(`清除记录失败：${error.message}`); }
+      }
+
+      function sentInputNote(row) {
+        const record = state.sendRecords[sessionKey(row)];
+        if (!record) return null;
+        const note = make("div", "session-send-note");
+        note.dataset.state = record.state;
+        const stateLabel = SEND_STATE_LABELS[record.state] || "等待确认";
+        const label = make("span", "session-send-state");
+        label.setAttribute("role", "img");
+        label.setAttribute("aria-label", stateLabel);
+        label.title = record.state === "verifying"
+          ? "正在核对：会话已进入进行中"
+          : record.state === "confirmed"
+            ? "已确认：核对到相同的用户输入"
+            : record.state === "stalled" || record.state === "failed"
+              ? "确认失败：未在时限内核对到相同的用户输入"
+              : `${relativeTime(record.sentAt)}发送到终端 ${record.handle}`;
+        label.append(lineIcon(SEND_STATE_ICONS[record.state] || "clock"));
+        const text = make("span", "session-send-text", record.text);
+        text.title = record.text;
+        const copy = iconButton("session-send-copy", "复制上次输入", "copy");
+        copy.addEventListener("click", () => reuseSentInput(row, record));
+        const dismiss = iconButton("session-send-dismiss", "忽略", "x");
+        dismiss.addEventListener("click", () => dismissSentInput(row));
+        note.append(label, text, copy, dismiss);
+        return note;
+      }
+
+      function sessionTasksFor(row) {
+        return state.sessionTasks[sessionKey(row)] || [];
+      }
+
+      async function loadSessionTasks() {
+        if (!state.tasksSupported) return false;
+        const result = await optionalConditionalApi(
+          "/api/session-tasks?refresh=1", state.sessionTasksEtag, { tasks: {} },
+        );
+        if (result.unsupported) { state.tasksSupported = false; return false; }
+        if (result.unchanged) return false;
+        state.sessionTasks = result.body.tasks || {};
+        state.sessionTasksEtag = result.etag;
+        return true;
+      }
+
+      async function reloadSessionTasks() {
+        state.sessionTasksEtag = "";
+        await loadSessionTasks();
+        renderCurrentView();
+      }
+
+      async function ensureBoards(force) {
+        if (state.boards && !force) return state.boards;
+        state.boards = await api("/api/boards");
+        return state.boards;
+      }
+
+      /** The board list lands after the first paint; redraw so the bound-project hint shows up. */
+      function ensureBoardsThenRender() {
+        if (state.boards) return;
+        ensureBoards(false).then(renderCurrentView).catch(() => {});
+      }
+
+      function boundProjectLabel(row) {
+        const project = state.boards?.bindings.find((binding) => binding.projectKey === row.projectKey);
+        if (!project) return "";
+        const board = state.boards.boards.find((candidate) => candidate.id === project.boardId);
+        return `${board ? board.name : project.boardId} · ${project.boardProjectName}`;
+      }
+
+      function captureTargetOptions() {
+        return (state.boards?.boards || []).flatMap((board) => board.projects
+          .map((project) => ({
+            boardId: board.id, projectId: project.id, label: `${board.name} · ${project.name}`,
+          })))
+          .map((option, index) => ({ ...option, value: String(index) }));
+      }
+
+      /** Turns a 409 into an inline picker instead of a dead end: the repo just needs a board project once. */
+      async function openCapturePicker(key, message) {
+        try { await ensureBoards(true); }
+        catch (error) { showToast(`读取任务板失败：${error.message}`); return; }
+        const options = captureTargetOptions();
+        if (!options.length) {
+          showToast("没有可用的任务板项目，先在任务板里建一个");
+          return;
+        }
+        state.capturePickerKey = key;
+        if (!options.some((option) => option.value === state.captureTarget)) {
+          state.captureTarget = options[0].value;
+        }
+        if (message) showToast(message);
+        renderCurrentView();
+      }
+
+      async function submitCapture(row, input, button) {
+        const key = sessionKey(row);
+        const title = input.value.trim();
+        if (!title) { input.focus(); return; }
+        const picked = state.capturePickerKey === key
+          ? captureTargetOptions().find((option) => option.value === state.captureTarget) : null;
+        const original = button.textContent;
+        input.disabled = true;
+        button.disabled = true;
+        button.textContent = "捕捉中…";
+        try {
+          const response = await fetch(`/api/session-tasks/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title,
+              ...(picked ? { boardId: picked.boardId, projectId: picked.projectId } : {}),
+            }),
+          });
+          const body = await response.json();
+          if (response.status === 409 && body.code === "project-required") {
+            await openCapturePicker(key, "先选一个任务板项目，之后这个仓库就记住了");
+            return;
+          }
+          if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+          delete state.captureDrafts[key];
+          state.capturePickerKey = "";
+          state.captureKey = "";
+          input.value = "";
+          if (body.binding) state.boards = null;
+          showToast(body.backlinkError ? "已捕捉，但没能回写会话证据" : "已捕捉，等待落地");
+          await reloadSessionTasks();
+        } catch (error) {
+          showToast(`捕捉失败：${error.message}`);
+        } finally {
+          input.disabled = false;
+          button.disabled = false;
+          button.textContent = original;
+        }
+      }
+
+      async function removeSessionTask(row, task) {
+        const path = `/api/session-tasks/${encodeURIComponent(row.agent)}/${encodeURIComponent(row.sid)}`
+          + `/${encodeURIComponent(task.boardId)}/${encodeURIComponent(task.taskId)}`;
+        try {
+          await api(path, { method: "DELETE" });
+          await reloadSessionTasks();
+        } catch (error) {
+          showToast(`移除失败：${error.message}`);
+        }
+      }
+
+      function sessionTaskList(row) {
+        const tasks = sessionTasksFor(row);
+        if (!tasks.length) return null;
+        const list = make("div", "session-tasks");
+        tasks.forEach((task) => {
+          const item = make("div", "session-task");
+          item.dataset.kind = task.statusKind;
+          item.append(make("span", "session-task-dot"));
+          if (task.number) item.append(make("span", "session-task-number", task.number));
+          const title = make("span", "session-task-title", task.title);
+          title.title = `${task.title}\n${task.status}`;
+          item.append(title);
+          if (task.url) {
+            const open = make("a", "action session-task-open", "打开");
+            open.href = task.url;
+            open.target = "_blank";
+            open.rel = "noreferrer";
+            item.append(open);
+          }
+          const remove = make("button", "action session-task-remove", "移除");
+          remove.type = "button";
+          remove.title = "只解除与本会话的关联，不删除任务板上的任务";
+          remove.addEventListener("click", () => removeSessionTask(row, task));
+          item.append(remove);
+          list.append(item);
+        });
+        return list;
+      }
+
+      function captureForm(row) {
+        const key = sessionKey(row);
+        const form = make("form", "session-capture");
+        form.dataset.captureKey = key;
+        const input = make("input", "session-capture-input");
+        input.type = "text";
+        input.value = state.captureDrafts[key] || "";
+        input.placeholder = CAPTURE_PLACEHOLDER;
+        input.setAttribute("aria-label", `捕捉想法到会话：${row.displayTitle}`);
+        input.addEventListener("input", () => { state.captureDrafts[key] = input.value; });
+        const button = make("button", "action session-capture-button", "捕捉");
+        button.type = "submit";
+        form.append(input, button);
+        if (state.capturePickerKey === key) {
+          const picker = make("select", "session-capture-picker");
+          picker.setAttribute("aria-label", "选择任务板项目");
+          captureTargetOptions().forEach((option) => picker.append(new Option(option.label, option.value)));
+          picker.value = state.captureTarget || "";
+          picker.addEventListener("change", () => { state.captureTarget = picker.value; });
+          form.append(picker);
+        } else {
+          const label = boundProjectLabel(row);
+          if (label) {
+            const target = make("button", "action session-capture-target", label);
+            target.type = "button";
+            target.title = "更换这个仓库的任务板项目";
+            target.addEventListener("click", () => openCapturePicker(key, ""));
+            form.append(target);
+          }
+        }
+        const cancel = make("button", "action session-capture-cancel", "取消");
+        cancel.type = "button";
+        cancel.addEventListener("click", () => {
+          state.captureKey = "";
+          state.capturePickerKey = "";
+          renderCurrentView();
+        });
+        form.append(cancel);
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          submitCapture(row, input, button);
+        });
+        return form;
+      }
+
+      function openCapture(row) {
+        state.captureKey = sessionKey(row);
+        state.capturePickerKey = "";
+        ensureBoardsThenRender();
+        renderCurrentView();
+        const form = document.querySelector(`.session-capture[data-capture-key="${CSS.escape(state.captureKey)}"]`);
+        form?.querySelector(".session-capture-input")?.focus();
+      }
+
+      function appendTaskControls(element, row) {
+        if (!state.tasksSupported) return;
+        const list = sessionTaskList(row);
+        if (list) element.append(list);
+        if (state.captureKey === sessionKey(row)) {
+          element.append(captureForm(row));
+          return;
+        }
+        if (!list) return;
+        const opener = make("div", "session-capture-row");
+        const button = make("button", "action session-capture-open", "＋想法");
+        button.type = "button";
+        button.addEventListener("click", () => openCapture(row));
+        opener.append(button);
+        element.append(opener);
+      }
+
+      /** The capture entry point lives with the row's other actions so it costs one click, not two. */
+      function captureAction(row) {
+        const tasks = sessionTasksFor(row);
+        const button = make("button", "action capture-action", tasks.length ? `想法 ${tasks.length}` : "＋想法");
+        button.type = "button";
+        button.title = "捕捉一个想法，挂到这个会话上等待落地";
+        button.addEventListener("click", () => openCapture(row));
+        return button;
+      }
+
+      function appendSendControls(element, row) {
+        const note = sentInputNote(row);
+        if (note) element.append(note);
+        const form = sessionSendForm(row);
+        if (form) element.append(form);
+      }
+
       function sessionRow(row, project, isSearch, options = {}) {
         const element = make("article", "session-row");
         element.tabIndex = -1;
@@ -1105,8 +1727,9 @@
         const main = make("div", "session-main");
         const titleLine = make("div", "session-title-line");
         titleLine.append(make("span", `agent-badge agent-${row.agent}`, row.agent));
-        const title = make("div", "session-title", row.displayTitle);
-        if (row.indexed === false) title.title = [row.live?.name, row.sid].filter(Boolean).join(" · ");
+        const title = make("div", "session-title", options.titleOverride || row.displayTitle);
+        if (options.titleOverride) title.title = `${options.titleOverride}\n${row.displayTitle}`;
+        else if (row.indexed === false) title.title = [row.live?.name, row.sid].filter(Boolean).join(" · ");
         else if (row.title && row.firstPrompt) title.title = row.firstPrompt;
         titleLine.append(title);
         const liveState = make("span", "live-state");
@@ -1130,8 +1753,17 @@
         element.append(main);
 
         const chips = make("div", "chips");
+        if (options.leadChip) chips.append(options.leadChip);
+        if (options.originChip) {
+          const origin = basename(worktreeRootFor(row, project)) || project.name;
+          const chip = make("span", "chip run-origin-chip", origin);
+          chip.title = `来自 ${project.name} · ${worktreeRootFor(row, project) || "未知 worktree"}`;
+          chips.append(chip);
+        }
         if (row.indexed === false) chips.append(make("span", "chip", "无 transcript"));
-        if (row.cwd && row.cwd !== (row.worktreeRoot || project.root)) chips.append(make("span", "chip", basename(row.cwd)));
+        if (!options.originChip && row.cwd && row.cwd !== (row.worktreeRoot || project.root)) {
+          chips.append(make("span", "chip", basename(row.cwd)));
+        }
         if (row.branch && row.branch !== "HEAD") chips.append(make("span", "chip", row.branch));
         (row.goals || []).forEach((goal) => {
           const button = make("button", "chip goal-chip", goal.name);
@@ -1176,6 +1808,7 @@
         drawerPanel.append(copyButton);
         if (row.indexed !== false) drawerPanel.append(commandButton);
         actions.append(focusButton, drawer);
+        if (state.tasksSupported) actions.append(captureAction(row));
         if (options.goalPicker && row.indexed !== false) {
           const picker = make("select", "goal-picker");
           picker.setAttribute("aria-label", "添加到目标");
@@ -1200,6 +1833,8 @@
           actions.append(button);
         });
         element.append(actions);
+        appendSendControls(element, row);
+        appendTaskControls(element, row);
         return element;
       }
 
@@ -1340,9 +1975,7 @@
 
       function focusMonitorRow() {
         if (!state.focusMonitorSessionKey) return null;
-        const boundaries = focusDayBoundaries();
-        return visibleFocusRows().find((row) => sessionKey(row) === state.focusMonitorSessionKey
-          && focusBucket(row, boundaries) !== null) || null;
+        return visibleFocusRows().find((row) => sessionKey(row) === state.focusMonitorSessionKey) || null;
       }
 
       function showFocusMonitor(row) {
@@ -1472,30 +2105,46 @@
         const updatedAt = row.live?.updatedAt;
         const status = rawLiveState(row.live);
         const timeLabel = typeof updatedAt === "number" && Number.isFinite(updatedAt)
-          ? `${status === "done" ? "完成" : "状态更新"} ${relativeTime(updatedAt)}`
+          ? `${status === "done" ? "就绪" : "状态更新"} ${relativeTime(updatedAt)}`
           : "状态时间未知";
         meta.append(liveState, make("span", "focus-session-time", timeLabel));
         if (row.branch && row.branch !== "HEAD") meta.append(make("span", "chip", row.branch));
         main.append(titleLine, meta);
+        if (state.query && Array.isArray(row.hits) && row.hits.length) {
+          const hit = make("div", "focus-search-hit");
+          appendHighlighted(hit, row.hits[0].snippet);
+          main.append(hit);
+        }
         const jump = make("button", "action focus-action focus-jump", "跳转");
         jump.type = "button";
         jump.addEventListener("click", () => focusSession(row, jump, element));
         element.addEventListener("mouseenter", () => showFocusMonitor(row));
         element.addEventListener("focusin", () => showFocusMonitor(row));
         element.append(dot, main, jump);
+        appendSendControls(element, row);
+        appendTaskControls(element, row);
         return element;
       }
 
-      function visibleFocusRows() {
-        return state.focusSessions.filter((row) => {
-          if (!row.live) return false;
-          const project = projectFor(row.projectKey);
-          const worktreeArchived = Boolean(state.worktreePreferences.get(worktreeRootFor(row, project))?.archived);
-          return !project.archived && !worktreeArchived;
+      // The server assigns lanes and applies archive visibility; these are already the rows to draw.
+      function focusLaneRows(key) {
+        const rows = state.focusBoard?.lanes?.find((lane) => lane.key === key)?.rows || [];
+        if (!state.query) return rows;
+        return rows.flatMap((row) => {
+          const match = state.focusSearchMatches.get(sessionKey(row));
+          return match ? [{ ...row, hits: match.hits || [] }] : [];
         });
       }
 
-      function renderFocusGroups(parent, rows) {
+      function visibleFocusRows() {
+        return FOCUS_LANES.flatMap((definition) => focusLaneRows(definition.key));
+      }
+
+      function allFocusRows() {
+        return (state.focusBoard?.lanes || []).flatMap((lane) => lane.rows);
+      }
+
+      function renderFocusGroups(parent, laneKey, rows) {
         if (!rows.length) return;
         const projectGroups = new Map();
         rows.forEach((row) => {
@@ -1503,14 +2152,16 @@
           group.push(row);
           projectGroups.set(row.projectKey, group);
         });
-        orderedProjectKeys(projectGroups).forEach((projectKey) => {
+        orderedFocusProjectKeys(projectGroups).forEach((projectKey) => {
           const projectRows = projectGroups.get(projectKey);
           const project = projectFor(projectKey);
-          const projectCollapsed = state.focusCollapsedProjects.has(projectKey);
+          const projectCollapseKey = focusProjectCollapseKey(laneKey, projectKey);
+          const projectCollapsed = !state.query && state.focusCollapsedProjects.has(projectCollapseKey);
           const firstProjectSession = projectRows[0];
-          const projectBodyId = `focus-project-worktrees-${firstProjectSession.agent}-${firstProjectSession.sid}`;
+          const projectBodyId = `focus-project-worktrees-${laneKey}-${firstProjectSession.agent}-${firstProjectSession.sid}`;
           const projectGroup = make("article", "focus-project-group");
           projectGroup.dataset.projectKey = projectKey;
+          projectGroup.dataset.focusLane = laneKey;
           projectGroup.classList.toggle("collapsed", projectCollapsed);
           const projectHead = make("header", "focus-project-head");
           const projectToggle = make("button", "worktree-toggle focus-group-toggle");
@@ -1519,11 +2170,13 @@
           projectToggle.setAttribute("aria-controls", projectBodyId);
           projectToggle.setAttribute("aria-label", `${projectCollapsed ? "展开" : "收起"}项目：${project.name}`);
           projectToggle.title = `${projectCollapsed ? "展开" : "收起"}项目：${project.name}`;
-          projectToggle.addEventListener("click", () => setFocusProjectCollapsed(projectKey, !projectCollapsed));
+          projectToggle.addEventListener("click", () => {
+            setFocusProjectCollapsed(projectCollapseKey, !projectCollapsed);
+          });
           const color = make("span", "color-dot");
           if (project.color) color.style.setProperty("--project-color", project.color);
+          if (!state.query) projectHead.append(projectToggle);
           projectHead.append(
-            projectToggle,
             color,
             make("span", "focus-project-name", project.name),
             make("span", "focus-group-count", String(projectRows.length)),
@@ -1532,18 +2185,20 @@
           projectBody.id = projectBodyId;
           projectBody.hidden = projectCollapsed;
           groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0).forEach((worktree) => {
-            const worktreeCollapseKey = focusWorktreeCollapseKey(projectKey, worktree.root);
-            const worktreeCollapsed = state.focusCollapsedWorktrees.has(worktreeCollapseKey);
+            const worktreeCollapseKey = focusWorktreeCollapseKey(laneKey, projectKey, worktree.root);
+            const worktreeCollapsed = !state.query && state.focusCollapsedWorktrees.has(worktreeCollapseKey);
             const firstWorktreeSession = worktree.rows[0];
-            const sessionListId = `focus-worktree-sessions-${firstWorktreeSession.agent}-${firstWorktreeSession.sid}`;
+            const sessionListId = `focus-worktree-sessions-${laneKey}-${firstWorktreeSession.agent}-${firstWorktreeSession.sid}`;
             const worktreeGroup = make("section", "focus-worktree-group");
             worktreeGroup.dataset.worktreeRoot = worktree.root;
+            worktreeGroup.dataset.focusLane = laneKey;
             worktreeGroup.classList.toggle("collapsed", worktreeCollapsed);
             const unindexed = project.key === UNINDEXED_LIVE_PROJECT_KEY;
             const worktreeName = basename(worktree.root) || (unindexed ? "在线进程" : "未知目录");
             const pathLabel = worktree.root || (unindexed ? "尚无 transcript" : "未识别 worktree");
             const kind = worktreeKind(worktree, project);
             const worktreeHead = make("header", "focus-worktree-head");
+            worktreeHead.classList.toggle("search-result", Boolean(state.query));
             worktreeHead.title = `${kind} · ${pathLabel}`;
             const worktreeToggle = make("button", "worktree-toggle focus-group-toggle");
             worktreeToggle.type = "button";
@@ -1554,8 +2209,8 @@
             worktreeToggle.addEventListener("click", () => {
               setFocusWorktreeCollapsed(worktreeCollapseKey, !worktreeCollapsed);
             });
+            if (!state.query) worktreeHead.append(worktreeToggle);
             worktreeHead.append(
-              worktreeToggle,
               make("span", "focus-worktree-name", worktreeName),
               make("span", "focus-worktree-kind", kind),
               make("span", "focus-group-count", String(worktree.rows.length)),
@@ -1575,33 +2230,34 @@
       }
 
       function renderFocus() {
-        const boundaries = focusDayBoundaries();
-        const buckets = new Map(FOCUS_LANES.map((lane) => [lane.key, []]));
-        visibleFocusRows().forEach((row) => {
-          const bucket = focusBucket(row, boundaries);
-          if (bucket !== null) buckets.get(bucket).push(row);
-        });
+        if (state.sendCompositionKey) { state.sendRenderPending = true; return; }
+        const previousSendFocus = activeSendFocus();
         focusBoard.replaceChildren();
         FOCUS_LANES.forEach((definition) => {
-          const rows = buckets.get(definition.key)
-            .sort((left, right) => (right.live?.updatedAt || 0) - (left.live?.updatedAt || 0));
+          const rows = focusLaneRows(definition.key);
           const lane = make("section", "focus-lane");
           lane.dataset.focusBucket = definition.key;
           const head = make("header", "focus-lane-head");
           const copy = make("div");
-          copy.append(make("h2", "focus-lane-title", definition.title), make("p", "focus-lane-note", definition.note));
+          const title = make("h2", "focus-lane-title", definition.title);
+          if (definition.range) title.append(make("small", "focus-lane-range", definition.range));
+          copy.append(title, make("p", "focus-lane-note", definition.note));
           head.append(
             make("span", "focus-lane-marker"),
             copy,
             make("span", "focus-lane-count", String(rows.length)),
           );
           const body = make("div", "focus-lane-body");
-          if (rows.length) renderFocusGroups(body, rows);
-          else body.append(make("div", "focus-empty", definition.empty));
+          if (rows.length) renderFocusGroups(body, definition.key, rows);
+          else body.append(make(
+            "div", "focus-empty",
+            state.focusSearchPending ? "正在搜索…" : state.query ? `没有匹配“${state.query}”的会话` : definition.empty,
+          ));
           lane.append(head, body);
           focusBoard.append(lane);
         });
         renderFocusMonitor();
+        restoreSendFocus(previousSendFocus);
       }
 
       function worktreeResourceDrawer(root, name) {
@@ -1636,7 +2292,68 @@
         return menu;
       }
 
+      /**
+       * Fold every Orca orchestration run into a single list entry: the coordinator keeps its
+       * own position, and the sessions it dispatched are pulled out of their own worktrees.
+       */
+      function orchestrationGroups(rows) {
+        const byKey = new Map(rows.map((row) => [sessionKey(row), row]));
+        const groups = new Map();
+        const absorbed = new Set();
+        state.orchestrationRuns.forEach((run) => {
+          const coordinatorKey = run.coordinator ? sessionKey(run.coordinator) : "";
+          if (!byKey.has(coordinatorKey) || absorbed.has(coordinatorKey)) return;
+          const workers = (run.workers || [])
+            .filter((worker) => {
+              const key = sessionKey(worker);
+              return key !== coordinatorKey && byKey.has(key) && !absorbed.has(key) && !groups.has(key);
+            })
+            .map((worker) => ({ row: byKey.get(sessionKey(worker)), taskTitle: worker.taskTitle || "" }));
+          if (!workers.length) return;
+          workers.forEach((worker) => absorbed.add(sessionKey(worker.row)));
+          // One coordinator can own several runs; they share a single fold.
+          const group = groups.get(coordinatorKey)
+            || { key: coordinatorKey, runIds: [], objectives: [], workers: [] };
+          group.runIds.push(run.runId);
+          if (run.objective) group.objectives.push(run.objective);
+          group.workers.push(...workers);
+          groups.set(coordinatorKey, group);
+        });
+        groups.forEach((group) => group.workers
+          .sort((a, b) => (b.row.lastInputAt || 0) - (a.row.lastInputAt || 0)));
+        return { groups, absorbed };
+      }
+
+      function runCluster(group, coordinator, project, isSearch) {
+        const cluster = make("div", "run-cluster");
+        cluster.dataset.runIds = group.runIds.join(" ");
+        const expanded = state.expandedRuns.has(group.key);
+        const listId = `run-workers-${group.key.replace("/", "-")}`;
+        const toggle = make("button", "chip run-chip", `编排 · ${group.workers.length} 个子会话`);
+        toggle.type = "button";
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.setAttribute("aria-controls", listId);
+        toggle.setAttribute("aria-label", `${expanded ? "收起" : "展开"}编排子会话：${coordinator.displayTitle}`);
+        toggle.title = [...group.objectives, ...group.runIds].join("\n");
+        toggle.addEventListener("click", () => setRunExpanded(group.key, !expanded));
+        const workerList = make("div", "run-worker-list");
+        workerList.id = listId;
+        workerList.hidden = !expanded;
+        group.workers.forEach(({ row, taskTitle }) => workerList.append(
+          sessionRow(row, projectFor(row.projectKey), isSearch, {
+            goalPicker: true, originChip: true, titleOverride: taskTitle,
+          }),
+        ));
+        cluster.append(
+          sessionRow(coordinator, project, isSearch, { goalPicker: true, leadChip: toggle }),
+          workerList,
+        );
+        return cluster;
+      }
+
       function render() {
+        if (state.sendCompositionKey) { state.sendRenderPending = true; return; }
+        const previousSendFocus = activeSendFocus();
         state.activeRow = -1;
         const isSearch = Boolean(state.query);
         content.replaceChildren();
@@ -1644,8 +2361,10 @@
           content.append(make("div", "empty", state.query ? "没有匹配的会话" : "当前筛选下没有会话"));
           return;
         }
+        const runs = isSearch ? { groups: new Map(), absorbed: new Set() } : orchestrationGroups(state.sessions);
         const groups = new Map();
         state.sessions.forEach((row) => {
+          if (runs.absorbed.has(sessionKey(row))) return;
           const rows = groups.get(row.projectKey) || [];
           rows.push(row);
           groups.set(row.projectKey, rows);
@@ -1740,13 +2459,19 @@
             const list = make("div", "session-list");
             list.id = `worktree-sessions-${firstSession.agent}-${firstSession.sid}`;
             list.hidden = collapsed;
-            worktreeRows.forEach((row) => list.append(sessionRow(row, project, isSearch, { goalPicker: true })));
+            worktreeRows.forEach((row) => {
+              const group = runs.groups.get(sessionKey(row));
+              list.append(group
+                ? runCluster(group, row, project, isSearch)
+                : sessionRow(row, project, isSearch, { goalPicker: true }));
+            });
             cluster.append(worktreeHeader, list);
             stack.append(cluster);
           });
           section.append(stack);
           content.append(section);
         });
+        restoreSendFocus(previousSendFocus);
       }
 
       function renderProjects() {
@@ -2200,42 +2925,74 @@
         }
       }
 
+      // Names a source the board is missing, so an empty lane is never mistaken for a quiet machine.
+      const LIVE_SOURCE_LABELS = {
+        "claude-pid": "Claude 进程", "orca-tab": "Orca 标签页", "hermes-process": "Hermes 进程",
+      };
+
+      function clockTime(timestamp) {
+        return timestamp === null || timestamp === undefined
+          ? "未知时间"
+          : new Date(timestamp).toLocaleTimeString("zh-CN", {
+            hour: "2-digit", minute: "2-digit", second: "2-digit",
+          });
+      }
+
+      function renderFocusFreshness() {
+        const board = state.focusBoard;
+        const checked = new Date().toLocaleTimeString("zh-CN", {
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+        });
+        if (!board) { focusUpdated.textContent = "状态尚未读取"; return; }
+        const down = (board.sources || []).filter((source) => !source.ok);
+        if (!down.length) {
+          focusUpdated.textContent = `状态已确认 ${checked}`;
+          focusUpdated.removeAttribute("data-degraded");
+          return;
+        }
+        const names = down.map((source) => LIVE_SOURCE_LABELS[source.name] || source.name).join("、");
+        const stale = down.filter((source) => source.stale);
+        focusUpdated.textContent = stale.length
+          ? `⚠ ${names}不可用，看板停留在 ${clockTime(stale[0].readAt)} 的快照（${checked} 检查）`
+          : `⚠ ${names}不可用，这些会话已从看板移除（${checked} 检查）`;
+        focusUpdated.setAttribute("data-degraded", "true");
+      }
+
       async function loadFocus() {
         const worktreesRequest = state.worktreesSupported
           ? optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])
           : Promise.resolve({ unchanged: true, etag: state.worktreeEtag, body: [] });
-        const [projects, sessions, worktrees, health] = await Promise.all([
+        const [board, projects, worktrees] = await Promise.all([
+          optionalConditionalApi("/api/board/focus", state.focusBoardEtag, null),
           conditionalApi("/api/projects", state.projectEtag),
-          conditionalApi(`/api/sessions?live=1&limit=${LIVE_POOL_LIMIT}`, state.focusSessionEtag),
           worktreesRequest,
-          api("/healthz"),
+          loadSendRecords(),
+          loadSessionTasks(),
         ]);
-        indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
+        if (board.unsupported) { state.focusBoardSupported = false; return; }
+        if (!board.unchanged) {
+          state.focusBoard = board.body;
+          state.focusBoardEtag = board.etag;
+        }
         if (!projects.unchanged) {
           state.projects = projects.body;
           state.projectEtag = projects.etag;
-        }
-        if (!sessions.unchanged) {
-          state.focusSessions = sessions.body;
-          state.focusSessionEtag = sessions.etag;
         }
         if (worktrees.unsupported) state.worktreesSupported = false;
         else if (!worktrees.unchanged) {
           applyWorktreePreferences(worktrees.body);
           state.worktreeEtag = worktrees.etag;
         }
-        await loadFocusInputs(health.listVersion);
-        focusUpdated.textContent = `Orca 状态更新于 ${new Date().toLocaleTimeString("zh-CN", {
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-        })}`;
+        indexStatus.textContent = `索引更新于 ${relativeTime(state.focusBoard?.indexedAt ?? null)}`;
+        await loadFocusInputs(state.focusBoard?.listVersion ?? -1);
+        renderFocusFreshness();
         renderFocus();
       }
 
       async function loadFocusInputs(listVersion) {
         if (!state.recentInputsSupported) return;
-        const boundaries = focusDayBoundaries();
-        const identities = [...new Map(visibleFocusRows()
-          .filter((row) => row.indexed !== false && focusBucket(row, boundaries) !== null)
+        const identities = [...new Map(allFocusRows()
+          .filter((row) => row.indexed !== false)
           .map((row) => [sessionKey(row), { agent: row.agent, sid: row.sid }])).entries()]
           .sort(([left], [right]) => left.localeCompare(right));
         const signature = identities.map(([key]) => key).join("\u0000");
@@ -2282,14 +3039,30 @@
         projectsView.hidden = !projectsActive;
         goalsView.hidden = !goalsActive;
         gatewayView.hidden = !gatewayActive;
+        const searchActive = focusActive || sessionsActive;
+        document.querySelectorAll(".session-search").forEach((element) => { element.hidden = !searchActive; });
         document.querySelectorAll(".session-only").forEach((element) => { element.hidden = !sessionsActive; });
+        searchInput.placeholder = focusActive ? "搜索聚焦中的会话内容… 按 / 聚焦" : "搜索会话内容… 按 / 聚焦";
+        searchInput.setAttribute("aria-label", focusActive ? "搜索聚焦中的会话内容" : "搜索会话内容");
         focusViewButton.setAttribute("aria-pressed", String(focusActive));
         sessionsViewButton.setAttribute("aria-pressed", String(sessionsActive));
         projectsViewButton.setAttribute("aria-pressed", String(projectsActive));
         goalsViewButton.setAttribute("aria-pressed", String(goalsActive));
         gatewayViewButton.setAttribute("aria-pressed", String(gatewayActive));
         state.activeRow = -1;
-        if (focusActive && refresh) await loadFocus();
+        if (!focusActive) {
+          state.focusSearchPending = false;
+          state.focusSearchQuery = "";
+        }
+        if (focusActive && refresh) {
+          const needsSearch = Boolean(state.query && state.focusSearchQuery !== state.query);
+          if (needsSearch) {
+            state.focusSearchMatches = new Map();
+            state.focusSearchPending = true;
+          }
+          await loadFocus();
+          if (needsSearch) await runFocusSearch(state.query);
+        }
         if (projectsActive && refresh) await loadProjectManagement();
         if (goalsActive && refresh) await loadGoals(true);
         if (gatewayActive && refresh) await loadGateway();
@@ -2520,7 +3293,11 @@
         const resourcesRequest = state.resourcesSupported
           ? optionalConditionalApi("/api/worktree-resources", state.resourceEtag, { resources: {} })
           : Promise.resolve({ unchanged: true, etag: state.resourceEtag, body: { resources: {} } });
-        const [projects, sessions, worktrees, resources, health, goals, live] = await Promise.all([
+        const orchestrationRequest = state.orchestrationSupported
+          ? optionalConditionalApi("/api/orchestration", state.orchestrationEtag, { runs: [] })
+          : Promise.resolve({ unchanged: true, etag: state.orchestrationEtag, body: { runs: [] } });
+        const [projects, sessions, worktrees, resources, health, goals, live, orchestration, sendRecords,
+          tasksChanged] = await Promise.all([
           conditionalApi("/api/projects", state.projectEtag),
           conditionalApi(`/api/sessions?${params}`, state.sessionEtag),
           worktreesRequest,
@@ -2528,7 +3305,11 @@
           api("/healthz"),
           api("/api/goals"),
           conditionalApi("/api/live", state.liveEtag),
+          orchestrationRequest,
+          loadSendRecords(),
+          loadSessionTasks(),
         ]);
+        const sendRecordsChanged = sendRecords === true;
         if (requestId !== state.requestId || state.query) return;
         indexStatus.textContent = `索引更新于 ${relativeTime(health.indexedAt)}`;
         state.worktreePinSupported = Array.isArray(health.capabilities)
@@ -2539,8 +3320,10 @@
         const worktreesChanged = !worktrees.unchanged;
         const resourcesChanged = !resources.unchanged;
         const liveChanged = !live.unchanged;
+        const orchestrationChanged = !orchestration.unchanged;
         if (worktrees.unsupported) state.worktreesSupported = false;
         if (resources.unsupported) state.resourcesSupported = false;
+        if (orchestration.unsupported) state.orchestrationSupported = false;
         if (!projects.unchanged) {
           state.projects = projects.body;
           state.projectEtag = projects.etag;
@@ -2561,15 +3344,25 @@
           state.liveBySession = live.body;
           state.liveEtag = live.etag;
         }
+        if (!orchestration.unchanged) {
+          state.orchestrationRuns = Array.isArray(orchestration.body?.runs) ? orchestration.body.runs : [];
+          state.orchestrationEtag = orchestration.etag;
+        }
         syncSessionLive();
         if (projectsChanged || worktreesChanged || liveChanged) renderProjects();
         if (projectsChanged || liveChanged) renderProjectManagement();
-        if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || liveChanged) render();
+        if (projectsChanged || sessionsChanged || worktreesChanged || resourcesChanged || liveChanged
+          || orchestrationChanged || sendRecordsChanged || tasksChanged) render();
       }
 
       async function refreshLive() {
-        const live = await conditionalApi("/api/live", state.liveEtag);
-        if (live.unchanged) return;
+        const [live, sendRecordsChanged, tasksChanged] = await Promise.all([
+          conditionalApi("/api/live", state.liveEtag), loadSendRecords(), loadSessionTasks(),
+        ]);
+        if (live.unchanged) {
+          if (sendRecordsChanged || tasksChanged) render();
+          return;
+        }
         state.liveBySession = live.body;
         state.liveEtag = live.etag;
         syncSessionLive();
@@ -2578,9 +3371,34 @@
         render();
       }
 
+      async function runFocusSearch(query) {
+        state.focusSearchQuery = query;
+        state.focusSearchMatches = new Map();
+        state.focusSearchPending = Boolean(query);
+        if (!query) { renderFocus(); return; }
+        const requestId = ++state.requestId;
+        renderFocus();
+        const isCurrent = () => requestId === state.requestId
+          && state.query === query && state.view === "focus";
+        try {
+          const rows = await api(`/api/search?q=${encodeURIComponent(query)}&includeLive=0&limit=200`);
+          if (!isCurrent()) return;
+          state.focusSearchMatches = new Map(rows.map((row) => [sessionKey(row), row]));
+        } catch (error) {
+          if (isCurrent()) showToast(`搜索失败：${error.message}`);
+        } finally {
+          if (isCurrent()) {
+            state.focusSearchPending = false;
+            renderFocus();
+          }
+        }
+      }
+
       async function runSearch() {
         const query = searchInput.value.trim();
         state.query = query;
+        if (state.view === "focus") { await runFocusSearch(query); return; }
+        if (state.view !== "sessions") return;
         if (!query) { state.sessionEtag = ""; await loadList(); return; }
         const requestId = ++state.requestId;
         try {
@@ -2632,6 +3450,7 @@
       focusViewButton.addEventListener("click", () => {
         setView("focus").catch((error) => showToast("加载聚焦看板失败：" + error.message));
       });
+      focusProjectSort.addEventListener("change", () => setFocusProjectSort(focusProjectSort.value));
       sessionsViewButton.addEventListener("click", async () => {
         await setView("sessions", false);
         state.sessionEtag = "";
@@ -2714,9 +3533,12 @@
         });
       });
       document.addEventListener("keydown", (event) => {
+        if (event.isComposing || event.keyCode === 229) return;
         if (event.key === "Escape" && closeFloatingMenus()) { event.preventDefault(); return; }
         const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
-        if (event.key === "/" && !typing && state.view === "sessions") { event.preventDefault(); searchInput.focus(); return; }
+        if (event.key === "/" && !typing && (state.view === "sessions" || state.view === "focus")) {
+          event.preventDefault(); searchInput.focus(); return;
+        }
         if (event.key === "/" && !typing && state.view === "projects") { event.preventDefault(); projectSearchInput.focus(); return; }
         if (typing) return;
         if (state.view !== "sessions") return;

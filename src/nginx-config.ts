@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createCachedSnapshot } from "./cached-snapshot";
 import { GATEWAY_DISCOVERY_CACHE_MS, ORCATAB_NGINX_CONFIG } from "./config";
 
 const COMMAND_TIMEOUT_MS = 3_000;
@@ -237,11 +238,6 @@ export function createGatewayReader(options: GatewayReaderOptions = {}): Gateway
   const inspect = options.inspectContainers ?? inspectRunningContainers;
   const configured = ORCATAB_NGINX_CONFIG ? ORCATAB_NGINX_CONFIG.split(",").map((path) => path.trim()).filter(Boolean) : [];
   const nativePaths = options.configPaths ?? [...configured, ...DEFAULT_CONFIG_PATHS];
-  let cached: GatewaySnapshot | null = null;
-  let cachedAt = Number.NEGATIVE_INFINITY;
-  let pending: Promise<GatewaySnapshot> | null = null;
-  let version = 0;
-  let signature = "";
 
   async function load(startedAt: number): Promise<GatewaySnapshot> {
     const warnings: string[] = [];
@@ -269,22 +265,14 @@ export function createGatewayReader(options: GatewayReaderOptions = {}): Gateway
     const routes = files.flatMap(routesFromFile).sort((left, right) => left.urls.join().localeCompare(right.urls.join())
       || left.proxyPass.localeCompare(right.proxyPass));
     const sources = [...new Set(files.map((file) => file.source))].sort();
-    const snapshot = { scannedAt: startedAt, cacheTtlMs: GATEWAY_DISCOVERY_CACHE_MS, sources, files, routes, warnings };
-    const nextSignature = JSON.stringify({ sources, files, routes, warnings });
-    if (nextSignature !== signature) { signature = nextSignature; version += 1; }
-    cached = snapshot;
-    cachedAt = startedAt;
-    return snapshot;
+    return { scannedAt: startedAt, cacheTtlMs: GATEWAY_DISCOVERY_CACHE_MS, sources, files, routes, warnings };
   }
 
-  return {
-    refresh: async () => {
-      const current = now();
-      if (cached !== null && current - cachedAt < GATEWAY_DISCOVERY_CACHE_MS) return cached;
-      if (pending !== null) return pending;
-      pending = load(current).finally(() => { pending = null; });
-      return pending;
-    },
-    getVersion: () => version,
-  };
+  const snapshot = createCachedSnapshot<void, GatewaySnapshot>({
+    ttlMs: GATEWAY_DISCOVERY_CACHE_MS, now,
+    load: (_input, startedAt) => load(startedAt),
+    // scannedAt moves on every load; the version must track content only.
+    signature: ({ sources, files, routes, warnings }) => JSON.stringify({ sources, files, routes, warnings }),
+  });
+  return { refresh: () => snapshot.refresh(), getVersion: snapshot.getVersion };
 }

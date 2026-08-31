@@ -40,10 +40,6 @@ export function escapeLike(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-export function sessionIdentityKey(agent: string, sid: string): `${string}/${string}` {
-  return `${agent}/${sid}`;
-}
-
 export function likeSnippet(text: string, query: string): string {
   const index = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
   if (index < 0) return text.slice(0, LIKE_CONTEXT_CHARS * 2);

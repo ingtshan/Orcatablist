@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OrcaDatabase, type StoredSession } from "../src/db";
-import { GoalsStore, openGoalsDatabase, sessionIdentityKey } from "../src/goals";
+import { GoalsStore, openGoalsDatabase } from "../src/goals";
+import { sessionIdentityKey } from "../src/session-identity";
 
 const SID = "11111111-1111-1111-1111-111111111111";
 const SECOND_SID = "22222222-2222-2222-2222-222222222222";

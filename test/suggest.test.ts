@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sessionIdentityKey } from "../src/goals";
+import { sessionIdentityKey } from "../src/session-identity";
 import { suggestSessions, tokens } from "../src/suggest";
 import type { Goal, SessionRow } from "../src/types";
 

@@ -48,15 +48,6 @@ export function createLiveReader(overrides: Partial<LiveReaderDeps> = {}) {
   };
   let cachedAt = Number.NEGATIVE_INFINITY;
   let cached = new Map<string, LiveInfo>();
-  let liveVersion = 0;
-
-  function statusesChanged(next: Map<string, LiveInfo>): boolean {
-    if (next.size !== cached.size) return true;
-    for (const [sid, info] of next) {
-      if (cached.get(sid)?.status !== info.status) return true;
-    }
-    return false;
-  }
 
   function getLiveMap(): Map<string, LiveInfo> {
     const now = deps.now();
@@ -79,20 +70,13 @@ export function createLiveReader(overrides: Partial<LiveReaderDeps> = {}) {
         continue;
       }
     }
-    if (statusesChanged(next)) liveVersion += 1;
     cached = next;
     cachedAt = now;
     return cached;
   }
 
-  return {
-    getLiveMap,
-    getLiveVersion: () => liveVersion,
-    findLive: (sid: string) => getLiveMap().get(sid) ?? null,
-  };
+  return { getLiveMap };
 }
 
 const defaultReader = createLiveReader();
 export function getLiveMap(): Map<string, LiveInfo> { return defaultReader.getLiveMap(); }
-export function getLiveVersion(): number { return defaultReader.getLiveVersion(); }
-export function findLive(sid: string): LiveInfo | null { return defaultReader.findLive(sid); }

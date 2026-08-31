@@ -1,7 +1,7 @@
 import { AGENTS } from "./config";
 import type { OrcaDatabase } from "./db";
 import { resolveFocus, ValidationError, type FocusDeps } from "./focus";
-import { sessionIdentityKey } from "./goals";
+import { sessionIdentityKey } from "./session-identity";
 import { suggestSessions } from "./suggest";
 import type { Agent, Goal, LiveInfo, LiveStatus, SessionRow, SuggestionReason } from "./types";
 

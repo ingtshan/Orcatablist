@@ -8,10 +8,9 @@ import { createLiveReader } from "./live";
 import { createSessionLiveReader } from "./session-live";
 import { findCodexSessionCwd } from "./sources/codex";
 import { findHermesSessionCwd } from "./sources/hermes";
+import { isAgent, isSessionId, isSessionUri, parseSessionUri } from "./session-identity";
 import type { Agent, FocusResult, LiveInfo } from "./types";
 
-export const SID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-const URI_PATTERN = /^orcatab:\/\/([^/]+)\/(.+)$/;
 const CLI_SCAN_MAX_BYTES = 256 * 1_024;
 
 export class ValidationError extends Error { override name = "ValidationError"; }
@@ -36,7 +35,7 @@ export interface FocusDepsOptions {
   reportPlan?: FocusDeps["reportPlan"];
 }
 
-function errorText(error: unknown): string {
+export function errorText(error: unknown): string {
   if (typeof error === "string") return error;
   try { return JSON.stringify(error); }
   catch { return String(error); }
@@ -126,6 +125,23 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
+/** Orca terminal a live session is attached to. `handle` is null when it runs outside Orca. */
+export interface TerminalTarget { handle: string | null; tabId: string | null; }
+
+export async function resolveTerminalTarget(
+  live: LiveInfo,
+  deps: Pick<FocusDeps, "psEnv">,
+): Promise<TerminalTarget> {
+  const tabId = live.tabId ?? null;
+  if (live.handle) return { handle: live.handle, tabId };
+  if (live.pid === null) return { handle: null, tabId };
+  const environment = await deps.psEnv(live.pid);
+  return {
+    handle: envValue(environment, "ORCA_TERMINAL_HANDLE"),
+    tabId: envValue(environment, "ORCA_TAB_ID") ?? tabId,
+  };
+}
+
 export async function resolveFocus(
   agent: Agent,
   sid: string,
@@ -133,16 +149,12 @@ export async function resolveFocus(
   options: { dryRun: boolean } = { dryRun: false },
 ): Promise<FocusResult> {
   if (!AGENTS.some((candidate) => candidate === agent)) throw new ValidationError("invalid agent");
-  if (!SID_PATTERN.test(sid)) throw new ValidationError("invalid session id");
+  if (!isSessionId(sid)) throw new ValidationError("invalid session id");
   const live = await deps.findLive(agent, sid);
   if (live !== null) {
-    let handle = live.handle ?? null;
-    let tabId = live.tabId ?? null;
-    if (handle === null && live.pid !== null) {
-      const environment = await deps.psEnv(live.pid);
-      handle = envValue(environment, "ORCA_TERMINAL_HANDLE");
-      tabId = envValue(environment, "ORCA_TAB_ID") ?? tabId;
-    }
+    const target = await resolveTerminalTarget(live, deps);
+    const handle = target.handle;
+    let tabId = target.tabId;
     if (handle === null) return { action: "manual", reason: "running-outside-orca", command: null };
     if (options.dryRun) {
       deps.reportPlan?.(["orca", "terminal", "switch", "--terminal", handle, "--json"]);
@@ -234,11 +246,10 @@ function parseCliArgs(args: string[]): { agent: Agent; sid: string; dryRun: bool
   const dryRun = args.includes("--dry-run");
   const input = args.find((arg) => arg !== "--dry-run");
   if (!input) throw new ValidationError("usage: bun src/focus.ts [--dry-run] <sid | orcatab://<agent>/<sid>>");
-  const match = URI_PATTERN.exec(input);
-  if (match === null) return { agent: "claude", sid: input, dryRun };
-  const agent = match[1];
-  if (!AGENTS.some((candidate) => candidate === agent)) throw new ValidationError("invalid agent");
-  return { agent: agent as Agent, sid: match[2]!, dryRun };
+  if (!isSessionUri(input)) return { agent: "claude", sid: input, dryRun };
+  const identity = parseSessionUri(input);
+  if (identity === null) throw new ValidationError("invalid orcatab uri");
+  return { ...identity, dryRun };
 }
 
 async function runCli(args: string[]): Promise<void> {

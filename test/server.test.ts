@@ -8,6 +8,7 @@ import type { DiscoveryReaders } from "../src/discovery";
 import { createIndexer } from "../src/indexer";
 import type { FocusDeps } from "../src/focus";
 import type { OrcaWorktreeAuditReader } from "../src/orca-worktree-audit";
+import type { LiveSnapshot } from "../src/live-source";
 import type { SessionLiveReader } from "../src/session-live";
 import type { LiveInfo } from "../src/types";
 
@@ -29,9 +30,15 @@ const openTabs = new Map<string, LiveInfo>([
   }],
 ]);
 let liveRefreshes = 0;
+const openTabsSnapshot: LiveSnapshot = {
+  at: 1, live: openTabs,
+  sources: [{ name: "orca-tab", ok: true, readAt: 1, stale: false, sessions: openTabs.size, error: null }],
+};
 const sessionLiveReader: SessionLiveReader = {
   refresh: async () => { liveRefreshes += 1; return openTabs; },
+  refreshSnapshot: async () => { liveRefreshes += 1; return openTabsSnapshot; },
   getLiveMap: () => openTabs,
+  getSnapshot: () => openTabsSnapshot,
   getLiveVersion: () => 1,
   findLive: async (agent, sid) => openTabs.get(`${agent}/${sid}`) ?? null,
 };
@@ -178,33 +185,34 @@ describe("HTTP server", () => {
       dataVersion: 1, listVersion: 1, watch: "timer",
       capabilities: [
         "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
+        "session-send", "focus-board", "session-tasks", "orchestration-runs",
       ],
     });
   });
 
   test("serves read-only gateway and accessible worktree resources with ETags", async () => {
     const gateway = await fetch(`${baseUrl}/api/gateway`);
-    expect(gateway.headers.get("ETag")).toBe('"g-1"');
+    expect(gateway.headers.get("ETag")).toBe('"gateway:1"');
     expect(await gateway.json()).toMatchObject({
       sources: ["fixture-nginx"], routes: [{ upstreamPort: 4321, urls: ["http://fixture.localhost"] }],
       files: [{ content: "server { listen 80; }" }],
     });
     expect((await fetch(`${baseUrl}/api/gateway`, {
-      headers: { "If-None-Match": '"g-1"' },
+      headers: { "If-None-Match": '"gateway:1"' },
     })).status).toBe(304);
 
     const resources = await fetch(`${baseUrl}/api/worktree-resources`);
-    expect(resources.headers.get("ETag")).toBe('"r-1"');
+    expect(resources.headers.get("ETag")).toBe('"resources:1"');
     expect(await resources.json()).toMatchObject({
       resources: { [fixtureCwd]: [{ appName: "fixture-web", port: 4321 }] },
     });
     expect(resourceRoots).toContain(fixtureCwd);
     expect((await fetch(`${baseUrl}/api/worktree-resources`, {
-      headers: { "If-None-Match": '"r-1"' },
+      headers: { "If-None-Match": '"resources:1"' },
     })).status).toBe(304);
 
     const audit = await fetch(`${baseUrl}/api/orca-worktree-audit`);
-    expect(audit.headers.get("ETag")).toBe('"o-1"');
+    expect(audit.headers.get("ETag")).toBe('"orca-audit:1"');
     expect(await audit.json()).toMatchObject({
       summary: {
         completedWorktrees: 12, ready: 10, review: 1, hold: 1,
@@ -213,7 +221,7 @@ describe("HTTP server", () => {
       items: [{ name: "kg-core", recommendation: "ready" }],
     });
     expect((await fetch(`${baseUrl}/api/orca-worktree-audit`, {
-      headers: { "If-None-Match": '"o-1"' },
+      headers: { "If-None-Match": '"orca-audit:1"' },
     })).status).toBe(304);
   });
 
@@ -315,17 +323,17 @@ describe("HTTP server", () => {
   test("serves static lists without live refreshes and versions live state separately", async () => {
     liveRefreshes = 0;
     const projects = await fetch(`${baseUrl}/api/projects`);
-    expect(projects.headers.get("ETag")).toMatch(/^"p-\d+-\d+"$/);
+    expect(projects.headers.get("ETag")).toMatch(/^"projects:\d+\.\d+"$/);
     await projects.json();
 
     const sessions = await fetch(`${baseUrl}/api/sessions?includeLive=0`);
-    expect(sessions.headers.get("ETag")).toMatch(/^"s-\d+-\d+"$/);
+    expect(sessions.headers.get("ETag")).toMatch(/^"sessions:\d+\.\d+"$/);
     expect((await sessions.json()).every((row: { live: unknown }) => row.live === null)).toBeTrue();
     expect(liveRefreshes).toBe(0);
 
     const live = await fetch(`${baseUrl}/api/live`);
     const liveEtag = live.headers.get("ETag");
-    expect(liveEtag).toBe(`"l-1-${app.db.getListVersion()}"`);
+    expect(liveEtag).toBe(`"live:1.${app.db.getListVersion()}"`);
     const livePayload = await live.json();
     expect(Object.keys(livePayload).sort()).toEqual([
       `claude/${LIVE_ONLY_SID}`, `codex/${CODEX_SID}`, `hermes/${HERMES_SID}`,
@@ -406,7 +414,7 @@ describe("HTTP server", () => {
     const [project] = await (await fetch(`${baseUrl}/api/projects`)).json();
     const initial = await fetch(`${baseUrl}/api/worktrees`);
     const initialEtag = initial.headers.get("ETag");
-    expect(initialEtag).toMatch(/^"w-\d+"$/);
+    expect(initialEtag).toMatch(/^"worktrees:\d+"$/);
     expect(await initial.json()).toEqual([]);
     const patchWorktree = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/worktrees`, {
       method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -496,7 +504,7 @@ describe("HTTP server", () => {
 
     const first = await fetch(`${baseUrl}/api/sessions`);
     const etag = first.headers.get("ETag");
-    expect(etag).toMatch(/^"\d+-\d+-\d+"$/);
+    expect(etag).toMatch(/^"sessions-live:\d+\.\d+\.\d+"$/);
     await first.json();
     const unchanged = await fetch(`${baseUrl}/api/sessions`, { headers: { "If-None-Match": etag! } });
     expect(unchanged.status).toBe(304);
@@ -525,36 +533,94 @@ describe("HTTP server", () => {
     expect(html).toContain('row.live ? "跳转" : "恢复"');
     expect(html).toContain('action focus-action ${row.live ? "focus-jump" : "focus-resume"}');
     expect(html).toContain('if (status === "working") return "进行中"');
-    expect(html).toContain('if (status === "done") return "等待用户"');
-    expect(html).toContain('if (status === "waiting") return "等待中"');
+    expect(html).toContain('if (status === "done") return "已就绪"');
+    expect(html).toContain('if (status === "waiting") return "需操作"');
+    expect(html).toContain('if (status === "blocked") return "已受阻"');
     expect(html).toContain('if (status === "idle") return "空闲"');
     expect(html).toContain('const label = live ? liveStateText(live) : "离线"');
     expect(html).not.toContain('working · 进行中');
-    expect(html).not.toContain('done · 等待用户');
+    expect(html).not.toContain('done · 已就绪');
     expect(html).toContain('live.projectKey === projectKey && live.status === "working"');
     expect(html).toContain('make("span", "project-working", String(count))');
     expect(html).toContain('id="focus-view-button" type="button" aria-pressed="false">聚焦</button>');
-    expect(html).toContain('{ key: "idle-today", title: "Idle 今日"');
-    expect(html).toContain('{ key: "idle-recent", title: "Idle 过去 3 天"');
-    expect(html).toContain('if (status === "working") return "working"');
-    expect(html).toContain('return "idle-today"');
-    expect(html).toContain('return "idle-recent"');
+    expect(html).toContain('<div class="search-wrap session-search"><input id="search"');
+    expect(html).toContain('const searchActive = focusActive || sessionsActive');
+    expect(html).toContain('element.hidden = !searchActive');
+    expect(html).toContain('focusActive ? "搜索聚焦中的会话内容… 按 / 聚焦"');
+    expect(html).toContain('function runFocusSearch(query)');
+    expect(html).toContain('state.focusSearchMatches = new Map(rows.map((row) => [sessionKey(row), row]))');
+    expect(html).toContain('const match = state.focusSearchMatches.get(sessionKey(row))');
+    expect(html).toContain('return match ? [{ ...row, hits: match.hits || [] }] : []');
+    expect(html).toContain('function allFocusRows()');
+    expect(html).toContain('new Map(allFocusRows()');
+    expect(html).toContain('make("div", "focus-search-hit")');
+    expect(html).toContain('appendHighlighted(hit, row.hits[0].snippet)');
+    expect(html).toContain('state.focusSearchPending ? "正在搜索…"');
+    expect(html).toContain('(state.view === "sessions" || state.view === "focus")');
+    expect(html).toContain('const projectCollapsed = !state.query && state.focusCollapsedProjects.has(projectCollapseKey)');
+    expect(html).toContain('const worktreeCollapsed = !state.query && state.focusCollapsedWorktrees.has(worktreeCollapseKey)');
+    expect(html).toContain('worktreeHead.classList.toggle("search-result", Boolean(state.query))');
+    expect(html).toContain('{ key: "working", title: "进行中", range: ""');
+    expect(html).toContain('{ key: "non-working-today", title: "操作/就绪", range: "今天"');
+    expect(html).toContain('{ key: "non-working-recent", title: "操作/就绪", range: "三天内"');
+    expect(html).toContain('dot.dataset.state = status');
+    // Lane assignment moved behind /api/board/focus; the page reads lanes rather than computing them.
+    expect(html).toContain('function focusLaneRows(key)');
+    expect(html).toContain('optionalConditionalApi("/api/board/focus"');
+    expect(html).not.toContain("function focusBucket");
+    expect(html).not.toContain("function focusDayBoundaries");
     expect(html).not.toContain('status !== "done"');
     expect(html).not.toContain('key: "done-today"');
     expect(html).not.toContain('key: "done-recent"');
-    expect(html).toContain('const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v1"');
-    expect(html).toContain('const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v1"');
-    expect(html).toContain('function setFocusProjectCollapsed(projectKey, collapsed)');
+    expect(html).not.toContain('return "idle-today"');
+    expect(html).not.toContain('return "idle-recent"');
+    expect(html).toContain('id="focus-project-sort"');
+    expect(html).toContain('<option value="az">A–Z</option>');
+    expect(html).toContain('<option value="za">Z–A</option>');
+    expect(html).toContain('<option value="recent">最近活动</option>');
+    expect(html).toContain('const FOCUS_PROJECT_SORT_STORAGE_KEY = "orcatab.focusProjectSort.v1"');
+    expect(html).toContain('focusProjectSort: loadFocusProjectSort()');
+    expect(html).toContain('function orderedFocusProjectKeys(groups)');
+    expect(html).toContain('if (state.focusProjectSort === "recent")');
+    expect(html).toContain('state.focusProjectSort === "za" ? -1 : 1');
+    expect(html).toContain('focusProjectSort.addEventListener("change", () => setFocusProjectSort(focusProjectSort.value))');
+    expect(html).toContain('make("small", "focus-lane-range", definition.range)');
+    expect(html).toContain('const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v2"');
+    expect(html).toContain('const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v2"');
+    expect(html).toContain('function focusProjectCollapseKey(laneKey, projectKey)');
+    expect(html).toContain('function focusWorktreeCollapseKey(laneKey, projectKey, worktreeRoot)');
+    expect(html).toContain('function setFocusProjectCollapsed(collapseKey, collapsed)');
     expect(html).toContain('function setFocusWorktreeCollapsed(collapseKey, collapsed)');
+    expect(html).toContain('function renderFocusGroups(parent, laneKey, rows)');
+    expect(html).toContain('renderFocusGroups(body, definition.key, rows)');
     expect(html).toContain('projectToggle.setAttribute("aria-expanded", String(!projectCollapsed))');
     expect(html).toContain('projectBody.hidden = projectCollapsed');
     expect(html).toContain('worktreeToggle.setAttribute("aria-expanded", String(!worktreeCollapsed))');
     expect(html).toContain('list.hidden = worktreeCollapsed');
     expect(html).toContain('.focus-project-body[hidden], .focus-session-list[hidden] { display: none; }');
-    expect(html).toContain('updatedAt >= boundaries.today && updatedAt < boundaries.tomorrow');
     expect(html).toContain('groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0)');
-    expect(html).toContain('conditionalApi(`/api/sessions?live=1&limit=${LIVE_POOL_LIMIT}`');
     expect(html).toContain('fetch("/api/session-inputs"');
+    expect(html).toContain('rawLiveState(row.live) === "done"');
+    expect(html).toContain('text, expectedHandle: row.live?.handle, expectedStatus: rawLiveState(row.live)');
+    expect(html).toContain('fetch("/api/session-send")');
+    expect(html).toContain('function iconButton(className, label, iconName)');
+    expect(html).toContain('iconButton("session-send-copy", "复制上次输入", "copy")');
+    expect(html).toContain('iconButton("session-send-dismiss", "忽略", "x")');
+    expect(html).toContain('pending: "clock", verifying: "spinner", confirmed: "check", stalled: "x", failed: "x"');
+    expect(html).toContain('pending: "等待确认", verifying: "正在核对", confirmed: "已确认", stalled: "确认失败"');
+    expect(html).toContain('const SEND_CONFIRMATION_FEEDBACK_MS = 1400');
+    expect(html).toContain('function registerSendConfirmation(entry)');
+    expect(html).toContain('(Array.isArray(body.confirmed) ? body.confirmed : []).forEach(registerSendConfirmation)');
+    expect(html).toContain('.session-send-icon-button { width: 24px; height: 24px;');
+    expect(html).not.toContain('make("button", "action session-send-copy", "复制上次输入")');
+    expect(html).toContain('showToast("已发送，已加入自动确认队列")');
+    expect(html).toContain('record.state === "confirmed"');
+    expect(html).toContain('.session-send { --session-send-height: 36px;');
+    expect(html).toContain('make("button", "session-send-button", "发送")');
+    expect(html).toContain('input.addEventListener("compositionstart"');
+    expect(html).toContain('input.addEventListener("compositionend"');
+    expect(html).toContain('event.isComposing || composing || event.keyCode === 229');
+    expect(html).toContain('if (state.sendCompositionKey) { state.sendRenderPending = true; return; }');
     expect(html).toContain('id="focus-monitor" class="focus-monitor" hidden');
     expect(html).toContain('.focus-monitor.monitor-floating { right: var(--focus-monitor-gap);');
     expect(html).toContain('.focus-monitor.monitor-docked-left');
