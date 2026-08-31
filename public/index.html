@@ -272,6 +272,7 @@
     .focus-group-count { flex: 0 0 auto; color: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
     .focus-worktree-group + .focus-worktree-group { border-top: 1px solid var(--line); }
     .focus-worktree-head { display: grid; grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 8px 11px; background: var(--hover); }
+    .focus-worktree-head.search-result { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; }
     .focus-worktree-name { overflow: hidden; font: 700 11px ui-monospace, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
     .focus-worktree-kind { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
     .focus-session-list { display: grid; }
@@ -286,6 +287,8 @@
     .focus-session-meta { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 5px; color: var(--muted); font-size: 10px; }
     .focus-session-meta .live-state { max-width: 130px; }
     .focus-session-time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-search-hit { overflow: hidden; margin-top: 6px; color: var(--muted); font-size: 10px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-search-hit strong { color: var(--accent); font-weight: 750; }
     .focus-session-card .focus-action { min-width: 44px; padding: 5px 7px; font-size: 11px; }
     .focus-session-card .manual { grid-column: 2 / -1; }
     .project-management { width: min(1240px, 100%); margin: 0 auto; padding: 32px clamp(16px, 4vw, 54px) 64px; }
@@ -457,7 +460,7 @@
       <button id="goals-view-button" type="button" aria-pressed="false">目标</button>
       <button id="gateway-view-button" type="button" aria-pressed="false">网关</button>
     </div>
-    <div class="search-wrap session-only"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
+    <div class="search-wrap session-search"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
     <div class="top-actions">
       <span id="index-status">索引更新时间未知</span>
       <div class="mode-switch session-only" aria-label="会话范围">
@@ -619,6 +622,7 @@
         directoryAudit: null, directoryAuditSupported: true,
         orcaAudit: null, orcaAuditEtag: "", orcaAuditSupported: true,
         focusBoard: null, focusBoardEtag: "", focusBoardSupported: true,
+        focusSearchMatches: new Map(), focusSearchQuery: "", focusSearchPending: false,
         recentInputsBySession: {}, recentInputTimesBySession: {}, recentInputsVersion: -1,
         recentInputsHasMoreBySession: {}, recentInputsLoadingBySession: {},
         recentInputsIdentitySignature: "", recentInputsSupported: true, focusMonitorSessionKey: "",
@@ -2074,6 +2078,11 @@
         meta.append(liveState, make("span", "focus-session-time", timeLabel));
         if (row.branch && row.branch !== "HEAD") meta.append(make("span", "chip", row.branch));
         main.append(titleLine, meta);
+        if (state.query && Array.isArray(row.hits) && row.hits.length) {
+          const hit = make("div", "focus-search-hit");
+          appendHighlighted(hit, row.hits[0].snippet);
+          main.append(hit);
+        }
         const jump = make("button", "action focus-action focus-jump", "跳转");
         jump.type = "button";
         jump.addEventListener("click", () => focusSession(row, jump, element));
@@ -2087,10 +2096,19 @@
 
       // The server assigns lanes and applies archive visibility; these are already the rows to draw.
       function focusLaneRows(key) {
-        return state.focusBoard?.lanes?.find((lane) => lane.key === key)?.rows || [];
+        const rows = state.focusBoard?.lanes?.find((lane) => lane.key === key)?.rows || [];
+        if (!state.query) return rows;
+        return rows.flatMap((row) => {
+          const match = state.focusSearchMatches.get(sessionKey(row));
+          return match ? [{ ...row, hits: match.hits || [] }] : [];
+        });
       }
 
       function visibleFocusRows() {
+        return FOCUS_LANES.flatMap((definition) => focusLaneRows(definition.key));
+      }
+
+      function allFocusRows() {
         return (state.focusBoard?.lanes || []).flatMap((lane) => lane.rows);
       }
 
@@ -2106,7 +2124,7 @@
           const projectRows = projectGroups.get(projectKey);
           const project = projectFor(projectKey);
           const projectCollapseKey = focusProjectCollapseKey(laneKey, projectKey);
-          const projectCollapsed = state.focusCollapsedProjects.has(projectCollapseKey);
+          const projectCollapsed = !state.query && state.focusCollapsedProjects.has(projectCollapseKey);
           const firstProjectSession = projectRows[0];
           const projectBodyId = `focus-project-worktrees-${laneKey}-${firstProjectSession.agent}-${firstProjectSession.sid}`;
           const projectGroup = make("article", "focus-project-group");
@@ -2125,8 +2143,8 @@
           });
           const color = make("span", "color-dot");
           if (project.color) color.style.setProperty("--project-color", project.color);
+          if (!state.query) projectHead.append(projectToggle);
           projectHead.append(
-            projectToggle,
             color,
             make("span", "focus-project-name", project.name),
             make("span", "focus-group-count", String(projectRows.length)),
@@ -2136,7 +2154,7 @@
           projectBody.hidden = projectCollapsed;
           groupedWorktrees(projectRows, project, (row) => row.live?.updatedAt || 0).forEach((worktree) => {
             const worktreeCollapseKey = focusWorktreeCollapseKey(laneKey, projectKey, worktree.root);
-            const worktreeCollapsed = state.focusCollapsedWorktrees.has(worktreeCollapseKey);
+            const worktreeCollapsed = !state.query && state.focusCollapsedWorktrees.has(worktreeCollapseKey);
             const firstWorktreeSession = worktree.rows[0];
             const sessionListId = `focus-worktree-sessions-${laneKey}-${firstWorktreeSession.agent}-${firstWorktreeSession.sid}`;
             const worktreeGroup = make("section", "focus-worktree-group");
@@ -2148,6 +2166,7 @@
             const pathLabel = worktree.root || (unindexed ? "尚无 transcript" : "未识别 worktree");
             const kind = worktreeKind(worktree, project);
             const worktreeHead = make("header", "focus-worktree-head");
+            worktreeHead.classList.toggle("search-result", Boolean(state.query));
             worktreeHead.title = `${kind} · ${pathLabel}`;
             const worktreeToggle = make("button", "worktree-toggle focus-group-toggle");
             worktreeToggle.type = "button";
@@ -2158,8 +2177,8 @@
             worktreeToggle.addEventListener("click", () => {
               setFocusWorktreeCollapsed(worktreeCollapseKey, !worktreeCollapsed);
             });
+            if (!state.query) worktreeHead.append(worktreeToggle);
             worktreeHead.append(
-              worktreeToggle,
               make("span", "focus-worktree-name", worktreeName),
               make("span", "focus-worktree-kind", kind),
               make("span", "focus-group-count", String(worktree.rows.length)),
@@ -2198,7 +2217,10 @@
           );
           const body = make("div", "focus-lane-body");
           if (rows.length) renderFocusGroups(body, definition.key, rows);
-          else body.append(make("div", "focus-empty", definition.empty));
+          else body.append(make(
+            "div", "focus-empty",
+            state.focusSearchPending ? "正在搜索…" : state.query ? `没有匹配“${state.query}”的会话` : definition.empty,
+          ));
           lane.append(head, body);
           focusBoard.append(lane);
         });
@@ -2871,7 +2893,7 @@
 
       async function loadFocusInputs(listVersion) {
         if (!state.recentInputsSupported) return;
-        const identities = [...new Map(visibleFocusRows()
+        const identities = [...new Map(allFocusRows()
           .filter((row) => row.indexed !== false)
           .map((row) => [sessionKey(row), { agent: row.agent, sid: row.sid }])).entries()]
           .sort(([left], [right]) => left.localeCompare(right));
@@ -2919,14 +2941,30 @@
         projectsView.hidden = !projectsActive;
         goalsView.hidden = !goalsActive;
         gatewayView.hidden = !gatewayActive;
+        const searchActive = focusActive || sessionsActive;
+        document.querySelectorAll(".session-search").forEach((element) => { element.hidden = !searchActive; });
         document.querySelectorAll(".session-only").forEach((element) => { element.hidden = !sessionsActive; });
+        searchInput.placeholder = focusActive ? "搜索聚焦中的会话内容… 按 / 聚焦" : "搜索会话内容… 按 / 聚焦";
+        searchInput.setAttribute("aria-label", focusActive ? "搜索聚焦中的会话内容" : "搜索会话内容");
         focusViewButton.setAttribute("aria-pressed", String(focusActive));
         sessionsViewButton.setAttribute("aria-pressed", String(sessionsActive));
         projectsViewButton.setAttribute("aria-pressed", String(projectsActive));
         goalsViewButton.setAttribute("aria-pressed", String(goalsActive));
         gatewayViewButton.setAttribute("aria-pressed", String(gatewayActive));
         state.activeRow = -1;
-        if (focusActive && refresh) await loadFocus();
+        if (!focusActive) {
+          state.focusSearchPending = false;
+          state.focusSearchQuery = "";
+        }
+        if (focusActive && refresh) {
+          const needsSearch = Boolean(state.query && state.focusSearchQuery !== state.query);
+          if (needsSearch) {
+            state.focusSearchMatches = new Map();
+            state.focusSearchPending = true;
+          }
+          await loadFocus();
+          if (needsSearch) await runFocusSearch(state.query);
+        }
         if (projectsActive && refresh) await loadProjectManagement();
         if (goalsActive && refresh) await loadGoals(true);
         if (gatewayActive && refresh) await loadGateway();
@@ -3225,9 +3263,34 @@
         render();
       }
 
+      async function runFocusSearch(query) {
+        state.focusSearchQuery = query;
+        state.focusSearchMatches = new Map();
+        state.focusSearchPending = Boolean(query);
+        if (!query) { renderFocus(); return; }
+        const requestId = ++state.requestId;
+        renderFocus();
+        const isCurrent = () => requestId === state.requestId
+          && state.query === query && state.view === "focus";
+        try {
+          const rows = await api(`/api/search?q=${encodeURIComponent(query)}&includeLive=0&limit=200`);
+          if (!isCurrent()) return;
+          state.focusSearchMatches = new Map(rows.map((row) => [sessionKey(row), row]));
+        } catch (error) {
+          if (isCurrent()) showToast(`搜索失败：${error.message}`);
+        } finally {
+          if (isCurrent()) {
+            state.focusSearchPending = false;
+            renderFocus();
+          }
+        }
+      }
+
       async function runSearch() {
         const query = searchInput.value.trim();
         state.query = query;
+        if (state.view === "focus") { await runFocusSearch(query); return; }
+        if (state.view !== "sessions") return;
         if (!query) { state.sessionEtag = ""; await loadList(); return; }
         const requestId = ++state.requestId;
         try {
@@ -3365,7 +3428,9 @@
         if (event.isComposing || event.keyCode === 229) return;
         if (event.key === "Escape" && closeFloatingMenus()) { event.preventDefault(); return; }
         const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
-        if (event.key === "/" && !typing && state.view === "sessions") { event.preventDefault(); searchInput.focus(); return; }
+        if (event.key === "/" && !typing && (state.view === "sessions" || state.view === "focus")) {
+          event.preventDefault(); searchInput.focus(); return;
+        }
         if (event.key === "/" && !typing && state.view === "projects") { event.preventDefault(); projectSearchInput.focus(); return; }
         if (typing) return;
         if (state.view !== "sessions") return;
