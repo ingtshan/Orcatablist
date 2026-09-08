@@ -14,7 +14,7 @@ import { handleFocusBoardRequest } from "./focus-board-routes";
 import { createFocusDeps, resolveFocus, ValidationError, type FocusDeps } from "./focus";
 import { handleGoalRequest } from "./goal-routes";
 import { GoalsStore, openGoalsDatabase } from "./goals";
-import { parseSessionUri, sessionIdentityKey } from "./session-identity";
+import { isEnvName, LOCAL_ENV, normalizeEnv, parseSessionUri, sessionIdentityKey } from "./session-identity";
 import { handleGovernanceRequest } from "./governance";
 import {
   assertSameOriginWrite, boundedLimit, focusText, json, jsonObject, requiredString,
@@ -24,18 +24,27 @@ import { createIndexer, type IndexSummary, type WatchHandle } from "./indexer";
 import { createLiveReader } from "./live";
 import { handleOrcaAuditRequest } from "./orca-audit-route";
 import { createOrchestrationReader, type OrchestrationReader } from "./orchestration";
+import { orchestrationSessionRows } from "./orchestration-sessions";
 import { createOrcaWorktreeAuditReader, type OrcaWorktreeAuditReader } from "./orca-worktree-audit";
 import { openProjectPreferencesDatabase, ProjectPreferencesStore } from "./project-preferences";
 import { handleProjectRequest, NotFoundError } from "./project-routes";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
+import { EnvironmentStore, openEnvironmentsDatabase } from "./remote-environments";
+import { createRemoteTabLiveSources } from "./remote-live";
+import { createRemoteIndexing, type RemoteIndexing } from "./remote-poller";
+import { handleEnvironmentRequest } from "./remote-routes";
 import { handleSessionInputsRequest } from "./session-input-routes";
+import { handleSessionOutboxRequest } from "./session-outbox-routes";
+import { openSessionOutboxDatabase, SessionOutboxStore } from "./session-outbox";
 import { createRefreshGate, handleSessionTaskRequest } from "./session-task-routes";
-import { handleSessionSendRequest } from "./session-send-routes";
+import { handleSessionSendRequest, logSentInput } from "./session-send-routes";
 import { createSessionSendRuntime, type SentInputStore } from "./session-send-runtime";
 import { createSessionLiveReader, mergeSessionLive, type SessionLiveReader } from "./session-live";
 import { handleSppRequest } from "./spp";
 import type { Agent, SearchResult, SessionRow } from "./types";
-import { appendUnindexedLiveSessions, liveSessionsWithProjectKeys } from "./unindexed-live";
+import {
+  appendUnindexedLiveSessions, liveSessionRowsForList, liveSessionsPayload, resolveLiveSessionRows,
+} from "./unindexed-live";
 import { resolveWorktreeFocus } from "./worktree-focus";
 const DEFAULT_SESSIONS_LIMIT = 500;
 const MAX_SESSIONS_LIMIT = 5_000;
@@ -46,6 +55,7 @@ export interface ServerOptions {
   db?: OrcaDatabase; goalsStore?: GoalsStore; focusDeps?: FocusDeps; sessionLiveReader?: SessionLiveReader; discovery?: DiscoveryReaders; startTimers?: boolean; quiet?: boolean;
   directoryPathExists?(path: string): boolean; orcaAuditReader?: OrcaWorktreeAuditReader; sentInputStore?: SentInputStore;
   boardConfigs?: RemoteBoardConfig[]; boards?: BoardRegistry; orchestrationReader?: OrchestrationReader;
+  environmentStore?: EnvironmentStore; remoteIndexing?: RemoteIndexing; sessionOutboxStore?: SessionOutboxStore;
 }
 export interface OrcaTabServer { server: ReturnType<typeof Bun.serve>; db: OrcaDatabase; goalsStore: GoalsStore; indexed: IndexSummary; stop(): void; }
 function attachGoals<T extends SessionRow>(rows: T[], store: GoalsStore): T[] {
@@ -70,6 +80,8 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   mkdirSync(join(dataDir, "logs"), { recursive: true });
   const db = options.db ?? new OrcaDatabase(join(dataDir, "index.db"));
   const goalsStore = options.goalsStore ?? new GoalsStore(openGoalsDatabase(join(dataDir, "goals.db")));
+  const sessionOutboxStore = options.sessionOutboxStore
+    ?? new SessionOutboxStore(openSessionOutboxDatabase(join(dataDir, "session-outbox.db")));
   const projectPreferences = new ProjectPreferencesStore(openProjectPreferencesDatabase(join(dataDir, "project-preferences.db")));
   const boardDatabase = openBoardDatabase(join(dataDir, "boards.db"));
   const sessionTaskStore = new SessionTaskStore(boardDatabase);
@@ -88,18 +100,34 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
   const indexed = await indexer.indexAll();
   if (!options.quiet) console.log(`indexed ${indexed.files} sessions in ${indexed.ms} ms`);
   await refreshProjectMetadata(db, orcaBin);
+  const environmentStore = options.environmentStore
+    ?? new EnvironmentStore(openEnvironmentsDatabase(join(dataDir, "environments.db")));
   const sessionLiveReader = options.sessionLiveReader ?? createSessionLiveReader({
     orcaBin, getClaudeLiveMap: createLiveReader({ claudeDir }).getLiveMap,
     onError: options.quiet ? () => {} : undefined,
+    dynamicSources: createRemoteTabLiveSources({ store: environmentStore, orcaBin }),
   });
   const orchestrationReader = options.orchestrationReader
     ?? createOrchestrationReader({ db, getLiveMap: sessionLiveReader.getLiveMap });
+  const remoteSshPrefix = (env: string): string | null => {
+    const config = environmentStore.get(env);
+    if (config === null) return null;
+    return `ssh ${config.sshPort === null ? "" : `-p ${config.sshPort} `}${config.sshUser}@${config.sshHost}`;
+  };
   const focusDeps = options.focusDeps ?? createFocusDeps(db, {
-    claudeDir, codexDir, hermesDb, orcaBin, liveFinder: sessionLiveReader.findLive,
+    claudeDir, codexDir, hermesDb, orcaBin, liveFinder: sessionLiveReader.findLive, remoteSshPrefix,
   });
-  const sentInputRuntime = createSessionSendRuntime({ db, liveReader: sessionLiveReader,
+  const sentInputRuntime = createSessionSendRuntime({ db,
     startPolling: options.startTimers !== false,
     ...(options.sentInputStore === undefined ? {} : { store: options.sentInputStore }), ...(options.quiet ? { onError: () => {} } : {}) });
+  const remoteIndexing = options.remoteIndexing ?? createRemoteIndexing({
+    db, store: environmentStore, ...(options.quiet ? { onError: () => {} } : {}),
+  });
+  if (options.startTimers !== false) remoteIndexing.reload();
+  const onSent = (entry: Parameters<typeof logSentInput>[0]) => {
+    logSentInput(entry);
+    if (entry.env !== undefined) remoteIndexing.kick(entry.env);
+  };
   const timers: Array<ReturnType<typeof setInterval>> = [];
   let watcher: WatchHandle = { mode: "timer", close: () => {} };
   let rescanTimer: ReturnType<typeof setInterval> | null = null;
@@ -112,6 +140,21 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     rescanTimer = indexer.startRescanTimer(watcher.mode === "fs.watch" ? RESCAN_INTERVAL_MS : FALLBACK_RESCAN_INTERVAL_MS);
     timers.push(rescanTimer, startProjectMetadataTimer(db, orcaBin));
   }
+  /**
+   * Which environment a focus targets: the explicit `?env=` wins; without one, a session indexed
+   * only from a remote environment routes there (an open GUI page from before the parameter
+   * existed keeps working), and everything else stays local.
+   */
+  const focusEnv = (agent: Agent, sid: string, requested: string | null): string | undefined => {
+    if (requested !== null && requested !== "" && requested !== LOCAL_ENV) {
+      if (!isEnvName(requested)) throw new ValidationError("invalid environment name");
+      return requested;
+    }
+    if (requested !== null) return undefined;
+    const envs = db.sessionEnvs(agent, sid);
+    if (envs.length === 0 || envs.includes(LOCAL_ENV)) return undefined;
+    return envs[0];
+  };
   // Named once, next to the stores they track, so a route declares what it reads rather than
   // remembering which of two database counters belongs in which ETag.
   const versions = {
@@ -134,7 +177,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       if (governanceResponse !== null) return governanceResponse;
       const orcaAuditResponse = await handleOrcaAuditRequest(request, url, orcaAuditReader);
       if (orcaAuditResponse !== null) return orcaAuditResponse;
-      const projectResponse = await handleProjectRequest(request, url, db, projectPreferences);
+      const projectResponse = await handleProjectRequest(request, url, db, projectPreferences, sessionLiveReader);
       if (projectResponse !== null) return projectResponse;
       if (url.pathname.startsWith("/spp/")) {
         await sessionLiveReader.refresh();
@@ -152,22 +195,29 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           indexedAt: rawIndexedAt === null ? null : Number(rawIndexedAt), dataVersion: db.getDataVersion(),
           listVersion: db.getListVersion(),
           watch: watcher.mode, agents: [...AGENTS], version: "p7",
+          indexing: indexer.getHealth(),
           capabilities: [
             "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
-            "session-send", "focus-board", "session-tasks", "orchestration-runs",
+            "session-send", "session-outbox", "focus-board", "session-tasks", "orchestration-runs", "remote-environments",
           ],
         });
       }
       if (request.method === "GET" && url.pathname === "/api/orchestration") {
-        await sessionLiveReader.refresh();
+        const live = await sessionLiveReader.refresh();
         const snapshot = orchestrationReader.refresh();
+        if (url.searchParams.get("includeSessions") === "1") {
+          return serveFresh(request, "orchestration-sessions", [versions.orchestration, versions.list, versions.live, versions.goals], () => ({
+            ...snapshot, sessions: attachGoals(orchestrationSessionRows(db, snapshot.runs, live), goalsStore),
+          }));
+        }
         return serveFresh(request, "orchestration", [versions.orchestration], () => snapshot);
       }
       if (request.method === "GET" && url.pathname === "/api/live") {
         const live = await sessionLiveReader.refresh();
-        // The payload joins live status to each session's project, so it reads the list too.
-        return serveFresh(request, "live", [versions.live, versions.list],
-          () => liveSessionsWithProjectKeys(db, live));
+        // The payload carries each live session's authoritative indexed row, so it reads the
+        // session list and the goals attached to it as well as liveness.
+        return serveFresh(request, "live", [versions.live, versions.list, versions.goals],
+          () => liveSessionsPayload(db, live, { attachGoals: (rows) => attachGoals(rows, goalsStore) }));
       }
       const focusBoardResponse = await handleFocusBoardRequest(request, url, {
         db, goalsStore, preferences: projectPreferences, liveReader: sessionLiveReader,
@@ -180,17 +230,39 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         ...(options.quiet ? { onError: () => {} } : {}),
       });
       if (sessionTaskResponse !== null) return sessionTaskResponse;
+      const sessionOutboxResponse = await handleSessionOutboxRequest(request, url, {
+        findLive: sessionLiveReader.findLive, psEnv: focusDeps.psEnv, orcaJson: focusDeps.orcaJson,
+        store: sentInputRuntime.store, outbox: sessionOutboxStore, onSent,
+      });
+      if (sessionOutboxResponse !== null) return sessionOutboxResponse;
       const sessionSendResponse = await handleSessionSendRequest(request, url, {
         findLive: sessionLiveReader.findLive, psEnv: focusDeps.psEnv, orcaJson: focusDeps.orcaJson,
         store: sentInputRuntime.store, confirmationQueue: sentInputRuntime.confirmationQueue,
+        // A remote send's delivery evidence arrives with the environment's next pull round;
+        // kicking it right away turns "up to poll_ms" into "a couple of seconds".
+        onSent,
       });
       if (sessionSendResponse !== null) return sessionSendResponse;
+      const environmentResponse = await handleEnvironmentRequest(request, url, {
+        db, store: environmentStore, indexing: remoteIndexing, orcaJson: focusDeps.orcaJson,
+      });
+      if (environmentResponse !== null) return environmentResponse;
       if (request.method === "POST" && url.pathname === "/api/projects/focus") {
         const body = await jsonObject(request);
         const projectKey = requiredString(body.projectKey, "projectKey");
         const project = db.listProjectRecords().find((candidate) => candidate.key === projectKey);
         if (!project) throw new NotFoundError("project not found");
-        const cwd = db.listSessions({ projectKey, limit: MAX_SESSIONS_LIMIT }).map((row) => row.worktreeRoot || row.cwd)
+        const rows = db.listSessions({ projectKey, limit: MAX_SESSIONS_LIMIT });
+        const local = rows.filter((row) => normalizeEnv(row.env) === LOCAL_ENV);
+        // A project whose every session lives on another machine has no local path to look up, so
+        // it focuses through that session's own environment rather than this machine's terminals.
+        const remote = local.length === 0 ? rows[0] : undefined;
+        if (remote !== undefined) {
+          return json(await resolveFocus(remote.agent, remote.sid, focusDeps, {
+            dryRun: false, env: normalizeEnv(remote.env),
+          }));
+        }
+        const cwd = local.map((row) => row.worktreeRoot || row.cwd)
           .find((path): path is string => Boolean(path)) || project.root;
         if (!cwd) throw new NotFoundError("project has no indexed worktree");
         return json(await resolveWorktreeFocus(cwd, focusDeps));
@@ -208,10 +280,16 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         }
         const live = await sessionLiveReader.refresh();
         return serveFresh(request, "sessions-live", [versions.list, versions.live, versions.goals], () => {
-          const base = db.listSessions({ ...(projectKey ? { projectKey } : {}), limit: liveOnly ? MAX_SESSIONS_LIMIT : limit });
-          const indexedRows = attachGoals(mergeSessionLive(base, live), goalsStore);
-          const rows = projectKey ? indexedRows : appendUnindexedLiveSessions(indexedRows, live);
-          return liveOnly ? rows.filter((row) => row.live !== null).slice(0, limit) : rows.slice(0, limit);
+          const withGoals = (rows: SessionRow[]): SessionRow[] => attachGoals(rows, goalsStore);
+          // Whether a live session is indexed is a question for the database, never for the page
+          // of rows this request happened to ask for.
+          const resolved = () => resolveLiveSessionRows(db, live, { attachGoals: withGoals });
+          if (liveOnly) {
+            const liveRows = liveSessionRowsForList(resolved());
+            return (projectKey ? liveRows.filter((row) => row.projectKey === projectKey) : liveRows).slice(0, limit);
+          }
+          const base = withGoals(mergeSessionLive(db.listSessions({ ...(projectKey ? { projectKey } : {}), limit }), live));
+          return (projectKey ? base : appendUnindexedLiveSessions(base, resolved())).slice(0, limit);
         });
       }
       if (request.method === "GET" && url.pathname === "/api/search") {
@@ -237,12 +315,17 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
         const agent = parts.length === 1 ? "claude" : parts[0]!;
         const sid = parts.length === 1 ? parts[0]! : parts[1]!;
         if (parts.length < 1 || parts.length > 2 || !enabledAgent(agent)) throw new ValidationError("invalid agent");
-        return json(await resolveFocus(agent, sid, focusDeps, { dryRun: false }));
+        const env = focusEnv(agent, sid, url.searchParams.get("env"));
+        return json(await resolveFocus(agent, sid, focusDeps, { dryRun: false, ...(env === undefined ? {} : { env }) }));
       }
       if (request.method === "GET" && url.pathname === "/focus") {
         const identity = parseSessionUri(url.searchParams.get("uri") ?? "");
         if (identity === null) throw new ValidationError("invalid orcatab uri");
-        const result = await resolveFocus(identity.agent, identity.sid, focusDeps, { dryRun: false });
+        // A parsed uri states its environment: no env means local, never the legacy auto-detect.
+        const env = focusEnv(identity.agent, identity.sid, identity.env ?? LOCAL_ENV);
+        const result = await resolveFocus(identity.agent, identity.sid, focusDeps, {
+          dryRun: false, ...(env === undefined ? {} : { env }),
+        });
         return new Response(`${focusText(result)}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       }
       return json({ error: "not found" }, 404);
@@ -256,9 +339,14 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     server, db, goalsStore, indexed,
     stop: () => {
       watcher.close();
+      // Before the database closes, so an awaiting pass cannot touch it and committed work stays versioned.
+      indexer.close();
       for (const timer of timers) clearInterval(timer);
+      remoteIndexing.close();
       sentInputRuntime.close();
       server.stop(true);
+      if (options.environmentStore === undefined) environmentStore.close();
+      if (options.sessionOutboxStore === undefined) sessionOutboxStore.close();
       projectPreferences.close();
       boardDatabase.close();
       goalsStore.close();

@@ -165,9 +165,13 @@ export class SessionTaskStore {
     return changes;
   }
 
-  openTaskIds(boardId: string): string[] {
+  /**
+   * Every linked task, not just the open ones. Filtering to open would freeze a done task's
+   * snapshot forever, so reopening or deleting it on the board would never reach the queue.
+   */
+  linkedTaskIds(boardId: string): string[] {
     const rows = this.database.query(`SELECT DISTINCT task_id FROM session_tasks
-      WHERE board_id = ? AND status_kind = 'open'`).all(boardId) as Array<{ task_id: string }>;
+      WHERE board_id = ?`).all(boardId) as Array<{ task_id: string }>;
     return rows.map((row) => row.task_id);
   }
 

@@ -1,7 +1,7 @@
 import { AGENTS } from "./config";
 import type { OrcaDatabase } from "./db";
 import { ValidationError } from "./focus";
-import { isSessionId } from "./session-identity";
+import { isEnvName, isSessionId, LOCAL_ENV } from "./session-identity";
 import type { SessionIdentity } from "./goals";
 import { json, jsonObject } from "./http";
 
@@ -11,18 +11,24 @@ const MAX_SESSION_INPUT_LIMIT = 20;
 const MAX_SESSION_INPUT_OFFSET = 100_000;
 const ENABLED_AGENTS = new Set<string>(AGENTS);
 
-function requestedSessionIdentities(value: unknown): SessionIdentity[] {
+function requestedSessionIdentities(value: unknown): Array<SessionIdentity & { env?: string }> {
   if (!Array.isArray(value) || value.length > MAX_REQUESTED_SESSIONS) {
     throw new ValidationError("invalid session identities");
   }
   return value.map((item) => {
     if (typeof item !== "object" || item === null) throw new ValidationError("invalid session identity");
-    const { agent, sid } = item as Record<string, unknown>;
+    const { agent, sid, env } = item as Record<string, unknown>;
     if (typeof agent !== "string" || !ENABLED_AGENTS.has(agent)
       || !isSessionId(sid)) {
       throw new ValidationError("invalid session identity");
     }
-    return { agent: agent as SessionIdentity["agent"], sid };
+    if (env !== undefined && env !== LOCAL_ENV && !isEnvName(env)) {
+      throw new ValidationError("invalid session identity");
+    }
+    return {
+      agent: agent as SessionIdentity["agent"], sid,
+      ...(typeof env === "string" && env !== LOCAL_ENV ? { env } : {}),
+    };
   });
 }
 

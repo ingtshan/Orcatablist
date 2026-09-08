@@ -25,6 +25,8 @@ export const AGENTS = ["claude", "codex", "hermes"] as const;
 export const RESCAN_INTERVAL_MS = 60_000;
 export const FALLBACK_RESCAN_INTERVAL_MS = 10_000;
 export const WATCH_DEBOUNCE_MS = 500;
+// Ceiling on how long a continuously-written session file may postpone an index pass.
+export const WATCH_MAX_WAIT_MS = 2_000;
 export const LIVE_CACHE_MS = 3_000;
 // How long a failed live source keeps serving its last good read before the board drops it.
 export const STALE_LIVE_BUDGET_MS = 30_000;

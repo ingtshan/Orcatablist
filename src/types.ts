@@ -1,3 +1,5 @@
+import type { SessionExecution } from "./session-execution";
+
 export type Agent = "claude" | "codex" | "hermes";
 /** Raw state reported by Orca or the fallback live-session source. Intentionally not normalized. */
 export type LiveStatus = string;
@@ -12,6 +14,10 @@ export interface LiveInfo {
   handle?: string;
   tabId?: string | null;
   leafId?: string | null;
+  /** Remote Orca environment the terminal lives in; absent means this machine. */
+  env?: string;
+  /** Workspace key (`repoId::path`) of the tab, when the runtime snapshot carried it. */
+  worktree?: string;
 }
 export interface ProjectRow {
   key: string; name: string; root: string; color: string | null;
@@ -23,8 +29,10 @@ export interface Goal {
 }
 export interface GoalSummary extends Goal { sessionCount: number; lastActivityAt: number | null; }
 export interface GoalRef { id: string; name: string; }
-export interface SessionRow {
+export interface SessionRow extends SessionExecution {
   agent: Agent;
+  /** Environment the session was indexed from. Absent means this machine (`local`). */
+  env?: string;
   sid: string; projectKey: string; cwd: string | null; worktreeRoot: string | null; branch: string | null;
   title: string | null;
   firstPrompt: string | null;
@@ -44,11 +52,18 @@ export interface SearchResult extends SessionRow { hits: SearchHit[]; score: num
 export type FocusResult =
   | { action: "switched"; handle: string; tabId: string | null }
   | { action: "resumed"; handle: string }
-  | { action: "manual"; reason: "running-outside-orca" | "not-orca-worktree" | "unknown-session"; command: string | null };
+  | {
+    action: "manual";
+    reason: "running-outside-orca" | "not-orca-worktree" | "unknown-session" | "remote-environment";
+    command: string | null;
+    /** Human guidance rendered above the command, when the reason needs explaining. */
+    message?: string;
+  };
 export type WorktreeFocusResult =
   | { action: "switched"; handle: string; tabId: string | null; cwd: string }
   | { action: "manual"; reason: "no-active-terminal"; cwd: string };
 export interface ParsedEvent {
   kind: "title" | "prompt" | "assistant-text" | "meta" | "skip";
   title?: string; text?: string; ts?: number | null; cwd?: string; branch?: string; version?: string;
+  model?: string | null; reasoningEffort?: string | null;
 }

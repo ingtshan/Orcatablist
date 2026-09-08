@@ -59,14 +59,16 @@ export function createLocalBoard(deps: LocalBoardDeps): TaskBoard {
     },
 
     lookup: async (taskIds: string[]) => {
-      if (taskIds.length === 0) return new Map();
+      if (taskIds.length === 0) return { tasks: new Map(), gone: [] };
       const placeholders = taskIds.map(() => "?").join(", ");
       const rows = database.query(`SELECT id, project_id, title, status FROM local_tasks
         WHERE id IN (${placeholders})`).all(...taskIds) as Record<string, unknown>[];
-      return new Map(rows.map((row) => {
+      // This adapter is the board, so a row that is not here is deleted, not unverifiable.
+      const tasks = new Map(rows.map((row) => {
         const task = taskFromRow(row);
         return [task.taskId, task];
       }));
+      return { tasks, gone: taskIds.filter((taskId) => !tasks.has(taskId)) };
     },
   };
 }

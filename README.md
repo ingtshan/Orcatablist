@@ -21,17 +21,39 @@ bun x tsc --noEmit
 bun test
 ```
 
-## 卡片内发送输入
+## Monitor 内发送输入
 
-Orca 报告为 `done`（已就绪、等待用户输入）的在线会话，卡片上会直接出现输入框：回车即通过
-`orca terminal send --terminal <handle> --text <text> --enter` 送进该会话，不必先跳转。
+悬停会话卡片会打开 Monitor 预览；点击卡片会 pin 当前会话，并在存在回复框时自动聚焦，避免移向
+输入框时被其他卡片的 hover 切走。再次点击同一卡片，或点击 Monitor 标题栏的 pin 按钮，可解除
+pin；点击另一张卡片则把 pin 切换过去。Orca 报告为 `done`（已就绪、等待用户输入）的在线会话会在
+Monitor 最底部显示输入框：
+回车即通过 `orca terminal send --terminal <handle> --text <text> --enter` 送进该会话，不必先跳转。
+用户输入按正常聊天顺序从旧到新展示，打开时定位到最底部 latest；向上滚到顶部会自动加载并缓存
+更早历史，不再需要手动点击“加载更多”。
 
+- 每个有索引输入的 session 卡片都用同一状态行展示 latest user input；处理完成后稳定为打钩，不再消失。
+- 悬浮或吸附的 Monitor 遮挡聚焦看板时，看板会在 Monitor 两侧生成避让滚动余量；滚到任一端都能让
+  内容完全移出遮挡。横向滚动条固定在浏览器下边缘并与看板双向同步；关闭或移开 Monitor 后自动撤销。
 - 只有 `done` 会出现输入框；`waiting`（工具权限确认）等状态一律不发。
 - 只收单行文本，不接受换行与控制字符——`--enter` 是逐字键入语义，换行会在 TUI 里变成提前提交。
-- 发送前会用卡片上的 handle / 状态与服务端最新快照比对，不一致返回 409 并提示刷新。
-- 发出后按 Orca 的 tab 状态判定回执：20 秒内没离开 `done` 就标为「未确认送达」，
-  卡片上保留「复制上次输入」把原文取回来重发。
+- 发送前会用 Monitor 当前会话的 handle / 状态与服务端最新快照比对，不一致返回 409 并提示刷新。
+- 发出后统一读取该 session 的完整 latest user input，与发送队列文本精确比较；不依赖 agent 类型、
+  `working` 事件或时间容差。20 秒内仍不相同会标为「传达未确认」，但后续 latest 变为相同仍可恢复确认。
+- 卡片保留「复制上次输入」，方便在失败或未确认时取回原文重发。
 - 写操作校验 `Sec-Fetch-Site` / `Origin`，只接受同源请求。
+
+输入状态按下表从上到下匹配，前面的规则优先：
+
+| 优先级 | Send 状态 | Session 原始状态 | 展示 | 含义 |
+|---|---|---|---|---|
+| 1 | `failed` | 任意 | 红色感叹号 · 传达失败 | input 没有送达 |
+| 1 | `stalled` | 任意 | 红色感叹号 · 传达未确认 | 超时仍无法确认送达 |
+| 2 | 任意 | `working` / `busy` | 原进行中样式 · spinner · 进行中 | session 正在处理 input |
+| 3 | `pending` | 除 `working` / `busy` 外 | 灰色 clock · 发送中 | 队列文本尚未等于 latest input |
+| 4 | `confirmed` / 无活动发送 | 其他任意状态 | 绿色 check · 已处理 | latest input 已匹配或 session 已结束处理 |
+
+“其他任意状态”包括 `done`、`waiting`、`blocked`、`idle`、`shell`、`error`、`unknown`、离线/无
+live 状态，以及未来出现的未知状态字符串；若命中更高优先级的发送失败或 pending，仍以前面的规则为准。
 
 ## 挂在会话上的想法队列
 
@@ -55,7 +77,27 @@ export ORCATAB_BOARDS='[{"id":"kansession","name":"kansession","kind":"kansessio
 ```
 
 `apiKey` 在 kansession 的 Settings → Account → Developer 里签发，走 `x-api-key`。
+kansession 的项目按 workspace 分域：这把 key 只能看到一个 workspace 时会自动发现，看到多个则报错
+要求补一个 `"workspaceId"` —— 把想法投进错的 workspace 比多一行配置糟糕得多。
 接口契约与新增适配器的写法见 [`docs/TBP.md`](docs/TBP.md)。
+
+## 远程环境（其他机器上的会话）
+
+顶栏「环境」里添加一台 ssh 可达、跑着 orca server 的机器（名称对齐 `orca environment list`），
+OrcaTab 会通过 ssh 增量索引它的 claude / codex 会话：每轮一次 ssh exec，脚本经 argv 注入远端
+python3、游标走 stdin，按字节只回传新增内容——远端零部署、不开端口、纯只读。
+
+- 保存前先「测试连接」：连通性、python3、claude/codex 目录规模与预估首轮轮次一次讲清。
+- 远程会话带机器徽章出现在会话/搜索/聚焦里；项目按 `名称 @环境` 命名空间隔离。
+- 实时状态直连远端 runtime（每启用环境一个 `orca-tab@<env>` live source）；在线会话可
+  一键跳转（`terminal switch --environment`）、`done` 时可回车发输入（send 同路由）。
+  远端回执确认放宽到 60s，且发送成功立即补拉一轮，通常几秒内打钩。
+- 不在线的远程会话不会被远程拉起：「跳转/恢复」给出 `ssh … --resume` 命令由你显式执行。
+- codex 按 `sinceDays` 时间窗索引（默认 90 天），线程标题来自远端 `session_index.jsonl`。
+- 只支持密钥/agent 认证（BatchMode）；首连 host key 按 accept-new 记录，之后变化即报错。
+- 隐私：索引读取目标机器上该用户的会话转录，按台、按 agent 显式 opt-in。
+
+设计取舍与协议细节见 [`docs/REMOTE.md`](docs/REMOTE.md)。
 
 ## 注册 orcatab://
 

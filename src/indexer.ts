@@ -1,35 +1,39 @@
-import { closeSync, existsSync, openSync, readSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import {
-  FTS_TEXT_MAX_CHARS, ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_HERMES_DB,
-  RESCAN_INTERVAL_MS, WATCH_DEBOUNCE_MS,
+  ORCATAB_CLAUDE_DIR, ORCATAB_CODEX_DIR, ORCATAB_HERMES_DB, RESCAN_INTERVAL_MS,
 } from "./config";
-import { getDefaultDatabase, type FtsRow, type OrcaDatabase, type StoredSession } from "./db";
-import { cleanPromptForDisplay } from "./parse";
+import { getDefaultDatabase, type OrcaDatabase, type StoredSession } from "./db";
+import { createCoalescingRunner } from "./index-scheduler";
+import { startSessionWatcher, type DebouncerOptions, type WatchHandle } from "./index-watch";
 import {
   createProjectDeps, mergeDeletedWorktreeProjects, mergeOrcaWorkspaceProjects, resolveProjectKey,
 } from "./projects";
+import {
+  errorText, selectSessionOwners, sourceIssue,
+  type SessionFileInfo, type SessionSource, type SessionUpdate, type SourceIssue,
+} from "./session-source";
 import { createClaudeSource } from "./sources/claude";
 import { createCodexSource } from "./sources/codex";
 import { createHermesSource } from "./sources/hermes";
-import type { Agent, ParsedEvent } from "./types";
 import { resolveWorktreeRoot } from "./worktrees";
 
-const BYTE_NEWLINE = 0x0a;
+export type {
+  DiscoveryResult, SessionFileInfo, SessionSource, SessionUpdate, SourceIssue, SourceStage,
+} from "./session-source";
+export type { WatchHandle } from "./index-watch";
+export { completeLines } from "./sources/jsonl";
 
-export interface IndexSummary { files: number; changed: number; ms: number; }
-export interface WatchHandle { mode: "fs.watch" | "timer"; close(): void; }
-export interface SessionFileInfo { agent: Agent; sid: string; path: string; size: number; mtime: number; }
-export interface DerivedSession { session: StoredSession; fts: FtsRow[]; }
-interface IndexFileResult { changed: boolean; listChanged: boolean; }
-export interface SessionSource {
-  agent: Agent;
-  discover(): SessionFileInfo[];
-  parseLine(line: string): ParsedEvent;
-  prepare?(): void;
-  titleFor?(sid: string): string | null;
-  deriveSession?(info: SessionFileInfo, base: StoredSession): DerivedSession;
+export interface IndexSummary { files: number; changed: number; ms: number; errors: SourceIssue[]; }
+/** Immutable snapshot of how indexing is actually doing, for /healthz and operators. */
+export interface IndexHealth {
+  running: boolean;
+  lastAttemptAt: number | null;
+  /** Only advances on a pass that had no errors at all. */
+  lastSuccessAt: number | null;
+  errors: SourceIssue[];
 }
+interface IndexFileResult { changed: boolean; listChanged: boolean; }
+interface OwnedFile { file: SessionFileInfo; source: SessionSource; }
 export interface IndexerOptions {
   claudeDir?: string;
   codexDir?: string;
@@ -38,84 +42,25 @@ export interface IndexerOptions {
   db?: OrcaDatabase;
   resolveProject?: typeof resolveProjectKey;
   resolveWorktree?: typeof resolveWorktreeRoot;
+  /** False for remote-environment indexers: project folding is local-machine semantics. */
+  foldProjects?: boolean;
+  /** False for remote-environment indexers: a remote round says nothing about local freshness. */
+  markIndexedAt?: boolean;
   now?: () => number;
-}
-
-interface CompleteRead { lines: string[]; consumedBytes: number; }
-
-function uniqueSessionFiles(files: SessionFileInfo[]): SessionFileInfo[] {
-  const latestBySession = new Map<string, SessionFileInfo>();
-  for (const file of files) {
-    const key = `${file.agent}/${file.sid}`;
-    const current = latestBySession.get(key);
-    if (current === undefined || file.path.localeCompare(current.path) > 0) latestBySession.set(key, file);
-  }
-  return [...latestBySession.values()];
-}
-
-function readCompleteLines(path: string, offset: number, size: number): CompleteRead {
-  const byteLength = size - offset;
-  if (byteLength <= 0) return { lines: [], consumedBytes: 0 };
-  const buffer = Buffer.allocUnsafe(byteLength);
-  const descriptor = openSync(path, "r");
-  let bytesRead = 0;
-  try {
-    while (bytesRead < byteLength) {
-      const count = readSync(descriptor, buffer, bytesRead, byteLength - bytesRead, offset + bytesRead);
-      if (count === 0) break;
-      bytesRead += count;
-    }
-  } finally {
-    closeSync(descriptor);
-  }
-  const complete = buffer.subarray(0, bytesRead);
-  const finalNewline = complete.lastIndexOf(BYTE_NEWLINE);
-  if (finalNewline < 0) return { lines: [], consumedBytes: 0 };
-  const text = complete.subarray(0, finalNewline).toString("utf8");
-  return { lines: text ? text.split("\n") : [], consumedBytes: finalNewline + 1 };
-}
-
-function emptySession(file: SessionFileInfo): StoredSession {
-  return {
-    agent: file.agent, sid: file.sid, projectKey: "unknown", cwd: null, worktreeRoot: null, branch: null, title: null,
-    firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0, filePath: file.path,
-    fileSize: 0, fileMtime: 0, parsedOffset: 0,
-  };
+  /** Test hook for the watcher's quiet/maximum-wait clock. */
+  debounce?: DebouncerOptions;
 }
 
 function sessionListChanged(previous: StoredSession | null, next: StoredSession): boolean {
   if (previous === null) return true;
   return previous.projectKey !== next.projectKey || previous.cwd !== next.cwd || previous.worktreeRoot !== next.worktreeRoot || previous.branch !== next.branch ||
     previous.title !== next.title || previous.firstPrompt !== next.firstPrompt || previous.lastPrompt !== next.lastPrompt ||
-    previous.lastInputAt !== next.lastInputAt || previous.promptCount !== next.promptCount;
+    previous.lastInputAt !== next.lastInputAt || previous.promptCount !== next.promptCount ||
+    (previous.model ?? null) !== (next.model ?? null) || (previous.reasoningEffort ?? null) !== (next.reasoningEffort ?? null);
 }
 
-function applyLines(base: StoredSession, lines: string[], source: SessionSource): { session: StoredSession; fts: FtsRow[] } {
-  let session = { ...base };
-  const fts: FtsRow[] = [];
-  for (const line of lines) {
-    const event = source.parseLine(line);
-    if (session.cwd === null && event.cwd) {
-      session = { ...session, cwd: event.cwd, branch: event.branch ?? session.branch };
-    }
-    if (event.kind === "title" && event.title !== undefined) session = { ...session, title: event.title };
-    if (event.kind === "prompt" && event.text !== undefined) {
-      const cleaned = cleanPromptForDisplay(event.text);
-      session = {
-        ...session,
-        firstPrompt: session.firstPrompt ?? (cleaned || null),
-        lastPrompt: cleaned ? cleaned : session.lastPrompt,
-        lastInputAt: event.ts === null || event.ts === undefined
-          ? session.lastInputAt : Math.max(session.lastInputAt ?? event.ts, event.ts),
-        promptCount: session.promptCount + 1,
-      };
-      fts.push({ text: event.text.slice(0, FTS_TEXT_MAX_CHARS), agent: session.agent, sid: session.sid, role: "user", ts: event.ts ?? null });
-    }
-    if (event.kind === "assistant-text" && event.text !== undefined) {
-      fts.push({ text: event.text.slice(0, FTS_TEXT_MAX_CHARS), agent: session.agent, sid: session.sid, role: "assistant", ts: event.ts ?? null });
-    }
-  }
-  return { session, fts };
+function issueSignature(errors: readonly SourceIssue[]): string {
+  return errors.map((issue) => `${issue.stage}/${issue.source}/${issue.path ?? ""}/${issue.message}`).join("|");
 }
 
 export function createIndexer(options: IndexerOptions = {}) {
@@ -125,136 +70,148 @@ export function createIndexer(options: IndexerOptions = {}) {
   const sources = options.sources ?? [
     createClaudeSource(claudeDir), createCodexSource(codexDir), createHermesSource(hermesDb),
   ];
-  const sourcesByAgent = new Map(sources.map((source) => [source.agent, source]));
   const watchPaths = [join(claudeDir, "projects"), join(codexDir, "sessions")];
   const db = options.db ?? getDefaultDatabase();
   const projectDeps = createProjectDeps(db);
   const projectResolver = options.resolveProject ?? resolveProjectKey;
   const worktreeResolver = options.resolveWorktree ?? resolveWorktreeRoot;
   const now = options.now ?? Date.now;
-  let activeRun: Promise<IndexSummary> | null = null;
-  let rerunRequested = false;
+  const health = { running: false, lastAttemptAt: null as number | null, lastSuccessAt: null as number | null, errors: [] as SourceIssue[] };
+  let loggedSignature = "";
+  let closed = false;
+  // Committed but not yet versioned: shutdown flushes these while the database is still open.
+  let unversionedChanges = 0;
+  let unversionedListChanges = false;
 
-  async function indexFile(file: SessionFileInfo): Promise<IndexFileResult> {
-    const source = sourcesByAgent.get(file.agent);
-    if (source === undefined) throw new Error(`missing session source for ${file.agent}`);
-    const stored = db.getStoredSession(file.agent, file.sid);
-    const sourceTitle = source.titleFor?.(file.sid);
-    if (stored && stored.filePath === file.path && stored.fileSize === file.size && stored.fileMtime === file.mtime) {
-      if (source.titleFor === undefined || stored.title === sourceTitle) return { changed: false, listChanged: false };
-      db.upsertSession({ ...stored, title: sourceTitle ?? null });
-      return { changed: true, listChanged: true };
+  function flushVersions(): void {
+    if (unversionedChanges > 0) db.bumpDataVersion();
+    if (unversionedListChanges) db.bumpListVersion();
+    unversionedChanges = 0;
+    unversionedListChanges = false;
+  }
+
+  async function indexFile(owned: OwnedFile, degraded: boolean, errors: SourceIssue[]): Promise<IndexFileResult> {
+    const { file, source } = owned;
+    const context = { path: file.path, sid: file.sid, ...(file.env === undefined ? {} : { env: file.env }) };
+    const unchanged = { changed: false, listChanged: false };
+    const stored = db.getStoredSession(file.agent, file.sid, file.env);
+    // An inventory that failed part way cannot prove the better owner is gone, so committed data
+    // stays with the path that already owns it until a clean inventory says otherwise.
+    if (degraded && stored !== null && stored.filePath.localeCompare(file.path) > 0) return unchanged;
+    let update: SessionUpdate | null;
+    try {
+      update = source.index(file, stored);
+    } catch (error) {
+      errors.push(sourceIssue("read", file.agent, errorText(error), context));
+      return unchanged;
     }
-    if (source.deriveSession !== undefined) {
-      const derived = source.deriveSession(file, stored ?? emptySession(file));
-      const project = await projectResolver(derived.session.cwd, projectDeps);
-      const session: StoredSession = {
-        ...derived.session, projectKey: project.key, worktreeRoot: worktreeResolver(derived.session.cwd), filePath: file.path,
-        fileSize: file.size, fileMtime: file.mtime,
+    if (update === null) return unchanged;
+    let session: StoredSession;
+    let applied: boolean;
+    try {
+      const project = await projectResolver(update.session.cwd, projectDeps);
+      if (closed) return unchanged;
+      session = {
+        ...update.session, projectKey: project.key, worktreeRoot: worktreeResolver(update.session.cwd),
       };
-      db.transaction(() => {
-        db.deleteSessionFts(file.agent, file.sid);
-        db.upsertProject(project);
-        db.appendSessionFts(derived.fts);
-        db.upsertSession(session);
-      });
-      return { changed: true, listChanged: sessionListChanged(stored, session) };
+      applied = db.applySessionUpdate({ ...update, session, project });
+    } catch (error) {
+      errors.push(sourceIssue("commit", file.agent, errorText(error), context));
+      return unchanged;
     }
-    const rebuild = stored === null || stored.filePath !== file.path || file.size < stored.fileSize
-      || (file.size === stored.fileSize && file.mtime !== stored.fileMtime);
-    const base = rebuild ? emptySession(file) : stored;
-    const parseBase = source.titleFor === undefined ? base : { ...base, title: null };
-    const offset = rebuild ? 0 : base.parsedOffset;
-    const read = readCompleteLines(file.path, offset, file.size);
-    const parsed = applyLines(parseBase, read.lines, source);
-    const project = await projectResolver(parsed.session.cwd, projectDeps);
-    const session: StoredSession = {
-      ...parsed.session, title: sourceTitle ?? parsed.session.title, projectKey: project.key,
-      worktreeRoot: worktreeResolver(parsed.session.cwd), filePath: file.path,
-      fileSize: file.size, fileMtime: file.mtime, parsedOffset: offset + read.consumedBytes,
-    };
-    db.transaction(() => {
-      if (rebuild) db.deleteSessionFts(file.agent, file.sid);
-      db.upsertProject(project);
-      db.appendSessionFts(parsed.fts);
-      db.upsertSession(session);
-    });
-    return { changed: true, listChanged: sessionListChanged(stored, session) };
+    if (!applied) return unchanged;
+    // Booked in the same synchronous step as the transaction. A shutdown that lands between the
+    // commit and this caller's resumption still finds the data marked dirty, so it gets versioned.
+    const listChanged = sessionListChanged(stored, session);
+    unversionedChanges += 1;
+    unversionedListChanges ||= listChanged;
+    return { changed: true, listChanged };
   }
 
   async function performIndexAll(): Promise<IndexSummary> {
     const startedAt = now();
-    for (const source of sources) source.prepare?.();
-    const files = uniqueSessionFiles(sources.flatMap((source) => source.discover()));
-    let changed = 0;
-    let listChanged = false;
-    for (const file of files) {
-      const result = await indexFile(file);
-      if (result.changed) changed += 1;
-      listChanged ||= result.listChanged;
+    health.running = true;
+    health.lastAttemptAt = startedAt;
+    const errors: SourceIssue[] = [];
+    const owners: OwnedFile[] = [];
+    const degradedSources = new Set<SessionSource>();
+    try {
+      for (const source of sources) {
+        if (closed) break;
+        try {
+          await source.prepare?.();
+        } catch (error) {
+          // A failure caused by the shutdown itself is cancellation, not a source fault.
+          if (closed) break;
+          errors.push(sourceIssue("prepare", source.agent, errorText(error)));
+          degradedSources.add(source);
+        }
+        // Preparing is an await boundary: a close landing here must stop before discovery runs.
+        if (closed) break;
+        try {
+          const discovered = source.discover();
+          errors.push(...discovered.errors);
+          if (discovered.errors.length > 0) degradedSources.add(source);
+          for (const file of discovered.files) owners.push({ file, source });
+        } catch (error) {
+          errors.push(sourceIssue("discover", source.agent, errorText(error)));
+          degradedSources.add(source);
+        }
+      }
+      // The winner carries the adapter that actually found it, so a duplicate never gets handed
+      // to a different agent's source.
+      const selected = selectSessionOwners(owners, (owned) => owned.file);
+      let changed = 0;
+      for (const owned of selected) {
+        if (closed) break;
+        const result = await indexFile(owned, degradedSources.has(owned.source), errors);
+        if (result.changed) changed += 1;
+      }
+      if (!closed) {
+        // Partial success still moves the versions: what did commit is real and readers need it.
+        flushVersions();
+        if (options.foldProjects !== false) {
+          mergeOrcaWorkspaceProjects(db);
+          mergeDeletedWorktreeProjects(db);
+        }
+        // Freshness is a claim that the index matches the sources, so only a clean pass may make it.
+        if (errors.length === 0) {
+          health.lastSuccessAt = now();
+          if (options.markIndexedAt !== false) db.setMeta("indexed_at", String(now()));
+        }
+      }
+      if (closed) return { files: selected.length, changed, ms: Math.max(0, Math.round(now() - startedAt)), errors: [] };
+      health.errors = errors;
+      const signature = issueSignature(errors);
+      if (errors.length > 0 && signature !== loggedSignature) {
+        console.error(`orcatab indexing degraded: ${errors.map((issue) => issue.message).join("; ")}`);
+      }
+      loggedSignature = signature;
+      return { files: selected.length, changed, ms: Math.max(0, Math.round(now() - startedAt)), errors };
+    } finally {
+      health.running = false;
     }
-    if (changed > 0) db.bumpDataVersion();
-    if (listChanged) db.bumpListVersion();
-    mergeOrcaWorkspaceProjects(db);
-    mergeDeletedWorktreeProjects(db);
-    db.setMeta("indexed_at", String(now()));
-    return { files: files.length, changed, ms: Math.max(0, Math.round(now() - startedAt)) };
   }
 
-  function indexAll(): Promise<IndexSummary> {
-    if (activeRun !== null) {
-      rerunRequested = true;
-      return activeRun;
-    }
-    activeRun = (async () => {
-      let summary: IndexSummary;
-      do {
-        rerunRequested = false;
-        summary = await performIndexAll();
-      } while (rerunRequested);
-      return summary;
-    })().finally(() => { activeRun = null; });
-    return activeRun;
+  const runner = createCoalescingRunner(performIndexAll);
+
+  async function indexAll(): Promise<IndexSummary> {
+    const result = await runner.request();
+    if (result.status === "completed") return result.value;
+    if (result.status === "failed") throw result.error;
+    // A shutdown is not an indexing failure; it simply means this pass never ran.
+    return { files: 0, changed: 0, ms: 0, errors: [] };
   }
 
-  function runBackground(source: string): void {
-    void indexAll().catch((error) => console.error(`orcatab ${source} rescan failed`, error));
+  function runBackground(trigger: string): void {
+    void indexAll().catch((error) => console.error(`orcatab ${trigger} rescan failed`, error));
   }
 
   function startWatcher(onFailure?: () => void): WatchHandle {
-    const watchers: FSWatcher[] = [];
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    let failed = false;
-    const close = () => {
-      if (debounceTimer !== null) clearTimeout(debounceTimer);
-      for (const watcher of watchers) watcher.close();
-    };
-    try {
-      for (const path of watchPaths.filter(existsSync)) {
-        watchers.push(watch(path, { recursive: true }, () => {
-          if (debounceTimer !== null) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => runBackground("watch"), WATCH_DEBOUNCE_MS);
-          debounceTimer.unref?.();
-        }));
-      }
-      if (watchers.length === 0) throw new Error("no session directories available to watch");
-      const handle: WatchHandle = { mode: "fs.watch", close };
-      for (const watcher of watchers) {
-        watcher.on("error", (error) => {
-          if (failed) return;
-          failed = true;
-          handle.mode = "timer";
-          console.error("orcatab fs.watch failed; using timer fallback", error);
-          close();
-          onFailure?.();
-        });
-      }
-      return handle;
-    } catch (error) {
-      console.error("orcatab fs.watch failed; using timer fallback", error);
-      close();
-      return { mode: "timer", close: () => {} };
-    }
+    return startSessionWatcher(watchPaths, () => runBackground("watch"), {
+      ...(onFailure === undefined ? {} : { onFailure }),
+      ...(options.debounce === undefined ? {} : { debounce: options.debounce }),
+    });
   }
 
   function startRescanTimer(intervalMs = RESCAN_INTERVAL_MS): ReturnType<typeof setInterval> {
@@ -263,7 +220,25 @@ export function createIndexer(options: IndexerOptions = {}) {
     return timer;
   }
 
-  return { indexAll, startWatcher, startRescanTimer };
+  function getHealth(): IndexHealth {
+    const errors: SourceIssue[] = health.errors.map((issue) => Object.freeze({ ...issue }));
+    Object.freeze(errors);
+    return Object.freeze({
+      running: health.running,
+      lastAttemptAt: health.lastAttemptAt,
+      lastSuccessAt: health.lastSuccessAt,
+      errors,
+    });
+  }
+
+  /** Synchronous on purpose: it runs while the database is still open, so committed work is versioned. */
+  function close(): void {
+    closed = true;
+    runner.close();
+    flushVersions();
+  }
+
+  return { indexAll, startWatcher, startRescanTimer, getHealth, close };
 }
 
 let defaultIndexer: ReturnType<typeof createIndexer> | null = null;

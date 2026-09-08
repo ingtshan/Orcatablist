@@ -1,5 +1,6 @@
 import { DISPLAY_TITLE_MAX_CHARS } from "./config";
 import type { StoredSession } from "./db";
+import { LOCAL_ENV } from "./session-identity";
 import type { Agent, SessionRow } from "./types";
 
 const LIKE_CONTEXT_CHARS = 40;
@@ -7,11 +8,13 @@ const LIKE_CONTEXT_CHARS = 40;
 export function sessionRow(row: Record<string, unknown>): SessionRow {
   const agent: Agent = row.agent === "codex" || row.agent === "hermes" ? row.agent : "claude";
   const sid = String(row.sid);
+  const env = typeof row.env === "string" && row.env ? row.env : LOCAL_ENV;
   const title = typeof row.title === "string" && row.title ? row.title : null;
   const firstPrompt = typeof row.first_prompt === "string" && row.first_prompt ? row.first_prompt : null;
   const lastPrompt = typeof row.last_prompt === "string" && row.last_prompt ? row.last_prompt : null;
   return {
     agent,
+    ...(env === LOCAL_ENV ? {} : { env }),
     sid,
     projectKey: String(row.project_key),
     cwd: typeof row.cwd === "string" ? row.cwd : null,
@@ -23,6 +26,8 @@ export function sessionRow(row: Record<string, unknown>): SessionRow {
     displayTitle: (title ?? firstPrompt ?? sid.slice(0, 8)).slice(0, DISPLAY_TITLE_MAX_CHARS),
     lastInputAt: typeof row.last_input_at === "number" ? row.last_input_at : null,
     promptCount: Number(row.prompt_count),
+    model: typeof row.model === "string" && row.model ? row.model : null,
+    reasoningEffort: typeof row.reasoning_effort === "string" && row.reasoning_effort ? row.reasoning_effort : null,
     live: null,
     goals: [],
   };
@@ -33,6 +38,7 @@ export function storedSession(row: Record<string, unknown>): StoredSession {
     ...sessionRow(row),
     filePath: String(row.file_path), fileSize: Number(row.file_size),
     fileMtime: Number(row.file_mtime), parsedOffset: Number(row.parsed_offset),
+    executionMetadataVersion: Number(row.execution_metadata_version ?? 0),
   };
 }
 

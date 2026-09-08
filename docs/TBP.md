@@ -49,7 +49,7 @@ interface TaskBoard {
   capabilities(): BoardFeatures;          // 同步；不探网络
   listProjects(): Promise<BoardProject[]>;
   capture(input: CaptureInput): Promise<BoardTask>;
-  lookup(taskIds: string[]): Promise<Map<string, BoardTask>>;
+  lookup(taskIds: string[]): Promise<LookupResult>;
   backlink?(taskId: string, ref: SessionRef): Promise<void>;
 }
 
@@ -62,6 +62,9 @@ interface BoardTask {
   url: string | null;         // 「打开」按钮的目标；板子没有 web UI 时为 null
 }
 interface CaptureInput { projectId: string; title: string; description?: string }
+// `tasks` = still on the board. `gone` = the board positively says it is deleted.
+// An id in neither could not be checked, and its stored snapshot must stand.
+interface LookupResult { tasks: Map<string, BoardTask>; gone: string[] }
 interface SessionRef { providerId: string; sessionId: string; agent: string }
 ```
 
@@ -87,7 +90,8 @@ kansession 的任务时间线上有一条 `session_linked`。
 | `updateStatus()` / 完成任务 | 「落地」动作：把队列项发进会话后推到 in-progress |
 | `search()` / 挂载已有任务 | 把板子上已存在的任务拖到某个 session 上 |
 | 分页 / cursor | 单个 session 的队列超过一屏 |
-| webhook / 推送 | 队列要实时反映别人在板子上的改动（现在靠读时刷新） |
+| webhook / 推送 | 队列要实时反映别人在板子上的改动（现在靠读时刷新，15 s 节流） |
+| 批量 lookup | 队列大到逐个 `GET /api/task/{id}` 变慢——刷新会覆盖**所有**已链接任务（不只是 open 的），否则任务一旦 done 就再不同步，在板子上被重开或删除永远传不回来 |
 | 多 workspace | 一个 kansession 实例里跨 workspace 捕捉 |
 
 ## 配置
@@ -107,6 +111,7 @@ ORCATAB_BOARDS='[{"id":"kansession","name":"kansession","kind":"kansession",
 |---|---|
 | `listProjects()` | `GET /api/project` → `{id,name,slug,workspaceId}`；`url` 由 `webUrl` + workspaceId + id 拼 |
 | `capture()` | `GET /api/column/{projectId}` 取第一列的 slug 作 status，再 `POST /api/task/{projectId}` |
-| `lookup()` | 逐个 `GET /api/task/{id}`（v1 没有批量端点）；404 视为任务已删，链接一并清掉 |
+| `lookup()` | 逐个 `GET /api/task/{id}`（v1 没有批量端点），逐个隔离失败；**400 与 404 都算已删**——kansession 从任务行反查 workspace，任务没了它答的是 400 `Workspace ID could not be determined`。其余错误保留链接 |
+| workspace | kansession 的项目按 workspace 分域。`workspaceId` 不配时用 `GET /api/auth/organization/list` 发现；恰好一个就用它，多个则报错要求显式配置——把想法投进错的 workspace 比多一行配置糟糕得多 |
 | `backlink()` | `POST /api/agent-session/link` `{taskId, providerId:"orcatab", sessionId}`（不带 snapshot，让 kansession 反过来走 SPP `/spp/v1/sessions/orcatab/{sid}` 自己取——这正是 SPP 加 lookup 端点的原因） |
 | `statusKind` | 任务的 `status` slug 落在该项目 `isFinal` 的列里 → `done`，否则 `open`；列表缓存 60 s |

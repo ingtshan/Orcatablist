@@ -1,6 +1,6 @@
 import {
   BoardOfflineError, BoardRequestError, type BoardFeatures, type BoardProject, type BoardTask,
-  type CaptureInput, normalizeTaskTitle, type SessionRef, type TaskBoard,
+  type CaptureInput, type LookupResult, normalizeTaskTitle, type SessionRef, type TaskBoard,
 } from "./board";
 
 const KANSESSION_FEATURES: BoardFeatures = { projects: true, capture: true, lookup: true, backlink: true };
@@ -8,8 +8,15 @@ const REQUEST_TIMEOUT_MS = 5_000;
 const PROJECT_CACHE_MS = 60_000;
 const COLUMN_CACHE_MS = 60_000;
 const LOOKUP_CONCURRENCY = 8;
+const MAX_ERROR_DETAIL_CHARS = 200;
 const DEFAULT_PRIORITY = "no-priority";
 const FALLBACK_STATUS = "to-do";
+/**
+ * kansession resolves a task's workspace *from the task row*, so a deleted task answers 400
+ * ("Workspace ID could not be determined"), not 404. Both mean the board no longer knows the id.
+ * Anything else leaves the link alone: dropping a live task would lose the user's captured idea.
+ */
+const GONE_STATUSES = new Set([400, 404]);
 
 export interface KansessionBoardConfig {
   id: string;
@@ -18,9 +25,12 @@ export interface KansessionBoardConfig {
   /** Where the browser reaches the board's UI. Without it, tasks have no "open" link. */
   webUrl: string | null;
   apiKey: string | null;
+  /** Which kansession workspace to file into. Discovered when the key can see exactly one. */
+  workspaceId?: string | null;
 }
 
 interface KansessionProject { id: string; name: string; slug: string; workspaceId: string; archivedAt: string | null; }
+interface KansessionWorkspace { id: string; name: string; }
 interface KansessionColumn { slug: string; position: number; isFinal: boolean; }
 interface KansessionTask { id: string; projectId: string; title: string; status: string; number: number | null; }
 
@@ -32,6 +42,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function toWorkspace(value: unknown): KansessionWorkspace | null {
+  if (!isObject(value) || !text(value.id)) return null;
+  return { id: text(value.id), name: text(value.name) || text(value.id) };
 }
 
 function toProject(value: unknown): KansessionProject | null {
@@ -77,6 +92,7 @@ export function createKansessionBoard(config: KansessionBoardConfig): TaskBoard 
   const baseUrl = config.baseUrl.replace(/\/$/, "");
   const webUrl = config.webUrl === null ? null : config.webUrl.replace(/\/$/, "");
   let projectCache: Cached<Map<string, KansessionProject>> | null = null;
+  let workspaceId: string | null = config.workspaceId?.trim() || null;
   const columnCache = new Map<string, Cached<KansessionColumn[]>>();
 
   async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -93,17 +109,41 @@ export function createKansessionBoard(config: KansessionBoardConfig): TaskBoard 
       throw new BoardOfflineError(config.id, `board "${config.id}" is unreachable: ${
         error instanceof Error ? error.message : String(error)}`);
     }
-    if (response.status === 404) throw new BoardRequestError(config.id, "not found", 404);
     if (!response.ok) {
-      throw new BoardRequestError(config.id, `board "${config.id}" returned HTTP ${response.status}`, response.status);
+      const detail = await response.text().catch(() => "");
+      throw new BoardRequestError(config.id, `board "${config.id}" returned HTTP ${response.status}`
+        + (detail ? `: ${detail.slice(0, MAX_ERROR_DETAIL_CHARS)}` : ""), response.status);
     }
     try { return await response.json() as T; }
     catch { throw new BoardRequestError(config.id, `board "${config.id}" returned invalid JSON`, response.status); }
   }
 
+  /**
+   * kansession scopes projects by workspace, so the adapter needs one. Discover it when the key
+   * can see exactly one workspace; refuse to guess when it can see several, because filing a
+   * captured idea into the wrong workspace is worse than asking for a line of config.
+   */
+  async function resolveWorkspaceId(): Promise<string> {
+    if (workspaceId !== null) return workspaceId;
+    const payload = await call<unknown>("/api/auth/organization/list");
+    const workspaces = (Array.isArray(payload) ? payload : [])
+      .map(toWorkspace)
+      .filter((workspace): workspace is KansessionWorkspace => workspace !== null);
+    if (workspaces.length === 0) {
+      throw new BoardRequestError(config.id, `board "${config.id}" has no workspace for this API key`, null);
+    }
+    if (workspaces.length > 1) {
+      throw new BoardRequestError(config.id, `board "${config.id}" has ${workspaces.length} workspaces; `
+        + `set workspaceId in ORCATAB_BOARDS to one of: ${workspaces.map((item) => `${item.id} (${item.name})`).join(", ")}`,
+        null);
+    }
+    workspaceId = workspaces[0]!.id;
+    return workspaceId;
+  }
+
   async function projectsById(): Promise<Map<string, KansessionProject>> {
     if (projectCache !== null && Date.now() - projectCache.at < PROJECT_CACHE_MS) return projectCache.value;
-    const payload = await call<unknown>("/api/project");
+    const payload = await call<unknown>(`/api/project?workspaceId=${encodeURIComponent(await resolveWorkspaceId())}`);
     const projects = (Array.isArray(payload) ? payload : [])
       .map(toProject)
       .filter((project): project is KansessionProject => project !== null);
@@ -174,20 +214,26 @@ export function createKansessionBoard(config: KansessionBoardConfig): TaskBoard 
       return toBoardTask({ ...created, projectId: created.projectId || input.projectId });
     },
 
-    lookup: async (taskIds: string[]): Promise<Map<string, BoardTask>> => {
-      const found = await chunked(taskIds, LOOKUP_CONCURRENCY, async (taskId) => {
+    lookup: async (taskIds: string[]): Promise<LookupResult> => {
+      // Isolated per task: one deleted or broken id must not abort the whole board's refresh.
+      const outcomes = await chunked(taskIds, LOOKUP_CONCURRENCY, async (taskId) => {
         try {
-          return toTask(await call<unknown>(`/api/task/${encodeURIComponent(taskId)}`));
+          const task = toTask(await call<unknown>(`/api/task/${encodeURIComponent(taskId)}`));
+          return task === null ? { taskId, gone: false } : { taskId, task };
         } catch (error) {
-          // 404 means the task is gone from the board; anything else must not be read as deletion.
-          if (error instanceof BoardRequestError && error.status === 404) return null;
-          throw error;
+          if (error instanceof BoardOfflineError) throw error;
+          const gone = error instanceof BoardRequestError && error.status !== null
+            && GONE_STATUSES.has(error.status);
+          return { taskId, gone };
         }
       });
-      const tasks = await Promise.all(found
-        .filter((task): task is KansessionTask => task !== null)
+      const resolved = await Promise.all(outcomes
+        .flatMap((outcome) => ("task" in outcome && outcome.task ? [outcome.task] : []))
         .map(toBoardTask));
-      return new Map(tasks.map((task) => [task.taskId, task]));
+      return {
+        tasks: new Map(resolved.map((task) => [task.taskId, task])),
+        gone: outcomes.flatMap((outcome) => ("gone" in outcome && outcome.gone ? [outcome.taskId] : [])),
+      };
     },
 
     backlink: async (taskId: string, ref: SessionRef): Promise<void> => {

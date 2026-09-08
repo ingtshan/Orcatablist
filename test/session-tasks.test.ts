@@ -60,10 +60,13 @@ function fakeBoard(options: FakeBoardOptions = {}): FakeBoard {
     },
     lookup: async (taskIds) => {
       if (options.offline) throw offline();
-      return new Map(taskIds.flatMap((taskId) => {
-        const task = tasks.get(taskId);
-        return task === undefined ? [] : [[taskId, task] as const];
-      }));
+      return {
+        tasks: new Map(taskIds.flatMap((taskId) => {
+          const task = tasks.get(taskId);
+          return task === undefined ? [] : [[taskId, task] as const];
+        })),
+        gone: taskIds.filter((taskId) => !tasks.has(taskId)),
+      };
     },
     ...(options.backlink === true
       ? {
@@ -134,7 +137,7 @@ describe("SessionTaskStore", () => {
       };
       deps.store.link("claude", SID, base);
       deps.store.link("claude", SID, { ...base, taskId: "t2", title: "b" });
-      expect(deps.store.openTaskIds("kan").sort()).toEqual(["t1", "t2"]);
+      expect(deps.store.linkedTaskIds("kan").sort()).toEqual(["t1", "t2"]);
 
       const changed = deps.store.applySnapshots(
         "kan",
@@ -145,7 +148,7 @@ describe("SessionTaskStore", () => {
       const links = deps.store.listForSession("claude", SID);
       expect(links).toHaveLength(1);
       expect(links[0]).toMatchObject({ taskId: "t1", title: "a2", statusKind: "done" });
-      expect(deps.store.openTaskIds("kan")).toEqual([]);
+      expect(deps.store.linkedTaskIds("kan")).toEqual(["t1"]);
     } finally { deps.close(); }
   });
 
@@ -267,6 +270,30 @@ describe("refreshSessionTasks", () => {
       expect(deps.store.listForSession("claude", SID)[0]?.title).toBe("想法");
 
       expect((await refreshSessionTasks(deps)).offline).toEqual([]);
+    } finally { deps.close(); }
+  });
+
+  test("keeps refreshing a done task, so reopening or deleting it on the board reaches the queue", async () => {
+    const fake = fakeBoard({ id: "kan" });
+    const deps = harness([fake.board]);
+    try {
+      const created = await captureSessionTask(deps, {
+        agent: "claude", sid: SID, title: "想法", projectId: BOARD_PROJECT,
+      });
+      deps.store.applySnapshots("kan", new Map([[created.task.taskId, {
+        ...created.task, status: "done", statusKind: "done" as const,
+      }]]), []);
+      expect(deps.store.listForSession("claude", SID)[0]?.statusKind).toBe("done");
+
+      // The board still knows it as open; a refresh that skipped done tasks would never see this.
+      await refreshSessionTasks(deps);
+      expect(deps.store.listForSession("claude", SID)[0]?.statusKind).toBe("open");
+
+      const gone: SessionTaskDeps = {
+        ...deps, boards: new BoardRegistry([fakeBoard({ id: "kan" }).board]),
+      };
+      await refreshSessionTasks(gone);
+      expect(deps.store.listAll()).toEqual([]);
     } finally { deps.close(); }
   });
 

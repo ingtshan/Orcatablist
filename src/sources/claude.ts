@@ -1,39 +1,73 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseLine } from "../parse";
-import type { SessionFileInfo, SessionSource } from "../indexer";
+import {
+  errorText, isMissingPath, sourceIssue,
+  type DiscoveryResult, type SessionFileInfo, type SessionSource, type SourceIssue,
+} from "../session-source";
+import { indexLocalJsonlSession } from "./jsonl";
 
 const SESSION_FILE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/;
 
-export function discoverClaudeSessionFiles(claudeDir: string): SessionFileInfo[] {
+/**
+ * A project directory or session file that vanished or cannot be read costs only itself: the
+ * remaining projects and files are still returned, with the failure carried alongside them.
+ */
+export function discoverClaudeSessions(claudeDir: string): DiscoveryResult {
   const projectsDir = join(claudeDir, "projects");
+  const files: SessionFileInfo[] = [];
+  const errors: SourceIssue[] = [];
   let projectEntries;
   try {
     projectEntries = readdirSync(projectsDir, { withFileTypes: true });
   } catch (error) {
-    throw new Error(`failed to read Claude projects directory ${projectsDir}: ${String(error)}`);
+    return {
+      files,
+      errors: [sourceIssue("discover", "claude",
+        `failed to read Claude projects directory ${projectsDir}: ${errorText(error)}`, { path: projectsDir })],
+    };
   }
-  const files: SessionFileInfo[] = [];
   for (const projectEntry of projectEntries) {
     if (!projectEntry.isDirectory()) continue;
     const directory = join(projectsDir, projectEntry.name);
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch (error) {
+      if (!isMissingPath(error)) {
+        errors.push(sourceIssue("discover", "claude",
+          `failed to read Claude project directory ${directory}: ${errorText(error)}`, { path: directory }));
+      }
+      continue;
+    }
+    for (const entry of entries) {
       if (!entry.isFile() || !SESSION_FILE_PATTERN.test(entry.name)) continue;
       const path = join(directory, entry.name);
-      const stat = statSync(path);
-      files.push({
-        agent: "claude", path, sid: entry.name.slice(0, -6),
-        size: stat.size, mtime: Math.trunc(stat.mtimeMs),
-      });
+      const sid = entry.name.slice(0, -6);
+      let stat;
+      try {
+        stat = statSync(path);
+      } catch (error) {
+        if (!isMissingPath(error)) {
+          errors.push(sourceIssue("discover", "claude",
+            `failed to stat Claude session file ${path}: ${errorText(error)}`, { path, sid }));
+        }
+        continue;
+      }
+      files.push({ agent: "claude", path, sid, size: stat.size, mtime: Math.trunc(stat.mtimeMs) });
     }
   }
-  return files.sort((a, b) => a.path.localeCompare(b.path));
+  return { files: files.sort((a, b) => a.path.localeCompare(b.path)), errors };
+}
+
+export function discoverClaudeSessionFiles(claudeDir: string): SessionFileInfo[] {
+  return discoverClaudeSessions(claudeDir).files;
 }
 
 export function createClaudeSource(claudeDir: string): SessionSource {
   return {
     agent: "claude",
-    discover: () => discoverClaudeSessionFiles(claudeDir),
-    parseLine,
+    discover: () => discoverClaudeSessions(claudeDir),
+    index: (info, stored) => indexLocalJsonlSession(info, stored, { parseLine }),
   };
 }

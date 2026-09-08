@@ -42,6 +42,16 @@ export interface SessionRef {
   agent: string;
 }
 
+/**
+ * `tasks` are the ones the board still knows. `gone` are the ones it positively reports as
+ * deleted — an id in neither means the adapter could not check it, and its snapshot must stand.
+ * Conflating those two would let one transient error erase a live task from the queue.
+ */
+export interface LookupResult {
+  tasks: Map<string, BoardTask>;
+  gone: string[];
+}
+
 export interface TaskBoard {
   readonly id: string;
   readonly name: string;
@@ -50,7 +60,7 @@ export interface TaskBoard {
   capabilities(): BoardFeatures;
   listProjects(): Promise<BoardProject[]>;
   capture(input: CaptureInput): Promise<BoardTask>;
-  lookup(taskIds: string[]): Promise<Map<string, BoardTask>>;
+  lookup(taskIds: string[]): Promise<LookupResult>;
   backlink?(taskId: string, ref: SessionRef): Promise<void>;
 }
 

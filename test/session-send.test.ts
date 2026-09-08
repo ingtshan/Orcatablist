@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { handleSessionSendRequest, type SessionSendRouteDeps } from "../src/session-send-routes";
 import {
-  CONFIRMATION_INPUT_TOLERANCE_MS, CONFIRMATION_TIMEOUT_MS, confirmationState,
+  CONFIRMATION_TIMEOUT_MS, confirmationState,
   createSentInputConfirmationQueue, createSentInputStore, normalizeInputText, SendConflictError,
   sendSessionInput, sentInputRecords, type SentInput,
 } from "../src/session-send";
@@ -19,8 +19,7 @@ function live(overrides: Partial<LiveInfo> = {}): LiveInfo {
 
 function sentInput(overrides: Partial<SentInput> = {}): SentInput {
   return {
-    agent: "claude", sid: SID, text: "继续", handle: "term_claude", sentAt: SENT_AT,
-    workingObservedAt: null, ...overrides,
+    agent: "claude", sid: SID, text: "继续", handle: "term_claude", sentAt: SENT_AT, ...overrides,
   };
 }
 
@@ -29,7 +28,7 @@ interface Recorder { calls: string[][]; }
 function sendDeps(overrides: Partial<SessionSendRouteDeps> = {}, recorder: Recorder = { calls: [] }) {
   const store = overrides.store ?? createSentInputStore();
   const confirmationQueue = overrides.confirmationQueue ?? createSentInputConfirmationQueue({
-    store, refreshLive: async () => new Map(), getUserInputs: () => new Map(), now: () => SENT_AT,
+    store, getLatestUserInputs: () => new Map(), now: () => SENT_AT,
   });
   const deps: SessionSendRouteDeps = {
     findLive: () => live(),
@@ -72,9 +71,8 @@ describe("normalizeInputText", () => {
 });
 
 describe("confirmationState", () => {
-  test("reflects the queue phases without treating live status alone as confirmation", () => {
+  test("stays pending until latest-input comparison confirms delivery", () => {
     expect(confirmationState(sentInput(), SENT_AT)).toBe("pending");
-    expect(confirmationState(sentInput({ workingObservedAt: SENT_AT + 1 }), SENT_AT + 2)).toBe("verifying");
   });
 
   test("stays pending until the timeout, then reports stalled", () => {
@@ -84,74 +82,74 @@ describe("confirmationState", () => {
 });
 
 describe("sent input confirmation queue", () => {
-  test("remembers a working event and confirms only an exact near-time user input", async () => {
+  test("confirms all agents by exact latest input without live or timestamp gates", async () => {
     const store = createSentInputStore();
-    store.record(sentInput());
-    let currentLive = live();
-    let inputs = new Map<string, Array<{ text: string; ts: number | null }>>();
+    store.record(sentInput({ agent: "claude", text: "Claude latest" }));
+    store.record(sentInput({ agent: "codex", text: "Codex latest" }));
+    store.record(sentInput({ agent: "hermes", text: "Hermes queued" }));
+    const batches: string[][] = [];
     const queue = createSentInputConfirmationQueue({
       store,
-      refreshLive: async () => new Map([[`claude/${SID}`, currentLive]]),
-      getUserInputs: () => inputs,
+      getLatestUserInputs: (entries) => {
+        batches.push(entries.map(({ agent, sid }) => `${agent}/${sid}`));
+        return new Map([
+          [`claude/${SID}`, [{ text: "Claude latest", ts: SENT_AT + 60_000 }]],
+          [`codex/${SID}`, [{ text: "Codex latest", ts: null }]],
+          [`hermes/${SID}`, [
+            { text: "Hermes different latest", ts: SENT_AT + 2 },
+            { text: "Hermes queued", ts: SENT_AT + 1 },
+          ]],
+        ]);
+      },
       now: () => SENT_AT + 2_000,
     });
 
-    expect((await queue.reconcile())[`claude/${SID}`]?.state).toBe("pending");
-    currentLive = live({ status: "working", updatedAt: SENT_AT + 1_000 });
-    inputs = new Map([[`claude/${SID}`, [{ text: "不匹配", ts: SENT_AT + 1_000 }]]]);
-    expect((await queue.reconcile())[`claude/${SID}`]).toMatchObject({
-      state: "verifying", workingObservedAt: SENT_AT + 1_000,
+    expect(await queue.reconcile()).toEqual({
+      [`hermes/${SID}`]: expect.objectContaining({ state: "pending", text: "Hermes queued" }),
     });
-
-    currentLive = live({ status: "done", updatedAt: SENT_AT + 3_000 });
-    inputs = new Map([[`claude/${SID}`, [{
-      text: "继续", ts: SENT_AT + CONFIRMATION_INPUT_TOLERANCE_MS,
-    }]]]);
-    expect((await queue.reconcile())[`claude/${SID}`]).toBeUndefined();
-    expect(store.get("claude", SID)).toBeNull();
-    expect(queue.takeConfirmed()).toEqual([expect.objectContaining({
-      agent: "claude", sid: SID, text: "继续", confirmedAt: SENT_AT + 2_000,
-      confirmedInputAt: SENT_AT + CONFIRMATION_INPUT_TOLERANCE_MS,
-    })]);
-    expect(queue.takeConfirmed()).toEqual([]);
+    expect(batches).toEqual([[
+      `claude/${SID}`, `codex/${SID}`, `hermes/${SID}`,
+    ]]);
+    expect(queue.takeConfirmed().map(({ agent, text, confirmedInputAt }) => ({
+      agent, text, confirmedInputAt,
+    }))).toEqual([
+      { agent: "claude", text: "Claude latest", confirmedInputAt: SENT_AT + 60_000 },
+      { agent: "codex", text: "Codex latest", confirmedInputAt: null },
+    ]);
   });
 
-  test("does not treat busy, mismatched text, or an out-of-window input as confirmation", async () => {
+  test("compares only the latest input and can recover a stalled record", async () => {
     const store = createSentInputStore();
     store.record(sentInput());
-    let currentLive = live({ status: "busy", updatedAt: SENT_AT + 1 });
-    const inputs = new Map([[`claude/${SID}`, [
-      { text: "继续", ts: SENT_AT + CONFIRMATION_INPUT_TOLERANCE_MS + 1 },
-      { text: "别的输入", ts: SENT_AT + 1 },
+    let inputs = new Map<string, Array<{ text: string; ts: number | null }>>([[`claude/${SID}`, [
+      { text: "别的最新输入", ts: SENT_AT + CONFIRMATION_TIMEOUT_MS + 1 },
+      { text: "继续", ts: SENT_AT + 1 },
     ]]]);
     const queue = createSentInputConfirmationQueue({
       store,
-      refreshLive: async () => new Map([[`claude/${SID}`, currentLive]]),
-      getUserInputs: () => inputs,
-      now: () => SENT_AT + 2_000,
+      getLatestUserInputs: () => inputs,
+      now: () => SENT_AT + CONFIRMATION_TIMEOUT_MS + 1,
     });
-    expect((await queue.reconcile())[`claude/${SID}`]?.state).toBe("pending");
-    currentLive = live({ status: "working", updatedAt: SENT_AT + 1 });
-    expect((await queue.reconcile())[`claude/${SID}`]?.state).toBe("verifying");
+    expect((await queue.reconcile())[`claude/${SID}`]?.state).toBe("stalled");
+    expect(queue.hasPending()).toBeFalse();
+
+    inputs = new Map([[`claude/${SID}`, [{ text: "继续", ts: null }]]]);
+    expect(await queue.reconcile()).toEqual({});
+    expect(store.get("claude", SID)).toBeNull();
+    expect(queue.takeConfirmed()).toEqual([expect.objectContaining({
+      agent: "claude", sid: SID, text: "继续", confirmedInputAt: null,
+    })]);
   });
 
-  test("refreshes live once and loads evidence once for the whole queue", async () => {
+  test("loads latest inputs once for the whole queue", async () => {
     const otherSid = "other-session";
     const store = createSentInputStore();
     store.record(sentInput());
     store.record(sentInput({ agent: "codex", sid: otherSid, text: "safe commit" }));
-    const forces: boolean[] = [];
     const batches: string[][] = [];
     const queue = createSentInputConfirmationQueue({
       store,
-      refreshLive: async (force) => {
-        forces.push(force);
-        return new Map([
-          [`claude/${SID}`, live({ status: "working" })],
-          [`codex/${otherSid}`, live({ status: "working" })],
-        ]);
-      },
-      getUserInputs: (entries) => {
+      getLatestUserInputs: (entries) => {
         batches.push(entries.map((entry) => `${entry.agent}/${entry.sid}`));
         return new Map(entries.map((entry) => [
           `${entry.agent}/${entry.sid}`, [{ text: entry.text, ts: entry.sentAt + 1 }],
@@ -159,8 +157,7 @@ describe("sent input confirmation queue", () => {
       },
       now: () => SENT_AT + 2_000,
     });
-    const records = await queue.reconcile({ forceLive: true });
-    expect(forces).toEqual([true]);
+    const records = await queue.reconcile();
     expect(batches).toEqual([[`claude/${SID}`, `codex/${otherSid}`]]);
     expect(records).toEqual({});
     expect(store.list()).toEqual([]);
@@ -307,8 +304,7 @@ describe("session send routes", () => {
     store.record(sentInput());
     const confirmationQueue = createSentInputConfirmationQueue({
       store,
-      refreshLive: async () => new Map([[`claude/${SID}`, live({ status: "working" })]]),
-      getUserInputs: () => new Map([[`claude/${SID}`, [{ text: "继续", ts: SENT_AT + 1 }]]]),
+      getLatestUserInputs: () => new Map([[`claude/${SID}`, [{ text: "继续", ts: SENT_AT + 1 }]]]),
       now: () => SENT_AT + 2,
     });
     const { deps } = sendDeps({

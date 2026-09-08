@@ -20,6 +20,8 @@ export interface SessionLiveReaderOptions {
   onError?(error: Error): void;
   /** Replaces the three built-in sources outright, so tests can drive the merge policy directly. */
   sources?: readonly LiveSource[];
+  /** Re-evaluated on every refresh — the hook for per-environment sources that come and go. */
+  dynamicSources?(): LiveSource[];
   staleBudgetMs?: number;
 }
 
@@ -30,11 +32,11 @@ export interface SessionLiveReader {
   /** Liveness with per-source health, so callers can tell "nothing running" from "Orca is down". */
   getSnapshot(): LiveSnapshot;
   refreshSnapshot(force?: boolean): Promise<LiveSnapshot>;
-  findLive(agent: Agent, sid: string): Promise<LiveInfo | null>;
+  findLive(agent: Agent, sid: string, env?: string): Promise<LiveInfo | null>;
 }
 
 export function mergeSessionLive<T extends SessionRow>(rows: T[], live: Map<string, LiveInfo>): T[] {
-  return rows.map((row) => ({ ...row, live: live.get(sessionIdentityKey(row.agent, row.sid)) ?? null }));
+  return rows.map((row) => ({ ...row, live: live.get(sessionIdentityKey(row.agent, row.sid, row.env)) ?? null }));
 }
 
 function defaultSources(options: SessionLiveReaderOptions): LiveSource[] {
@@ -68,7 +70,10 @@ export function createSessionLiveReader(options: SessionLiveReaderOptions = {}):
     ...(options.now ? { now: options.now } : {}),
     signature: liveSnapshotSignature,
     load: async (_input, startedAt, force) => {
-      const outcomes = await readLiveSources(sources, startedAt, force);
+      const activeSources = options.dynamicSources === undefined
+        ? sources
+        : [...sources, ...options.dynamicSources()];
+      const outcomes = await readLiveSources(activeSources, startedAt, force);
       const merged = mergeLiveSources(outcomes, remembered, startedAt, staleBudgetMs);
       remembered = merged.remembered;
       // The Orca-derived sources share a tab snapshot, so one dead runtime fails both. Group by
@@ -96,6 +101,7 @@ export function createSessionLiveReader(options: SessionLiveReaderOptions = {}):
     getLiveMap: () => current().live,
     getSnapshot: current,
     getLiveVersion: snapshot.getVersion,
-    findLive: async (agent, sid) => (await refreshSnapshot()).live.get(sessionIdentityKey(agent, sid)) ?? null,
+    findLive: async (agent, sid, env) =>
+      (await refreshSnapshot()).live.get(sessionIdentityKey(agent, sid, env)) ?? null,
   };
 }

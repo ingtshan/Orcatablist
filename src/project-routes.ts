@@ -3,6 +3,9 @@ import { ValidationError } from "./focus";
 import { serveFresh, versionSource } from "./freshness";
 import { json, jsonObject, requiredString } from "./http";
 import type { ProjectPreferencesStore } from "./project-preferences";
+import type { SessionLiveReader } from "./session-live";
+import { resolveLiveSessionRows } from "./unindexed-live";
+import { resolveWorktreeRoot } from "./worktree-identity";
 
 export class NotFoundError extends Error { override name = "NotFoundError"; }
 
@@ -19,6 +22,7 @@ export async function handleProjectRequest(
   url: URL,
   db: OrcaDatabase,
   preferences: ProjectPreferencesStore,
+  liveReader?: Pick<SessionLiveReader, "refresh">,
 ): Promise<Response | null> {
   if (request.method === "GET" && url.pathname === "/api/projects") {
     return serveFresh(request, "projects", [
@@ -48,9 +52,20 @@ export async function handleProjectRequest(
   const patch = booleanPatch(body, "worktree");
   const project = db.listProjects().find((candidate) => candidate.key === projectKey);
   if (!project) throw new NotFoundError("project not found");
-  const preference = preferences.getWorktreePreference(root);
-  const canClearStale = preference?.projectKey === projectKey
+  // Scoped by project: a stale preference is clearable only through the project that stored it,
+  // never through another project that happens to share the path.
+  const preference = preferences.getWorktreePreference(projectKey, root);
+  const canClearStale = preference !== null
     && ((patch.archived === false && preference.archived) || (patch.pinned === false && preference.pinned));
-  if (!db.hasWorktree(projectKey, root) && !canClearStale) throw new NotFoundError("worktree not found");
+  let knownWorktree = db.hasWorktree(projectKey, root) || canClearStale;
+  if (!knownWorktree && liveReader) {
+    // A remote transcript may record a nested cwd while its live tab supplies the worktree root.
+    // Validate the same projection the page groups; an unindexed tab alone cannot grant a write.
+    const live = await liveReader.refresh();
+    knownWorktree = resolveLiveSessionRows(db, live).some((entry) => entry.indexed
+      && entry.session.projectKey === projectKey
+      && resolveWorktreeRoot(entry.session, project.root ?? "") === root);
+  }
+  if (!knownWorktree) throw new NotFoundError("worktree not found");
   return json(preferences.updateWorktree(projectKey, root, patch));
 }

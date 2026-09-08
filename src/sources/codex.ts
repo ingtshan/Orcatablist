@@ -1,14 +1,19 @@
 import { closeSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { SessionFileInfo, SessionSource } from "../indexer";
+import {
+  errorText, isMissingPath, sourceIssue,
+  type DiscoveryResult, type SessionFileInfo, type SessionSource, type SourceIssue,
+} from "../session-source";
+import { indexLocalJsonlSession } from "./jsonl";
 import type { ParsedEvent } from "../types";
+import { executionSettings } from "../session-execution";
 
 type JsonRecord = Record<string, unknown>;
 
 const FIRST_LINE_CHUNK_BYTES = 64 * 1_024;
 const FIRST_LINE_MAX_BYTES = 4 * 1_024 * 1_024;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const ROLLOUT_FILE_PATTERN = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
+export const ROLLOUT_FILE_PATTERN = /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
 const INJECTED_TAGS = ["<user_instructions>", "<environment_context>", "<INSTRUCTIONS>"];
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -56,23 +61,54 @@ function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_PATTERN.test(value);
 }
 
-function discoverDirectory(directory: string, files: SessionFileInfo[], sessionIds: Map<string, string | null>): void {
+function discoverDirectory(
+  directory: string, files: SessionFileInfo[], sessionIds: Map<string, string | null>, errors: SourceIssue[],
+): void {
   let entries;
   try { entries = readdirSync(directory, { withFileTypes: true }); }
-  catch { return; }
+  catch (error) {
+    // A machine that never ran the codex CLI simply has no sessions directory; a directory that
+    // exists but cannot be read is a real failure worth surfacing.
+    if (!isMissingPath(error)) {
+      errors.push(sourceIssue("discover", "codex",
+        `failed to read Codex sessions directory ${directory}: ${errorText(error)}`, { path: directory }));
+    }
+    return;
+  }
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      discoverDirectory(path, files, sessionIds);
+      discoverDirectory(path, files, sessionIds, errors);
       continue;
     }
     const match = entry.isFile() ? ROLLOUT_FILE_PATTERN.exec(entry.name) : null;
     if (match === null) continue;
-    const stat = statSync(path);
     const fallbackSid = match[1]!;
+    let stat;
+    try { stat = statSync(path); }
+    catch (error) {
+      if (!isMissingPath(error)) {
+        errors.push(sourceIssue("discover", "codex",
+          `failed to stat Codex rollout ${path}: ${errorText(error)}`, { path, sid: fallbackSid }));
+      }
+      continue;
+    }
     const cachedSid = sessionIds.get(path);
     if (cachedSid === null) continue;
-    const meta = cachedSid === undefined ? sessionMeta(readFirstLine(path, stat.size)) : null;
+    let meta: JsonRecord | null = null;
+    if (cachedSid === undefined) {
+      try {
+        meta = sessionMeta(readFirstLine(path, stat.size));
+      } catch (error) {
+        // A rollout's own header decides its identity. One unreadable file costs only itself:
+        // it is skipped this round, left uncached so a later pass retries it, and reported.
+        if (!isMissingPath(error)) {
+          errors.push(sourceIssue("discover", "codex",
+            `failed to read Codex rollout header ${path}: ${errorText(error)}`, { path, sid: fallbackSid }));
+        }
+        continue;
+      }
+    }
     const metaSid = cachedSid ?? meta?.session_id;
     const rolloutId = meta?.id;
     if (isUuid(rolloutId) && isUuid(metaSid) && rolloutId !== metaSid) {
@@ -85,14 +121,19 @@ function discoverDirectory(directory: string, files: SessionFileInfo[], sessionI
   }
 }
 
-function discoverCodexSessionFilesCached(codexDir: string, sessionIds: Map<string, string | null>): SessionFileInfo[] {
+function discoverCodexSessionsCached(codexDir: string, sessionIds: Map<string, string | null>): DiscoveryResult {
   const files: SessionFileInfo[] = [];
-  discoverDirectory(join(codexDir, "sessions"), files, sessionIds);
-  return files.sort((a, b) => a.path.localeCompare(b.path));
+  const errors: SourceIssue[] = [];
+  discoverDirectory(join(codexDir, "sessions"), files, sessionIds, errors);
+  return { files: files.sort((a, b) => a.path.localeCompare(b.path)), errors };
+}
+
+export function discoverCodexSessions(codexDir: string): DiscoveryResult {
+  return discoverCodexSessionsCached(codexDir, new Map());
 }
 
 export function discoverCodexSessionFiles(codexDir: string): SessionFileInfo[] {
-  return discoverCodexSessionFilesCached(codexDir, new Map());
+  return discoverCodexSessions(codexDir).files;
 }
 
 function findRolloutPath(directory: string, sid: string): string | null {
@@ -139,6 +180,9 @@ export function parseCodexLine(line: string): ParsedEvent {
   catch { return { kind: "skip" }; }
   if (record === null) return { kind: "skip" };
   const payload = asRecord(record.payload);
+  if (record.type === "turn_context" && payload !== null) {
+    return { kind: "meta", ...executionSettings(payload.model, payload.effort ?? payload.reasoning_effort) };
+  }
   if (record.type === "session_meta" && payload !== null) {
     const git = asRecord(payload.git);
     return {
@@ -161,11 +205,8 @@ export function parseCodexLine(line: string): ParsedEvent {
   return { kind: "skip" };
 }
 
-function loadTitles(codexDir: string): Map<string, string> {
+export function parseCodexTitles(text: string): Map<string, string> {
   const titles = new Map<string, string>();
-  let text: string;
-  try { text = readFileSync(join(codexDir, "session_index.jsonl"), "utf8"); }
-  catch { return titles; }
   for (const line of text.split("\n")) {
     if (!line) continue;
     try {
@@ -178,14 +219,24 @@ function loadTitles(codexDir: string): Map<string, string> {
   return titles;
 }
 
+function loadTitles(codexDir: string): Map<string, string> {
+  let text: string;
+  try { text = readFileSync(join(codexDir, "session_index.jsonl"), "utf8"); }
+  catch { return new Map(); }
+  return parseCodexTitles(text);
+}
+
 export function createCodexSource(codexDir: string): SessionSource {
   let titles = new Map<string, string>();
   const sessionIds = new Map<string, string | null>();
   return {
     agent: "codex",
-    discover: () => discoverCodexSessionFilesCached(codexDir, sessionIds),
-    parseLine: parseCodexLine,
+    discover: () => discoverCodexSessionsCached(codexDir, sessionIds),
     prepare: () => { titles = loadTitles(codexDir); },
-    titleFor: (sid) => titles.get(sid) ?? null,
+    // Thread names live outside the rollout, so the title is always supplied out of band and a
+    // name that disappeared from the index removes the stored title.
+    index: (info, stored) => indexLocalJsonlSession(info, stored, {
+      parseLine: parseCodexLine, title: titles.get(info.sid) ?? null,
+    }),
   };
 }

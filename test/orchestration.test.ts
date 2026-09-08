@@ -237,6 +237,8 @@ describe("orchestration route", () => {
   let app: OrcaTabServer;
   let baseUrl = "";
   let serverRoot = "";
+  const routeLive = new Map<string, LiveInfo>();
+  let liveVersion = 1;
   const snapshot = {
     scannedAt: 7, cacheTtlMs: 15_000, available: true, warnings: [],
     runs: [{
@@ -255,7 +257,7 @@ describe("orchestration route", () => {
       hermesDb: join(serverRoot, "missing-hermes.db"), dataDir: join(serverRoot, "data"),
       orcaBin: join(serverRoot, "missing-orca"), startTimers: false, quiet: true,
       sessionLiveReader: {
-        refresh: async () => new Map(), getLiveMap: () => new Map(), getLiveVersion: () => 1,
+        refresh: async () => routeLive, getLiveMap: () => routeLive, getLiveVersion: () => liveVersion,
         getSnapshot: () => EMPTY_LIVE_SNAPSHOT, refreshSnapshot: async () => EMPTY_LIVE_SNAPSHOT,
         findLive: async () => null,
       },
@@ -278,5 +280,43 @@ describe("orchestration route", () => {
   test("announces the capability so an older page can degrade", async () => {
     const health = await (await fetch(`${baseUrl}/healthz`)).json();
     expect(health.capabilities).toContain("orchestration-runs");
+  });
+
+  test("hydrates offline run members and refreshes their status independently of membership", async () => {
+    const indexed = indexWith([
+      { agent: "claude", sid: COORDINATOR_SID, texts: ["finished coordinator"] },
+      { agent: "codex", sid: WORKER_SID, texts: ["child-only-search-token"] },
+    ]);
+    for (const identity of [snapshot.runs[0]!.coordinator, ...snapshot.runs[0]!.workers]) {
+      const stored = indexed.getStoredSession(identity.agent, identity.sid);
+      if (!stored) throw new Error("missing fixture member");
+      app.db.upsertSession(stored);
+    }
+    indexed.close();
+    app.db.appendSessionFts([{ text: "child-only-search-token", agent: "codex", sid: WORKER_SID, role: "assistant", ts: 1_000 }]);
+    app.db.bumpListVersion();
+    app.db.bumpDataVersion();
+    routeLive.set(`codex/${WORKER_SID}`, { pid: null, status: "working", waitingFor: null, name: "child" });
+    liveVersion += 1;
+    const url = `${baseUrl}/api/orchestration?includeSessions=1`;
+    const response = await fetch(url);
+    const body = await response.json();
+    expect(body.runs).toEqual(snapshot.runs);
+    expect(body.sessions).toHaveLength(2);
+    expect(body.sessions).toContainEqual(expect.objectContaining({ sid: COORDINATOR_SID, live: null }));
+    expect(body.sessions).toContainEqual(expect.objectContaining({ sid: WORKER_SID, live: expect.objectContaining({ status: "working" }) }));
+    const etag = response.headers.get("ETag")!;
+    expect((await fetch(url, { headers: { "If-None-Match": etag } })).status).toBe(304);
+    routeLive.set(`codex/${WORKER_SID}`, { pid: null, status: "done", waitingFor: null, name: "child" });
+    liveVersion += 1;
+    const changed = await fetch(url, { headers: { "If-None-Match": etag } });
+    expect(changed.status).toBe(200);
+    expect((await changed.json()).sessions).toContainEqual(expect.objectContaining({
+      sid: WORKER_SID, live: expect.objectContaining({ status: "done" }),
+    }));
+    const results = await (await fetch(`${baseUrl}/api/search?q=child-only-search-token&includeLive=0`)).json();
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ agent: "codex", sid: WORKER_SID, hits: [{ role: "assistant" }] });
+    expect(results[0].hits[0].snippet).toContain("‹child-only");
   });
 });

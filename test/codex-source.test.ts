@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -108,18 +108,72 @@ describe("Codex session source", () => {
     ]);
   });
 
-  test("loads thread names on prepare and returns null for missing titles", () => {
+  test("applies thread names from the index on prepare and removes one that disappears", () => {
     const root = temporaryDirectory();
-    writeFileSync(join(root, "session_index.jsonl"), [
+    const sessions = join(root, "sessions", "2026", "08", "25");
+    mkdirSync(sessions, { recursive: true });
+    const path = join(sessions, `rollout-2026-08-25T09-00-00-${CODEX_SID}.jsonl`);
+    writeFileSync(path, `${JSON.stringify({
+      type: "response_item", timestamp: "2026-08-25T09:00:01.000Z",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: "标题测试" }] },
+    })}\n`);
+    const indexPath = join(root, "session_index.jsonl");
+    writeFileSync(indexPath, [
       JSON.stringify({ id: CODEX_SID, thread_name: "  P5 Codex 标题  ", updated_at: "2026-08-25" }),
       "not-json",
       JSON.stringify({ id: "missing-title" }),
     ].join("\n"));
     const source = createCodexSource(root);
-    expect(source.titleFor?.(CODEX_SID)).toBeNull();
+
+    const [info] = source.discover().files;
+    expect(source.index(info!, null)?.session.title).toBeNull();
     source.prepare?.();
-    expect(source.titleFor?.(CODEX_SID)).toBe("P5 Codex 标题");
-    expect(source.titleFor?.("unknown")).toBeNull();
+    const titled = source.index(info!, null)!;
+    expect(titled.session.title).toBe("P5 Codex 标题");
+    expect(titled.session.lastPrompt).toBe("标题测试");
+
+    writeFileSync(indexPath, "");
+    source.prepare?.();
+    // The rollout itself carries no title, so an index that lost the thread name removes it.
+    expect(source.index(info!, titled.session)).toMatchObject({
+      session: { title: null }, fts: [], replaceFts: false,
+    });
+  });
+
+  test("an unreadable rollout header costs only itself and is retried once readable", () => {
+    const root = temporaryDirectory();
+    const sessions = join(root, "sessions", "2026", "09", "05");
+    mkdirSync(sessions, { recursive: true });
+    const blockedSid = "aaaaaaaa-9999-1111-2222-333333333333";
+    const healthySid = "bbbbbbbb-9999-1111-2222-333333333333";
+    const rollout = (sid: string) => join(sessions, `rollout-2026-09-05T00-00-00-${sid}.jsonl`);
+    for (const sid of [blockedSid, healthySid]) {
+      writeFileSync(rollout(sid), [
+        JSON.stringify({ type: "session_meta", payload: { id: sid, session_id: sid, cwd: "/fixture" } }),
+        JSON.stringify({
+          timestamp: "2026-09-05T00:00:00.000Z", type: "response_item",
+          payload: { type: "message", role: "user", content: [{ type: "input_text", text: sid }] },
+        }),
+      ].join("\n") + "\n");
+    }
+    chmodSync(rollout(blockedSid), 0o000);
+    let readable = true;
+    try { readFileSync(rollout(blockedSid)); } catch { readable = false; }
+    expect(readable).toBeFalse();
+    const source = createCodexSource(root);
+
+    const degraded = source.discover();
+    // The identity of the unreadable rollout is unknown, but its sibling is untouched.
+    expect(degraded.files.map((file) => file.sid)).toEqual([healthySid]);
+    expect(degraded.errors).toHaveLength(1);
+    expect(degraded.errors[0]).toMatchObject({ stage: "discover", source: "codex", sid: blockedSid });
+    expect(degraded.errors[0]!.path).toBe(rollout(blockedSid));
+
+    // The skip is not cached as a verdict: restoring access makes the file eligible again.
+    chmodSync(rollout(blockedSid), 0o600);
+    const repaired = source.discover();
+    expect(repaired.errors).toEqual([]);
+    expect(repaired.files.map((file) => file.sid).sort()).toEqual([blockedSid, healthySid].sort());
   });
 
   test("skips malformed and irrelevant events", () => {

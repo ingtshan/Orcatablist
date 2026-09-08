@@ -1,42 +1,44 @@
 import type { OrcaDatabase } from "./db";
-import { sessionIdentityKey } from "./session-identity";
-import {
-  CONFIRMATION_INPUT_TOLERANCE_MS, type SentInput, type SentUserInputEvidence,
-} from "./session-send";
+import { LOCAL_ENV, sessionIdentityKey } from "./session-identity";
+import type { SentInput, SentUserInputEvidence } from "./session-send";
 
 interface EvidenceRow {
+  env: string;
   agent: SentInput["agent"];
   sid: string;
   text: string;
-  ts: number;
+  ts: number | null;
 }
 
-export function findSentInputEvidence(
+export function findLatestSentInputEvidence(
   db: OrcaDatabase,
   entries: readonly SentInput[],
 ): Map<string, SentUserInputEvidence[]> {
   const unique = [...new Map(entries.map((entry) => [
-    sessionIdentityKey(entry.agent, entry.sid), entry,
+    sessionIdentityKey(entry.agent, entry.sid, entry.env), entry,
   ])).values()];
   const grouped = new Map<string, SentUserInputEvidence[]>(
-    unique.map((entry) => [sessionIdentityKey(entry.agent, entry.sid), []]),
+    unique.map((entry) => [sessionIdentityKey(entry.agent, entry.sid, entry.env), []]),
   );
   if (unique.length === 0) return grouped;
-  const requested = unique.map(({ agent, sid, sentAt }) => ({ agent, sid, sentAt }));
-  const rows = db.raw.query(`WITH requested(agent, sid, sent_at) AS (
-    SELECT json_extract(value, '$.agent'), json_extract(value, '$.sid'), json_extract(value, '$.sentAt')
-      FROM json_each(?)
-  )
-  SELECT msg_fts.agent, msg_fts.sid, msg_fts.text, msg_fts.ts
+  const requested = unique.map(({ agent, sid, env }) => ({ agent, sid, env: env ?? LOCAL_ENV }));
+  const rows = db.raw.query(`WITH requested(env, agent, sid) AS (
+    SELECT json_extract(value, '$.env'), json_extract(value, '$.agent'), json_extract(value, '$.sid') FROM json_each(?)
+  ), ranked AS (
+    SELECT msg_fts.env, msg_fts.agent, msg_fts.sid, msg_fts.text, msg_fts.ts,
+      ROW_NUMBER() OVER (PARTITION BY msg_fts.env, msg_fts.agent, msg_fts.sid ORDER BY msg_fts.rowid DESC) AS input_rank
     FROM msg_fts JOIN requested
-      ON requested.agent = msg_fts.agent AND requested.sid = msg_fts.sid
-    WHERE msg_fts.role = 'user' AND msg_fts.ts IS NOT NULL
-      AND msg_fts.ts >= requested.sent_at - ? AND msg_fts.ts <= requested.sent_at + ?
-    ORDER BY msg_fts.rowid DESC`)
-    .all(JSON.stringify(requested), CONFIRMATION_INPUT_TOLERANCE_MS,
-      CONFIRMATION_INPUT_TOLERANCE_MS) as EvidenceRow[];
+      ON requested.env = msg_fts.env AND requested.agent = msg_fts.agent AND requested.sid = msg_fts.sid
+    WHERE msg_fts.role = 'user' AND length(trim(msg_fts.text)) > 0
+  )
+  SELECT env, agent, sid, text, ts FROM ranked WHERE input_rank = 1 ORDER BY agent, sid`)
+    .all(JSON.stringify(requested)) as EvidenceRow[];
   for (const row of rows) {
-    grouped.get(sessionIdentityKey(row.agent, row.sid))?.push({ text: row.text, ts: Number(row.ts) });
+    const timestamp = row.ts === null ? null : Number(row.ts);
+    const key = sessionIdentityKey(row.agent, row.sid, row.env);
+    grouped.get(key)?.push({
+      text: row.text, ts: Number.isFinite(timestamp) ? timestamp : null,
+    });
   }
   return grouped;
 }

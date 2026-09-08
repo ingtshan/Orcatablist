@@ -21,21 +21,29 @@ export interface RuntimeAgentStatus {
 export interface RuntimeTab {
   type?: unknown; parentTabId?: unknown; leafId?: unknown; terminal?: unknown; title?: unknown;
   agentStatus?: RuntimeAgentStatus | null;
+  /** Stamped from the owning snapshot: the `repoId::path` workspace key the tab lives in. */
+  worktree?: unknown;
 }
 interface RuntimeSnapshot { tabs?: unknown; }
 interface RuntimeResponse { ok?: unknown; result?: { snapshots?: unknown }; }
 interface RuntimeClientLike { call(method: string, params: unknown): Promise<unknown>; }
 interface RuntimeClientModule {
-  RuntimeClient: new (userDataPath?: string, timeoutMs?: number) => RuntimeClientLike;
+  RuntimeClient: new (
+    userDataPath?: string, timeoutMs?: number,
+    pairingCode?: string | null, environment?: string | null,
+  ) => RuntimeClientLike;
 }
 
 export interface OrcaTabReaderOptions {
   orcaBin?: string;
+  /** Saved Orca environment name; the runtime client then talks to that machine's runtime. */
+  environment?: string;
   now?(): number;
   callRuntime?(): Promise<unknown>;
 }
 
 export type OrcaTabReader = CachedSnapshot<void, RuntimeTab[]>;
+export type RuntimeMethodCaller = (method: string, params: unknown) => Promise<unknown>;
 
 function executablePath(command: string): string | null {
   const candidates = isAbsolute(command) || command.includes("/")
@@ -60,12 +68,15 @@ export function resolveRuntimeClientPath(orcaBin = ORCATAB_ORCA_BIN): string | n
   } catch { return null; }
 }
 
-async function callRuntime(orcaBin: string): Promise<unknown> {
+async function callRuntime(orcaBin: string, environment: string | null): Promise<unknown> {
   const path = resolveRuntimeClientPath(orcaBin);
   if (path === null) throw new Error(`Orca runtime client not found for ${orcaBin}`);
   const module = runtimeRequire(path) as RuntimeClientModule;
   if (typeof module.RuntimeClient !== "function") throw new Error(`invalid Orca runtime client module ${path}`);
-  return new module.RuntimeClient(undefined, ORCA_RUNTIME_TIMEOUT_MS).call("session.tabs.listAll", {});
+  // Explicit nulls: `undefined` would re-activate the client's ORCA_ENVIRONMENT env-var fallback
+  // and silently retarget the local reader at whatever machine that variable names.
+  return new module.RuntimeClient(undefined, ORCA_RUNTIME_TIMEOUT_MS, null, environment)
+    .call("session.tabs.listAll", {});
 }
 
 export function runtimeTabs(value: unknown): RuntimeTab[] {
@@ -74,13 +85,66 @@ export function runtimeTabs(value: unknown): RuntimeTab[] {
   const snapshots = response.result?.snapshots;
   if (!Array.isArray(snapshots)) throw new Error("Orca runtime returned no tab snapshots");
   return snapshots.flatMap((snapshot) => {
-    const tabs = (snapshot as RuntimeSnapshot)?.tabs;
-    return Array.isArray(tabs) ? tabs as RuntimeTab[] : [];
+    const record = snapshot as RuntimeSnapshot & { worktree?: unknown };
+    const tabs = record?.tabs;
+    if (!Array.isArray(tabs)) return [];
+    const worktree = typeof record.worktree === "string" ? record.worktree : undefined;
+    return (tabs as RuntimeTab[]).map((tab) => (worktree === undefined ? tab : { ...tab, worktree }));
   });
 }
 
+function runtimeWorktreeSelector(worktree: string): string {
+  return worktree.startsWith("id:") ? worktree : `id:${worktree}`;
+}
+
+function assertRuntimeAccepted(method: string, value: unknown): void {
+  const response = value as { ok?: unknown; error?: unknown };
+  if (response?.ok === true) return;
+  throw new Error(`${method} rejected: ${JSON.stringify(response?.error ?? response).slice(0, 200)}`);
+}
+
+/**
+ * Drive the two renderer-owned selections used by a remote Orca workspace. Runtime RPC clients
+ * default to caller-only navigation, which updates a per-client snapshot but carries no renderer
+ * follow intent. Publish the tab selection first, then reveal its worktree so either event order
+ * restores the selected tab when the renderer finishes its asynchronous workspace refresh.
+ */
+export async function activateRuntimeWorkspaceTab(
+  callRuntimeMethod: RuntimeMethodCaller,
+  worktree: string,
+  tabId: string,
+): Promise<void> {
+  const selector = runtimeWorktreeSelector(worktree);
+  const navigation = { notifyClients: true, navigation: "clients" as const };
+  assertRuntimeAccepted("session.tabs.activate", await callRuntimeMethod("session.tabs.activate", {
+    worktree: selector,
+    tabId,
+    ...navigation,
+    intent: "user",
+  }));
+  assertRuntimeAccepted("worktree.activate", await callRuntimeMethod("worktree.activate", {
+    worktree: selector,
+    ...navigation,
+  }));
+}
+
+export async function activateRuntimeTab(
+  environment: string | null,
+  worktree: string,
+  tabId: string,
+  orcaBin = ORCATAB_ORCA_BIN,
+): Promise<void> {
+  const path = resolveRuntimeClientPath(orcaBin);
+  if (path === null) throw new Error(`Orca runtime client not found for ${orcaBin}`);
+  const module = runtimeRequire(path) as RuntimeClientModule;
+  if (typeof module.RuntimeClient !== "function") throw new Error(`invalid Orca runtime client module ${path}`);
+  const client = new module.RuntimeClient(undefined, ORCA_RUNTIME_TIMEOUT_MS, null, environment);
+  await activateRuntimeWorkspaceTab((method, params) => client.call(method, params), worktree, tabId);
+}
+
 export function createOrcaTabReader(options: OrcaTabReaderOptions = {}): OrcaTabReader {
-  const call = options.callRuntime ?? (() => callRuntime(options.orcaBin ?? ORCATAB_ORCA_BIN));
+  const call = options.callRuntime
+    ?? (() => callRuntime(options.orcaBin ?? ORCATAB_ORCA_BIN, options.environment ?? null));
   return createCachedSnapshot<void, RuntimeTab[]>({
     ttlMs: LIVE_CACHE_MS, now: options.now,
     load: async () => runtimeTabs(await call()),

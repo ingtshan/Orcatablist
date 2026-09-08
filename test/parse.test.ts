@@ -40,7 +40,7 @@ describe("parseLine", () => {
       { type: "text", text: "一" }, { type: "thinking", text: "秘密" }, { type: "text", text: "二" },
     ] }, timestamp: "bad" });
     expect(parseLine(mixed)).toEqual({ kind: "assistant-text", text: "一\n二", ts: null });
-    expect(parseLine(ASSISTANT_TOOL_LINE)).toEqual({ kind: "skip" });
+    expect(parseLine(ASSISTANT_TOOL_LINE)).toMatchObject({ kind: "meta", model: "claude-fable-5", reasoningEffort: null });
   });
 
   test("skips malformed, scalar, missing, and explicitly ignored event types", () => {

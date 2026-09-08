@@ -19,7 +19,7 @@ function stubBoard(id: string, kind: TaskBoard["kind"]): TaskBoard {
     capabilities: () => ({ projects: true, capture: true, lookup: true, backlink: false }),
     listProjects: async () => [],
     capture: async () => { throw new Error("not used"); },
-    lookup: async () => new Map(),
+    lookup: async () => ({ tasks: new Map(), gone: [] }),
   };
 }
 
@@ -50,12 +50,14 @@ describe("local board adapter", () => {
     });
 
     const found = await board.lookup([task.taskId, "missing"]);
-    expect(found.size).toBe(1);
-    expect(found.get(task.taskId)?.title).toBe("捕捉 一个 想法");
+    expect(found.tasks.size).toBe(1);
+    expect(found.tasks.get(task.taskId)?.title).toBe("捕捉 一个 想法");
+    // The local adapter is the board, so an id it cannot find really is deleted.
+    expect(found.gone).toEqual(["missing"]);
   });
 
   test("lookup of nothing does not query", async () => {
-    expect((await localBoard().lookup([])).size).toBe(0);
+    expect(await localBoard().lookup([])).toEqual({ tasks: new Map(), gone: [] });
   });
 
   test("projects mirror OrcaTab's own project list", async () => {
@@ -71,6 +73,7 @@ describe("parseBoardConfigs", () => {
     expect(config).toEqual({
       id: "kansession", name: "kansession", kind: "kansession",
       baseUrl: "http://127.0.0.1:1337", webUrl: "http://localhost:5173", apiKey: null,
+      workspaceId: null,
     });
   });
 
@@ -114,7 +117,7 @@ describe("BoardRegistry", () => {
       listLocalProjects: () => [],
       configs: [{
         id: "kan", name: "板子", kind: "kansession",
-        baseUrl: "http://127.0.0.1:1337", webUrl: null, apiKey: null,
+        baseUrl: "http://127.0.0.1:1337", webUrl: null, apiKey: null, workspaceId: null,
       }],
     });
     const board = registry.require("kan");

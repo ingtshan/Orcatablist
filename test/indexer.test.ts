@@ -209,30 +209,33 @@ describe("incremental indexer", () => {
     db.close();
   });
 
-  test("uses deriveSession for database sources and replaces FTS only when the ledger changes", async () => {
+  test("lets a source own its change detection and replace its transcript wholesale", async () => {
     const root = temporaryDirectory();
     const db = new OrcaDatabase(join(root, "index.db"));
     let size = 3;
     let mtime = 1_000;
-    let deriveCalls = 0;
-    let parseCalls = 0;
-    const baseSizes: number[] = [];
+    let indexCalls = 0;
+    const storedSizes: Array<number | null> = [];
     const source: SessionSource = {
       agent: "hermes",
-      discover: () => [{ agent: "hermes", sid: "20260811_031044_76b3bb", path: join(root, "state.db"), size, mtime }],
-      parseLine: () => { parseCalls += 1; throw new Error("line parser must not run"); },
-      deriveSession: (info, base) => {
-        deriveCalls += 1;
-        baseSizes.push(base.fileSize);
-        const text = `派生第 ${deriveCalls} 次`;
+      discover: () => ({
+        files: [{ agent: "hermes", sid: "20260811_031044_76b3bb", path: join(root, "state.db"), size, mtime }],
+        errors: [],
+      }),
+      index: (info, stored) => {
+        storedSizes.push(stored === null ? null : stored.fileSize);
+        if (stored !== null && stored.fileSize === info.size && stored.fileMtime === info.mtime) return null;
+        indexCalls += 1;
+        const text = `派生第 ${indexCalls} 次`;
         return {
           session: {
             agent: "hermes", sid: info.sid, projectKey: "unknown", cwd: "/fixture/hermes",
             worktreeRoot: null, branch: "main", title: null, firstPrompt: text, lastPrompt: text,
-            lastInputAt: info.mtime, promptCount: deriveCalls, filePath: info.path,
+            lastInputAt: info.mtime, promptCount: indexCalls, filePath: info.path,
             fileSize: info.size, fileMtime: info.mtime, parsedOffset: 0,
           },
           fts: [{ text, agent: "hermes", sid: info.sid, role: "user", ts: info.mtime }],
+          replaceFts: true,
         };
       },
     };
@@ -243,15 +246,14 @@ describe("incremental indexer", () => {
 
     expect(await indexer.indexAll()).toMatchObject({ files: 1, changed: 1 });
     expect(await indexer.indexAll()).toMatchObject({ files: 1, changed: 0 });
-    expect(deriveCalls).toBe(1);
+    expect(indexCalls).toBe(1);
     mtime = 2_000;
     expect(await indexer.indexAll()).toMatchObject({ files: 1, changed: 1 });
-    expect(deriveCalls).toBe(2);
+    expect(indexCalls).toBe(2);
     size = 4;
     expect(await indexer.indexAll()).toMatchObject({ files: 1, changed: 1 });
-    expect(deriveCalls).toBe(3);
-    expect(parseCalls).toBe(0);
-    expect(baseSizes).toEqual([0, 3, 3]);
+    expect(indexCalls).toBe(3);
+    expect(storedSizes).toEqual([null, 3, 3, 3]);
     expect(db.getStoredSession("hermes", "20260811_031044_76b3bb")).toMatchObject({
       projectKey: "/fixture/hermes", firstPrompt: "派生第 3 次", promptCount: 3, fileSize: 4, fileMtime: 2_000,
     });
@@ -259,13 +261,53 @@ describe("incremental indexer", () => {
     db.close();
   });
 
-  test("fails with context when projects directory is missing", async () => {
+  test("markIndexedAt false keeps local freshness while still versioning the data", async () => {
     const root = temporaryDirectory();
+    const projectDir = join(root, "projects", "freshness");
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, `${SID}.jsonl`), `${prompt("远端不应刷新本地时间", "2026-08-25T08:00:00.000Z")}\n`);
     const db = new OrcaDatabase(join(root, "index.db"));
+    db.setMeta("indexed_at", "111");
     const indexer = createIndexer({
       claudeDir: root, codexDir: join(root, "codex"), hermesDb: join(root, "hermes.db"), db,
+      markIndexedAt: false, now: () => 999,
+      resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
     });
-    await expect(indexer.indexAll()).rejects.toThrow("failed to read Claude projects directory");
+
+    expect((await indexer.indexAll()).changed).toBe(1);
+    expect(db.getMeta("indexed_at")).toBe("111");
+    expect(db.getDataVersion()).toBe(1);
+    db.close();
+  });
+
+  test("an unreadable projects directory degrades that source instead of aborting the pass", async () => {
+    const root = temporaryDirectory();
+    const codexDir = join(root, "codex");
+    const codexSessions = join(codexDir, "sessions", "2026", "09", "05");
+    mkdirSync(codexSessions, { recursive: true });
+    writeFileSync(join(codexSessions, `rollout-2026-09-05T09-00-00-${SID}.jsonl`), [
+      JSON.stringify({ timestamp: "2026-09-05T09:00:00.000Z", type: "session_meta", payload: { session_id: SID, cwd: "/fixture/repo" } }),
+      JSON.stringify({ timestamp: "2026-09-05T09:00:01.000Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "健康的兄弟来源" }] } }),
+    ].join("\n") + "\n");
+    const db = new OrcaDatabase(join(root, "index.db"));
+    const indexer = createIndexer({
+      claudeDir: root, codexDir, hermesDb: join(root, "hermes.db"), db,
+      resolveProject: async () => ({ key: "/fixture/repo", name: "repo", root: "/fixture/repo", color: null }),
+    });
+
+    const summary = await indexer.indexAll();
+    // The broken root costs only itself; the other source still commits.
+    expect(summary.changed).toBe(1);
+    expect(db.getStoredSession("codex", SID)!.lastPrompt).toBe("健康的兄弟来源");
+    expect(summary.errors).toHaveLength(1);
+    expect(summary.errors[0]).toMatchObject({ stage: "discover", source: "claude" });
+    expect(summary.errors[0]!.message).toContain("failed to read Claude projects directory");
+    expect(summary.errors[0]!.path).toContain("projects");
+    // A degraded pass is not a fresh index: freshness must not claim to match the sources.
+    expect(db.getMeta("indexed_at")).toBeNull();
+    expect(indexer.getHealth()).toMatchObject({ lastSuccessAt: null, running: false });
+    expect(indexer.getHealth().errors).toHaveLength(1);
+    expect(db.getDataVersion()).toBe(1);
     db.close();
   });
 

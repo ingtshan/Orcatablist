@@ -13,7 +13,7 @@ const WORK_ORDER_PATH = /\s\/\S/u;
 const TRAILING_CLAUSE = /\s*[—–-][^—–-]*$/u;
 
 /** One agent session taking part in an Orca orchestration run. */
-export interface OrchestrationMember { agent: Agent; sid: string; }
+export interface OrchestrationMember { agent: Agent; sid: string; env?: string; }
 /** A dispatched session, labelled with the last Orca task it was handed. */
 export interface OrchestrationWorker extends OrchestrationMember { taskTitle: string | null; }
 export interface OrchestrationRun {

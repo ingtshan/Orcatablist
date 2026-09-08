@@ -1,6 +1,7 @@
 import { AGENTS } from "./config";
 import { OrcaError, ValidationError } from "./focus";
 import { assertJsonRequest, assertSameOriginWrite, json, jsonObject } from "./http";
+import { isEnvName, LOCAL_ENV } from "./session-identity";
 import {
   SendConflictError, sendSessionInput,
   type SentInput, type SentInputConfirmationQueue, type SentInputStore, type SessionSendDeps,
@@ -22,6 +23,12 @@ function optionalString(value: unknown, field: string): string | undefined {
   return value;
 }
 
+function optionalEnv(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "" || value === LOCAL_ENV) return undefined;
+  if (!isEnvName(value)) throw new ValidationError("invalid environment name");
+  return value;
+}
+
 function requestedAgent(value: string): Agent {
   const agent = AGENTS.find((candidate) => candidate === value);
   if (agent === undefined) throw new ValidationError("invalid agent");
@@ -38,7 +45,8 @@ function decodeIdentity(pathname: string): { agent: Agent; sid: string } | null 
 }
 
 export function logSentInput(entry: SentInput): void {
-  console.log(`orcatab sent input to ${entry.agent}/${entry.sid} terminal=${entry.handle} chars=${entry.text.length}`);
+  const scope = entry.env === undefined ? "" : `${entry.env}:`;
+  console.log(`orcatab sent input to ${scope}${entry.agent}/${entry.sid} terminal=${entry.handle} chars=${entry.text.length}`);
 }
 
 export async function handleSessionSendRequest(
@@ -55,7 +63,7 @@ export async function handleSessionSendRequest(
     const identity = decodeIdentity(url.pathname);
     if (identity !== null && request.method === "DELETE") {
       assertSameOriginWrite(request);
-      deps.store.remove(identity.agent, identity.sid);
+      deps.store.remove(identity.agent, identity.sid, optionalEnv(url.searchParams.get("env")));
       return json({ ok: true });
     }
     if (identity !== null && request.method === "POST") {
@@ -68,6 +76,7 @@ export async function handleSessionSendRequest(
         identity.agent, identity.sid, body.text,
         { ...deps, onSent: deps.onSent ?? logSentInput },
         { ...(handle === undefined ? {} : { handle }), ...(status === undefined ? {} : { status }) },
+        optionalEnv(body.env),
       );
       return json({ ok: true, record });
     }

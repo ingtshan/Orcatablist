@@ -2,21 +2,32 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 
-const SCHEMA_VERSION = "7"; // bump whenever parse/derivation rules change so stale caches rebuild
+const SCHEMA_VERSION = "8"; // bump whenever parse/derivation rules change so stale caches rebuild
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS sessions (
+  env TEXT NOT NULL DEFAULT 'local',
   agent TEXT NOT NULL, sid TEXT NOT NULL, project_key TEXT NOT NULL, cwd TEXT, worktree_root TEXT, git_branch TEXT,
   title TEXT, first_prompt TEXT,
   last_prompt TEXT, last_input_at INTEGER, prompt_count INTEGER NOT NULL DEFAULT 0,
   file_path TEXT NOT NULL, file_size INTEGER NOT NULL DEFAULT 0, file_mtime INTEGER NOT NULL DEFAULT 0,
   parsed_offset INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (agent, sid)
+  model TEXT, reasoning_effort TEXT, execution_metadata_version INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (env, agent, sid)
 );
 CREATE INDEX IF NOT EXISTS sessions_last ON sessions(last_input_at DESC);
 CREATE TABLE IF NOT EXISTS projects (key TEXT PRIMARY KEY, name TEXT NOT NULL, root TEXT NOT NULL, color TEXT);
 CREATE TABLE IF NOT EXISTS cwd_cache (cwd TEXT PRIMARY KEY, project_key TEXT NOT NULL);
-CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(text, agent UNINDEXED, sid UNINDEXED, role UNINDEXED, ts UNINDEXED, tokenize='trigram');`;
+CREATE VIRTUAL TABLE IF NOT EXISTS msg_fts USING fts5(text, env UNINDEXED, agent UNINDEXED, sid UNINDEXED, role UNINDEXED, ts UNINDEXED, tokenize='trigram');
+CREATE TABLE IF NOT EXISTS remote_read_state (
+  env TEXT NOT NULL, path TEXT NOT NULL,
+  generation INTEGER NOT NULL DEFAULT 0,
+  received_from INTEGER NOT NULL DEFAULT 0, received_to INTEGER NOT NULL DEFAULT 0,
+  observed_size INTEGER NOT NULL DEFAULT 0, observed_mtime INTEGER NOT NULL DEFAULT 0,
+  blocked INTEGER NOT NULL DEFAULT 0, replace_pending INTEGER NOT NULL DEFAULT 0,
+  pending BLOB NOT NULL DEFAULT x'',
+  PRIMARY KEY (env, path)
+);`;
 
 function removeDatabaseFiles(path: string): void {
   for (const candidate of [path, `${path}-wal`, `${path}-shm`]) {
@@ -27,6 +38,18 @@ function removeDatabaseFiles(path: string): void {
 function configureWritableDatabase(database: Database): void {
   database.exec("PRAGMA busy_timeout = 5000;");
   database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+}
+
+/** Additive upgrade: keep sessions, FTS and pending remote bytes, then backfill per source. */
+function migrateExecutionMetadata(database: Database): void {
+  const columns = new Set((database.query("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map((column) => column.name));
+  database.transaction(() => {
+    for (const [name, definition] of [
+      ["model", "TEXT"], ["reasoning_effort", "TEXT"], ["execution_metadata_version", "INTEGER NOT NULL DEFAULT 0"],
+    ]) {
+      if (!columns.has(name!)) database.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${definition};`);
+    }
+  })();
 }
 
 export function openDatabase(path: string): Database {
@@ -44,6 +67,7 @@ export function openDatabase(path: string): Database {
     row = null;
   }
   database.exec(SCHEMA_SQL);
+  migrateExecutionMetadata(database);
   if (row === null) {
     database.query("INSERT INTO meta(key, value) VALUES ('schema_version', ?)").run(SCHEMA_VERSION);
   }

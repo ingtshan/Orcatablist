@@ -70,14 +70,14 @@ describe("multi-agent open-session reader", () => {
     const live = await reader.refresh();
     expect(live.get(`codex/${CODEX_SID}`)).toEqual({
       pid: null, status: "working", updatedAt: 30, waitingFor: null, name: "Codex tab",
-      handle: "term_codex", tabId: "tab_codex", leafId: "leaf_codex",
+      handle: "term_codex", tabId: "tab_codex", leafId: "leaf_codex", worktree: "repo::/workspace/orcatab",
     });
     expect(live.get(`claude/${CLAUDE_SID}`)).toMatchObject({
       pid: null, status: "done", updatedAt: 20, handle: "term_claude", tabId: "tab_claude",
     });
     expect(live.get(`hermes/${HERMES_SID}`)).toEqual({
       pid: null, status: "waiting", updatedAt: 10, waitingFor: "approval", name: "Hermes tab",
-      handle: "term_hermes", tabId: "tab_hermes", leafId: "leaf_hermes",
+      handle: "term_hermes", tabId: "tab_hermes", leafId: "leaf_hermes", worktree: "repo::/workspace/orcatab",
     });
     expect(await reader.findLive("codex", CODEX_SID)).toEqual(live.get(`codex/${CODEX_SID}`)!);
   });

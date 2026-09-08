@@ -4,6 +4,7 @@ import {
   worktreeRootFor, type FocusVisibility,
 } from "../src/focus-board";
 import type { LiveInfo, SessionRow } from "../src/types";
+import { worktreePreferenceKey } from "../src/worktree-identity";
 
 const NOON = new Date(2026, 7, 28, 12, 0, 0).getTime();
 const boundaries = focusDayBoundaries(NOON);
@@ -81,9 +82,22 @@ describe("board visibility", () => {
   });
 
   test("an archived worktree hides the rows grouped under it", () => {
-    const archived = visibility({ archivedWorktrees: new Set(["/work/proj/feature"]) });
+    const archived = visibility({
+      archivedWorktrees: new Set([worktreePreferenceKey("proj", "/work/proj/feature")]),
+    });
     expect(isVisibleOnBoard(row("a", { worktreeRoot: "/work/proj/feature" }), archived)).toBeFalse();
     expect(isVisibleOnBoard(row("b", { worktreeRoot: "/work/proj/other" }), archived)).toBeTrue();
+  });
+
+  test("archiving one project's copy of a path leaves another project's copy visible", () => {
+    const archived = visibility({
+      archivedWorktrees: new Set([worktreePreferenceKey("proj", "/work/proj/feature")]),
+      projectRoots: new Map([["proj", "/work/proj"], ["feibo1:/work/proj", ""]]),
+    });
+    const remote = row("a", {
+      env: "feibo1", projectKey: "feibo1:/work/proj", worktreeRoot: "/work/proj/feature",
+    });
+    expect(isVisibleOnBoard(remote, archived)).toBeTrue();
   });
 
   test("resolves a row's worktree the way the board groups it", () => {
@@ -92,6 +106,23 @@ describe("board visibility", () => {
     expect(worktreeRootFor(row("a", { worktreeRoot: null, cwd: "/cwd" }), roots)).toBe("/cwd");
     expect(worktreeRootFor(row("a", { worktreeRoot: null, cwd: null }), roots)).toBe("/work/proj");
     expect(worktreeRootFor(row("a", { worktreeRoot: null, cwd: null, projectKey: "gone" }), roots)).toBe("");
+  });
+
+  test("a same-machine live tab supplies the root the index has not stored yet", () => {
+    const roots = new Map([["proj", "/work/proj"]]);
+    const tab = { ...live("working"), worktree: "bd8d1516::/work/proj/feature" };
+    expect(worktreeRootFor(row("a", { worktreeRoot: null, cwd: null, live: tab }), roots))
+      .toBe("/work/proj/feature");
+    // The indexer's own answer still outranks it, and a cross-environment tab is never borrowed.
+    expect(worktreeRootFor(row("a", { worktreeRoot: "/wt", live: tab }), roots)).toBe("/wt");
+    expect(worktreeRootFor(row("a", { env: "feibo1", worktreeRoot: null, cwd: null, live: tab }), roots))
+      .toBe("/work/proj");
+    // Nor is a workspace key without an opaque id, or with a relative path, a location.
+    for (const worktree of ["::/work/proj/feature", "bd8d1516::work/proj", "bd8d1516", ""]) {
+      expect(worktreeRootFor(row("a", {
+        worktreeRoot: null, cwd: null, live: { ...live("working"), worktree },
+      }), roots)).toBe("/work/proj");
+    }
   });
 });
 

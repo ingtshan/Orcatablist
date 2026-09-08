@@ -32,7 +32,7 @@ function tabHandle(tab: RuntimeTab): string | null {
 }
 
 /** A terminal tab with an agent attached is the only shape that carries a live status. */
-export function toLiveInfo(tab: RuntimeTab): LiveInfo | null {
+export function toLiveInfo(tab: RuntimeTab, env?: string): LiveInfo | null {
   const status = tab.agentStatus;
   const handle = tabHandle(tab);
   if (tab.type !== "terminal" || status === null || status === undefined || handle === null) return null;
@@ -45,6 +45,8 @@ export function toLiveInfo(tab: RuntimeTab): LiveInfo | null {
     handle,
     tabId: stringValue(tab.parentTabId),
     leafId: stringValue(tab.leafId),
+    ...(env === undefined ? {} : { env }),
+    ...(stringValue(tab.worktree) === null ? {} : { worktree: stringValue(tab.worktree)! }),
   };
 }
 
@@ -65,23 +67,30 @@ function preferredTab(current: RuntimeTab | undefined, candidate: RuntimeTab): R
   return right > left ? candidate : current;
 }
 
+export interface OrcaTabSourceOptions {
+  name?: string;
+  /** Scopes identity keys and stamps LiveInfo when the tabs come from a remote environment. */
+  env?: string;
+}
+
 /** Tabs where Orca already knows the provider session id — the exact, cheap match. */
 export function createOrcaTabSource(
   readTabs: (startedAt: number, force: boolean) => Promise<RuntimeTab[]>,
+  options: OrcaTabSourceOptions = {},
 ): LiveSource {
   return {
-    name: ORCA_TAB_SOURCE,
+    name: options.name ?? ORCA_TAB_SOURCE,
     read: async (startedAt, force) => {
       const selected = new Map<SessionIdentityKey, RuntimeTab>();
       for (const tab of await readTabs(startedAt, force)) {
         const agent = tab.agentStatus?.agentType;
         const sid = stringValue(tab.agentStatus?.providerSession?.id);
         if (!isAgent(agent) || sid === null || !isSessionId(sid) || toLiveInfo(tab) === null) continue;
-        const key = sessionIdentityKey(agent, sid);
+        const key = sessionIdentityKey(agent, sid, options.env);
         selected.set(key, preferredTab(selected.get(key), tab));
       }
       return [...selected].flatMap(([key, tab]): LiveEntry[] => {
-        const info = toLiveInfo(tab);
+        const info = toLiveInfo(tab, options.env);
         return info === null ? [] : [{ key, info }];
       });
     },

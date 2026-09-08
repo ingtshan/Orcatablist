@@ -2,13 +2,17 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { FTS_TEXT_MAX_CHARS } from "../config";
 import type { FtsRow, StoredSession } from "../db";
-import type { DerivedSession, SessionFileInfo, SessionSource } from "../indexer";
 import { cleanPromptForDisplay } from "../parse";
+import { EXECUTION_METADATA_VERSION, hermesExecutionSettings, type SessionExecution } from "../session-execution";
+import {
+  errorText, sourceIssue,
+  type DiscoveryResult, type SessionFileInfo, type SessionSource, type SessionUpdate,
+} from "../session-source";
 
 const BUSY_TIMEOUT_MS = 5_000;
 const INJECTED_USER_PREFIXES = ["[System:", "[System ", "[CONTEXT COMPACTION", "<system-reminder"];
 
-interface HermesMeta {
+interface HermesMeta extends SessionExecution {
   title: string | null;
   displayName: string | null;
   cwd: string | null;
@@ -25,16 +29,14 @@ interface HermesSessionRow {
   message_count: number | null;
   max_ts: number | null;
   user_msgs: number | null;
+  model: string | null;
+  model_config: string | null;
 }
 
 interface HermesMessageRow {
   role: string;
   content: string;
   timestamp: number | null;
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function openReadOnly(dbPath: string): Database {
@@ -67,15 +69,17 @@ function milliseconds(seconds: number | null): number | null {
   return typeof seconds === "number" && Number.isFinite(seconds) ? Math.round(seconds * 1_000) : null;
 }
 
-function metaFromRow(row: Pick<HermesSessionRow, "title" | "display_name" | "cwd" | "git_branch">): HermesMeta {
-  return { title: row.title, displayName: row.display_name, cwd: row.cwd, gitBranch: row.git_branch };
+function metaFromRow(row: Pick<HermesSessionRow, "title" | "display_name" | "cwd" | "git_branch" | "model" | "model_config">): HermesMeta {
+  return { title: row.title, displayName: row.display_name, cwd: row.cwd, gitBranch: row.git_branch,
+    model: null, reasoningEffort: null, ...hermesExecutionSettings(row.model, row.model_config) };
 }
 
+/** The whole ledger is re-derived on every change, so its transcript is always replaced wholesale. */
 function deriveFromRows(
   info: SessionFileInfo,
   meta: HermesMeta,
   rows: HermesMessageRow[],
-): DerivedSession {
+): SessionUpdate {
   let firstPrompt: string | null = null;
   let lastPrompt: string | null = null;
   let lastInputAt: number | null = null;
@@ -104,38 +108,52 @@ function deriveFromRows(
     branch: meta.gitBranch || null, title: titleFromMeta(meta), firstPrompt, lastPrompt,
     lastInputAt, promptCount, filePath: info.path, fileSize: info.size,
     fileMtime: info.mtime, parsedOffset: 0,
+    model: meta.model ?? null, reasoningEffort: meta.reasoningEffort ?? null, executionMetadataVersion: EXECUTION_METADATA_VERSION,
   };
-  return { session, fts };
+  return { session, fts, replaceFts: true };
 }
 
 export function createHermesSource(dbPath: string): SessionSource {
   let database: Database | null = null;
+  let executionColumns = "NULL AS model, NULL AS model_config";
   const metadata = new Map<string, HermesMeta>();
 
   const getDatabase = (): Database | null => {
     if (database !== null) return database;
     if (!existsSync(dbPath)) return null;
     database = openReadOnly(dbPath);
+    const columns = new Set((database.query("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map((column) => column.name));
+    executionColumns = ["model", "model_config"].map((name) => `${columns.has(name) ? `s.${name}` : "NULL"} AS ${name}`).join(", ");
     return database;
   };
 
   return {
     agent: "hermes",
-    discover: () => {
-      const db = getDatabase();
-      if (db === null) return [];
+    discover: (): DiscoveryResult => {
+      let db: Database | null;
+      try {
+        db = getDatabase();
+      } catch (error) {
+        return { files: [], errors: [sourceIssue("discover", "hermes", errorText(error), { path: dbPath })] };
+      }
+      // No ledger at all is the normal state on a machine that never ran Hermes.
+      if (db === null) return { files: [], errors: [] };
       let rows: HermesSessionRow[];
       try {
-        rows = db.query(`SELECT s.id, s.title, s.display_name, s.cwd, s.git_branch, s.started_at,
+        rows = db.query(`SELECT s.id, s.title, s.display_name, s.cwd, s.git_branch, s.started_at, ${executionColumns},
           s.message_count, COALESCE(MAX(m.timestamp), s.started_at) AS max_ts,
           SUM(CASE WHEN m.role='user' AND m.active=1 AND m.content IS NOT NULL AND m.content!='' THEN 1 ELSE 0 END) AS user_msgs
           FROM sessions s LEFT JOIN messages m ON m.session_id=s.id
           GROUP BY s.id`).all() as HermesSessionRow[];
       } catch (error) {
-        throw new Error(`failed to discover Hermes sessions from ${dbPath}: ${errorText(error)}`);
+        return {
+          files: [],
+          errors: [sourceIssue("discover", "hermes",
+            `failed to discover Hermes sessions from ${dbPath}: ${errorText(error)}`, { path: dbPath })],
+        };
       }
       metadata.clear();
-      return rows.flatMap((row) => {
+      const files = rows.flatMap((row): SessionFileInfo[] => {
         const meta = metaFromRow(row);
         if (Number(row.user_msgs ?? 0) <= 0 && titleFromMeta(meta) === null) return [];
         metadata.set(row.id, meta);
@@ -145,16 +163,21 @@ export function createHermesSource(dbPath: string): SessionSource {
           size: Math.max(0, Math.trunc(Number(row.message_count ?? 0))), mtime: maxTimestamp,
         }];
       });
+      return { files, errors: [] };
     },
-    parseLine: () => { throw new Error("Hermes source derives sessions from SQLite, not lines"); },
-    deriveSession: (info) => {
+    index: (info, stored) => {
+      const cachedMeta = metadata.get(info.sid);
+      if (stored !== null && stored.filePath === info.path
+        && stored.fileSize === info.size && stored.fileMtime === info.mtime && stored.executionMetadataVersion !== 0
+        && cachedMeta !== undefined && (stored.model ?? null) === cachedMeta.model
+        && (stored.reasoningEffort ?? null) === cachedMeta.reasoningEffort) return null;
       const db = getDatabase();
       if (db === null) throw new Error(`Hermes database disappeared before deriving ${info.sid}: ${dbPath}`);
       let meta = metadata.get(info.sid);
       try {
         if (meta === undefined) {
-          const row = db.query("SELECT title, display_name, cwd, git_branch FROM sessions WHERE id=?").get(info.sid) as
-            Pick<HermesSessionRow, "title" | "display_name" | "cwd" | "git_branch"> | null;
+          const row = db.query(`SELECT title, display_name, cwd, git_branch, ${executionColumns} FROM sessions s WHERE id=?`).get(info.sid) as
+            Pick<HermesSessionRow, "title" | "display_name" | "cwd" | "git_branch" | "model" | "model_config"> | null;
           if (row === null) throw new Error("session metadata not found");
           meta = metaFromRow(row);
         }

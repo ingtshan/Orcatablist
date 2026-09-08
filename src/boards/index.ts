@@ -22,7 +22,7 @@ export interface BoardRegistryDeps {
 function createRemoteBoard(config: RemoteBoardConfig): TaskBoard {
   return createKansessionBoard({
     id: config.id, name: config.name, baseUrl: config.baseUrl,
-    webUrl: config.webUrl, apiKey: config.apiKey,
+    webUrl: config.webUrl, apiKey: config.apiKey, workspaceId: config.workspaceId,
   });
 }
 

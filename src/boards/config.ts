@@ -8,6 +8,8 @@ export interface RemoteBoardConfig {
   baseUrl: string;
   webUrl: string | null;
   apiKey: string | null;
+  /** Optional board scope; the kansession adapter discovers it when the key sees one workspace. */
+  workspaceId: string | null;
 }
 
 const REMOTE_KINDS = new Set<string>(["kansession"]);
@@ -57,6 +59,7 @@ export function parseBoardConfigs(raw: string): RemoteBoardConfig[] {
       baseUrl: normalizedUrl(requiredText(value.baseUrl, `[${index}].baseUrl`), `[${index}].baseUrl`),
       webUrl: webUrl === null ? null : normalizedUrl(webUrl, `[${index}].webUrl`),
       apiKey: optionalText(value.apiKey, `[${index}].apiKey`),
+      workspaceId: optionalText(value.workspaceId, `[${index}].workspaceId`),
     };
   });
 }

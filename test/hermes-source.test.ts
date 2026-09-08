@@ -4,8 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FTS_TEXT_MAX_CHARS } from "../src/config";
-import type { StoredSession } from "../src/db";
-import type { SessionFileInfo } from "../src/indexer";
 import { createHermesSource, findHermesSessionCwd } from "../src/sources/hermes";
 
 const HERMES_SID = "20260811_031044_76b3bb";
@@ -53,14 +51,6 @@ function createFixture(path: string): void {
   database.close();
 }
 
-function emptyBase(info: SessionFileInfo): StoredSession {
-  return {
-    agent: "hermes", sid: info.sid, projectKey: "unknown", cwd: null, worktreeRoot: null, branch: null,
-    title: null, firstPrompt: null, lastPrompt: null, lastInputAt: null, promptCount: 0,
-    filePath: info.path, fileSize: 0, fileMtime: 0, parsedOffset: 0,
-  };
-}
-
 afterEach(() => {
   while (temporaryDirectories.length) rmSync(temporaryDirectories.pop()!, { recursive: true, force: true });
 });
@@ -72,26 +62,31 @@ describe("Hermes SQLite session source", () => {
     createFixture(path);
     const source = createHermesSource(path);
 
-    const files = source.discover();
+    const { files, errors } = source.discover();
+    expect(errors).toEqual([]);
     expect(files.map((file) => file.sid).sort()).toEqual([HERMES_SID, TITLE_ONLY_SID].sort());
     const info = files.find((file) => file.sid === HERMES_SID)!;
     expect(info).toMatchObject({ agent: "hermes", path, size: 9, mtime: 109_000 });
 
-    const derived = source.deriveSession!(info, emptyBase(info));
+    const derived = source.index(info, null)!;
+    expect(derived.replaceFts).toBeTrue();
     expect(derived.session).toEqual({
       agent: "hermes", sid: HERMES_SID, projectKey: "unknown", cwd: "/fixture/hermes-worktree",
       worktreeRoot: null, branch: "feature/hermes", title: "Hermes 回退标题", firstPrompt: "第一条 展示文本",
       lastPrompt: "最后一条真实输入", lastInputAt: 109_000, promptCount: 2,
       filePath: path, fileSize: 9, fileMtime: 109_000, parsedOffset: 0,
+      model: null, reasoningEffort: null, executionMetadataVersion: 1,
     });
     expect(derived.fts).toHaveLength(3);
     expect(derived.fts.map((row) => row.role)).toEqual(["user", "assistant", "user"]);
     expect(derived.fts.some((row) => row.text.includes("injected") || row.text.includes("已回退"))).toBeFalse();
+    // An unchanged ledger stat is not re-derived.
+    expect(source.index(info, derived.session)).toBeNull();
     expect(derived.fts[1]!.text.startsWith("可搜索的 Hermes 回复")).toBeTrue();
     expect(derived.fts[1]!.text.length).toBe(FTS_TEXT_MAX_CHARS);
 
     const titleOnly = files.find((file) => file.sid === TITLE_ONLY_SID)!;
-    expect(source.deriveSession!(titleOnly, emptyBase(titleOnly)).session).toMatchObject({
+    expect(source.index(titleOnly, null)!.session).toMatchObject({
       title: "仅标题会话", firstPrompt: null, lastPrompt: null, promptCount: 0,
     });
     expect(findHermesSessionCwd(HERMES_SID, path)).toBe("/fixture/hermes-worktree");
@@ -99,7 +94,24 @@ describe("Hermes SQLite session source", () => {
 
   test("returns no sessions or cwd when the database file does not exist", () => {
     const path = join(temporaryDirectory(), "missing.db");
-    expect(createHermesSource(path).discover()).toEqual([]);
+    expect(createHermesSource(path).discover()).toEqual({ files: [], errors: [] });
     expect(findHermesSessionCwd(HERMES_SID, path)).toBeNull();
+  });
+
+  test("reads optional model settings and notices a settings-only change", () => {
+    const path = join(temporaryDirectory(), "state.db");
+    createFixture(path);
+    const writer = new Database(path);
+    writer.exec("ALTER TABLE sessions ADD COLUMN model TEXT; ALTER TABLE sessions ADD COLUMN model_config TEXT;");
+    writer.query("UPDATE sessions SET model=?, model_config=? WHERE id=?")
+      .run("model-one", JSON.stringify({ reasoning_effort: "high" }), HERMES_SID);
+    const source = createHermesSource(path);
+    const info = source.discover().files.find((file) => file.sid === HERMES_SID)!;
+    const first = source.index(info, null)!;
+    expect(first.session).toMatchObject({ model: "model-one", reasoningEffort: "high" });
+    writer.query("UPDATE sessions SET model=?, model_config=? WHERE id=?").run("model-two", "{}", HERMES_SID);
+    source.discover();
+    expect(source.index(info, first.session)?.session).toMatchObject({ model: "model-two", reasoningEffort: null });
+    writer.close();
   });
 });

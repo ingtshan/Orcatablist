@@ -5,7 +5,7 @@ import type { OrcaDatabase, ProjectRecord } from "./db";
 
 const GIT_TIMEOUT_MS = 3_000;
 const PROJECT_REFRESH_MS = 10 * 60 * 1_000;
-const ORCA_WORKSPACE_PATTERN = /^(.*\/orca\/workspaces\/([^/]+))\//;
+export const ORCA_WORKSPACE_PATTERN = /^(.*\/orca\/workspaces\/([^/]+))\//;
 
 export interface CommandResult { ok: boolean; stdout: string; stderr?: string; }
 export interface ProjectDeps {

@@ -143,13 +143,12 @@ export interface RefreshSummary { boards: number; updated: number; offline: stri
 export async function refreshSessionTasks(deps: SessionTaskDeps): Promise<RefreshSummary> {
   const summary: RefreshSummary = { boards: 0, updated: 0, offline: [] };
   for (const board of deps.boards.list()) {
-    const taskIds = deps.store.openTaskIds(board.id);
+    const taskIds = deps.store.linkedTaskIds(board.id);
     if (taskIds.length === 0) continue;
     summary.boards += 1;
     try {
-      const tasks = await board.lookup(taskIds);
-      const missing = taskIds.filter((taskId) => !tasks.has(taskId));
-      summary.updated += deps.store.applySnapshots(board.id, tasks, missing);
+      const { tasks, gone } = await board.lookup(taskIds);
+      summary.updated += deps.store.applySnapshots(board.id, tasks, gone);
     } catch (error) {
       if (error instanceof BoardOfflineError) summary.offline.push(board.id);
       else reportError(deps, `board ${board.id} refresh failed`, error);

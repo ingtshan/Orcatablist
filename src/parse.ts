@@ -1,5 +1,6 @@
 import { FIRST_PROMPT_MAX_CHARS } from "./config";
 import type { ParsedEvent } from "./types";
+import { executionSettings } from "./session-execution";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -74,6 +75,7 @@ export function parseLine(line: string): ParsedEvent {
 
   if (record.type === "assistant") {
     const message = asRecord(record.message);
+    const execution = executionSettings(message?.model, record.effort);
     const content = message?.content;
     if (Array.isArray(content)) {
       const text = content
@@ -82,9 +84,9 @@ export function parseLine(line: string): ParsedEvent {
         .map((block) => block.text as string)
         .filter((part) => part.length > 0)
         .join("\n");
-      if (text) return { kind: "assistant-text", text, ts: timestamp(record), ...meta };
+      if (text) return { kind: "assistant-text", text, ts: timestamp(record), ...meta, ...execution };
     }
-    return { kind: "skip" };
+    return Object.keys(execution).length ? { kind: "meta", ...meta, ...execution } : { kind: "skip" };
   }
 
   return { kind: "skip" };

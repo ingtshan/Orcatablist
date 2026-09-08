@@ -55,6 +55,18 @@ describe("session identity", () => {
     expect(parseSessionUri(sessionUri(identity))).toEqual(identity);
   });
 
+  test("a remote uri carries its environment, and a local one keeps its historical bytes", () => {
+    const local = { agent: "codex", sid: CLAUDE_SID } as const;
+    const remote = { agent: "codex", sid: CLAUDE_SID, env: "feibo1" } as const;
+    expect(sessionUri(local)).toBe(`orcatab://codex/${CLAUDE_SID}`);
+    expect(sessionUri(remote)).toBe(`orcatab://feibo1:codex/${CLAUDE_SID}`);
+    expect(sessionUri(local)).not.toBe(sessionUri(remote));
+    expect(parseSessionUri(sessionUri(remote))).toEqual(remote);
+    expect(parseSessionUri(sessionUri(local))).toEqual(local);
+    // The same agent and sid on two machines must not resolve to one identity.
+    expect(parseSessionUri(sessionUri(remote))).not.toEqual(parseSessionUri(sessionUri(local)));
+  });
+
   test("separates 'not a uri' from 'a uri naming an unknown agent'", () => {
     expect(isSessionUri(CLAUDE_SID)).toBe(false);
     expect(parseSessionUri(CLAUDE_SID)).toBeNull();

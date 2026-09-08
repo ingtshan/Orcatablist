@@ -35,10 +35,13 @@ function board(overrides: Partial<TaskBoard> = {}): TaskBoard {
       tasks.set(task.taskId, task);
       return task;
     },
-    lookup: async (ids) => new Map(ids.flatMap((id) => {
-      const task = tasks.get(id);
-      return task === undefined ? [] : [[id, task] as const];
-    })),
+    lookup: async (ids) => ({
+      tasks: new Map(ids.flatMap((id) => {
+        const task = tasks.get(id);
+        return task === undefined ? [] : [[id, task] as const];
+      })),
+      gone: ids.filter((id) => !tasks.has(id)),
+    }),
     ...overrides,
   };
 }

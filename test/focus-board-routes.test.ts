@@ -12,6 +12,7 @@ import type { LiveInfo } from "../src/types";
 const SID = "77777777-7777-7777-7777-777777777777";
 const OTHER_SID = "88888888-8888-8888-8888-888888888888";
 const UNINDEXED_SID = "99999999-9999-9999-9999-999999999999";
+const REMOTE_ENV = "feibo-n2";
 const NOON = new Date(2026, 7, 28, 12, 0, 0).getTime();
 const URL_ = new URL("http://127.0.0.1/api/board/focus");
 
@@ -79,6 +80,39 @@ describe("focus board route", () => {
     try {
       const body = await (await app.get()).json() as FocusBoardPayload;
       expect(body.lanes[0]!.rows).toMatchObject([{ sid: UNINDEXED_SID, indexed: false }]);
+    } finally { app.close(); }
+  });
+
+  test("a genuinely unindexed remote session keeps the environment that identifies it", async () => {
+    const app = harness(new Map([[`${REMOTE_ENV}:claude/${UNINDEXED_SID}`, working(NOON)]]));
+    try {
+      const body = await (await app.get()).json() as FocusBoardPayload;
+      expect(body.lanes[0]!.rows).toMatchObject([{
+        agent: "claude", env: REMOTE_ENV, sid: UNINDEXED_SID, indexed: false,
+      }]);
+    } finally { app.close(); }
+  });
+
+  test("the same agent and sid in two environments stay two rows", async () => {
+    const app = harness(new Map([
+      [`claude/${SID}`, working(NOON)],
+      [`${REMOTE_ENV}:claude/${SID}`, working(NOON)],
+    ]));
+    try {
+      const body = await (await app.get()).json() as FocusBoardPayload;
+      expect(body.lanes[0]!.rows).toMatchObject([
+        { sid: SID, indexed: true, projectKey: "proj" },
+        { sid: SID, env: REMOTE_ENV, indexed: false },
+      ]);
+      expect(body.lanes[0]!.rows[0]!.env).toBeUndefined();
+    } finally { app.close(); }
+  });
+
+  test("an indexed live session is never marked unindexed", async () => {
+    const app = harness(new Map([[`claude/${OTHER_SID}`, working(NOON)]]));
+    try {
+      const body = await (await app.get()).json() as FocusBoardPayload;
+      expect(body.lanes[0]!.rows).toMatchObject([{ sid: OTHER_SID, indexed: true, projectKey: "proj" }]);
     } finally { app.close(); }
   });
 

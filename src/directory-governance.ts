@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import type { WorktreePreference } from "./project-preferences";
+import { LOCAL_ENV, normalizeEnv } from "./session-identity";
 import type { ProjectRow, SessionRow } from "./types";
+import { resolveWorktreeRoot, worktreePreferenceKey } from "./worktree-identity";
 
 export type DirectoryKind = "git-worktree" | "historical-directory" | "unknown";
 
@@ -66,6 +68,24 @@ function directoryKind(root: string, detected: boolean): DirectoryKind {
   return detected ? "git-worktree" : "historical-directory";
 }
 
+function isLocal(session: SessionRow): boolean {
+  return normalizeEnv(session.env) === LOCAL_ENV;
+}
+
+/**
+ * Projects every one of whose sessions was indexed from another machine. Their roots name
+ * directories on that machine's disk, so asking this filesystem whether they exist can only
+ * produce a false "missing" — and, from there, an archive target for a directory that is fine.
+ */
+function remoteOnlyProjectKeys(sessions: readonly SessionRow[]): Set<string> {
+  const local = new Set<string>();
+  const remote = new Set<string>();
+  for (const session of sessions) {
+    (isLocal(session) ? local : remote).add(session.projectKey);
+  }
+  return new Set([...remote].filter((key) => !local.has(key)));
+}
+
 export function auditDirectories(
   projects: ProjectRow[],
   sessions: SessionRow[],
@@ -74,8 +94,14 @@ export function auditDirectories(
   now = Date.now,
 ): DirectoryAudit {
   const projectByKey = new Map(projects.map((project) => [project.key, project]));
-  const preferenceByRoot = new Map(worktreePreferences.map((preference) => [preference.root, preference]));
-  const projectAudits = projects.map((project): ProjectRootAudit => {
+  // Existence is a question about this disk, so only this machine's rows are ever asked it.
+  const localSessions = sessions.filter(isLocal);
+  const remoteOnly = remoteOnlyProjectKeys(sessions);
+  const localProjects = projects.filter((project) => !remoteOnly.has(project.key));
+  const preferenceByWorktree = new Map(worktreePreferences.map((preference) => [
+    worktreePreferenceKey(preference.projectKey, preference.root), preference,
+  ]));
+  const projectAudits = localProjects.map((project): ProjectRootAudit => {
     const exists = pathExists(project.root, checkPath);
     return {
       projectKey: project.key,
@@ -90,9 +116,9 @@ export function auditDirectories(
     || left.name.localeCompare(right.name, "zh-CN"));
 
   const builders = new Map<string, DirectoryBuilder>();
-  for (const session of sessions) {
+  for (const session of localSessions) {
     const project = projectByKey.get(session.projectKey);
-    const root = session.worktreeRoot || session.cwd || project?.root || "";
+    const root = resolveWorktreeRoot(session, project?.root ?? "");
     const key = `${session.projectKey}\0${root}`;
     const current = builders.get(key);
     builders.set(key, {
@@ -116,7 +142,8 @@ export function auditDirectories(
       kind: directoryKind(group.root, group.detected),
       exists,
       missing: Boolean(group.root) && !exists,
-      archived: Boolean(project?.archived || preferenceByRoot.get(group.root)?.archived),
+      archived: Boolean(project?.archived
+        || preferenceByWorktree.get(worktreePreferenceKey(group.projectKey, group.root))?.archived),
       sessionCount: group.sessionCount,
       lastInputAt: group.lastInputAt,
     };

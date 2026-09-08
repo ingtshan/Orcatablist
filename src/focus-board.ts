@@ -1,5 +1,6 @@
 import type { LiveSourceHealth } from "./live-source";
 import type { LiveInfo, SessionRow } from "./types";
+import { resolveWorktreeRoot, worktreePreferenceKey } from "./worktree-identity";
 
 /**
  * The focus board answers one question: what is worth my attention right now, and what did I
@@ -54,6 +55,7 @@ export function focusLaneFor(
 
 export interface FocusVisibility {
   archivedProjects: ReadonlySet<string>;
+  /** Keyed by {@link worktreePreferenceKey}: a path alone belongs to no single machine. */
   archivedWorktrees: ReadonlySet<string>;
   projectRoots: ReadonlyMap<string, string>;
 }
@@ -64,12 +66,13 @@ export const EMPTY_FOCUS_VISIBILITY: FocusVisibility = {
 
 /** Mirrors how the board groups a row, so archiving a worktree hides exactly what it groups. */
 export function worktreeRootFor(row: SessionRow, projectRoots: ReadonlyMap<string, string>): string {
-  return row.worktreeRoot || row.cwd || projectRoots.get(row.projectKey) || "";
+  return resolveWorktreeRoot(row, projectRoots.get(row.projectKey) ?? "");
 }
 
 export function isVisibleOnBoard(row: SessionRow, visibility: FocusVisibility): boolean {
   if (visibility.archivedProjects.has(row.projectKey)) return false;
-  return !visibility.archivedWorktrees.has(worktreeRootFor(row, visibility.projectRoots));
+  const root = worktreeRootFor(row, visibility.projectRoots);
+  return !visibility.archivedWorktrees.has(worktreePreferenceKey(row.projectKey, root));
 }
 
 export interface FocusLane { key: FocusLaneKey; rows: SessionRow[]; }

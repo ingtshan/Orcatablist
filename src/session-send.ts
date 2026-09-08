@@ -2,7 +2,7 @@ import { AGENTS } from "./config";
 import {
   errorText, OrcaError, resolveTerminalTarget, ValidationError, type OrcaJsonResult,
 } from "./focus";
-import { isSessionId, sessionIdentityKey } from "./session-identity";
+import { isSessionId, LOCAL_ENV, sessionIdentityKey } from "./session-identity";
 import type { Agent, LiveInfo, LiveStatus } from "./types";
 
 /**
@@ -11,8 +11,9 @@ import type { Agent, LiveInfo, LiveStatus } from "./types";
  */
 export const SENDABLE_STATUSES: ReadonlySet<LiveStatus> = new Set(["done"]);
 export const MAX_INPUT_CHARS = 4_000;
-export const CONFIRMATION_INPUT_TOLERANCE_MS = 5_000;
 export const CONFIRMATION_TIMEOUT_MS = 20_000;
+/** Remote evidence lands on the environment's next pull round, not on the next fs event. */
+export const REMOTE_CONFIRMATION_TIMEOUT_MS = 60_000;
 export const CONFIRMATION_POLL_MS = 1_000;
 export const CONFIRMATION_FEEDBACK_TTL_MS = 15_000;
 const MAX_TRACKED_SENDS = 200;
@@ -20,7 +21,7 @@ const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
 export type SendConflictCode =
   | "offline" | "not-waiting" | "status-changed" | "handle-changed" | "running-outside-orca";
-export type ConfirmationState = "pending" | "verifying" | "stalled";
+export type ConfirmationState = "pending" | "stalled";
 
 export class SendConflictError extends Error {
   override name = "SendConflictError";
@@ -29,44 +30,43 @@ export class SendConflictError extends Error {
 
 export interface SentInput {
   agent: Agent;
+  /** Remote environment the terminal lives in; absent means this machine. */
+  env?: string;
   sid: string;
   text: string;
   handle: string;
   sentAt: number;
-  workingObservedAt: number | null;
 }
 
 export interface SentInputRecord extends SentInput { state: ConfirmationState; }
 export interface ConfirmedSentInput extends SentInput {
   confirmedAt: number;
-  confirmedInputAt: number;
+  confirmedInputAt: number | null;
 }
 export interface SentUserInputEvidence { text: string; ts: number | null; }
 
 export interface SentInputStore {
   record(entry: SentInput): void;
-  update(entry: SentInput): void;
-  get(agent: Agent, sid: string): SentInput | null;
+  get(agent: Agent, sid: string, env?: string): SentInput | null;
   list(): SentInput[];
-  remove(agent: Agent, sid: string): void;
+  remove(agent: Agent, sid: string, env?: string): void;
 }
 
 export interface SentInputConfirmationQueue {
   hasPending(): boolean;
-  reconcile(options?: { forceLive?: boolean }): Promise<Record<string, SentInputRecord>>;
+  reconcile(): Promise<Record<string, SentInputRecord>>;
   records(): Record<string, SentInputRecord>;
   takeConfirmed(): ConfirmedSentInput[];
 }
 
 export interface SentInputConfirmationQueueDeps {
   store: SentInputStore;
-  refreshLive(force: boolean): Promise<Map<string, LiveInfo>>;
-  getUserInputs(entries: readonly SentInput[]): Map<string, readonly SentUserInputEvidence[]>;
+  getLatestUserInputs(entries: readonly SentInput[]): Map<string, readonly SentUserInputEvidence[]>;
   now?(): number;
 }
 
 export interface SessionSendDeps {
-  findLive(agent: Agent, sid: string): LiveInfo | null | Promise<LiveInfo | null>;
+  findLive(agent: Agent, sid: string, env?: string): LiveInfo | null | Promise<LiveInfo | null>;
   psEnv(pid: number): Promise<string>;
   orcaJson(args: string[]): Promise<OrcaJsonResult>;
   store: SentInputStore;
@@ -80,7 +80,7 @@ export function createSentInputStore(capacity = MAX_TRACKED_SENDS): SentInputSto
   const entries = new Map<string, SentInput>();
   return {
     record: (entry) => {
-      const key = sessionIdentityKey(entry.agent, entry.sid);
+      const key = sessionIdentityKey(entry.agent, entry.sid, entry.env);
       entries.delete(key);
       entries.set(key, entry);
       while (entries.size > capacity) {
@@ -89,13 +89,9 @@ export function createSentInputStore(capacity = MAX_TRACKED_SENDS): SentInputSto
         entries.delete(oldest.value);
       }
     },
-    update: (entry) => {
-      const key = sessionIdentityKey(entry.agent, entry.sid);
-      if (entries.has(key)) entries.set(key, entry);
-    },
-    get: (agent, sid) => entries.get(sessionIdentityKey(agent, sid)) ?? null,
+    get: (agent, sid, env) => entries.get(sessionIdentityKey(agent, sid, env)) ?? null,
     list: () => [...entries.values()],
-    remove: (agent, sid) => { entries.delete(sessionIdentityKey(agent, sid)); },
+    remove: (agent, sid, env) => { entries.delete(sessionIdentityKey(agent, sid, env)); },
   };
 }
 
@@ -114,8 +110,9 @@ export function normalizeInputText(value: unknown): string {
 }
 
 export function confirmationState(entry: SentInput, now: number): ConfirmationState {
-  if (now - entry.sentAt >= CONFIRMATION_TIMEOUT_MS) return "stalled";
-  return entry.workingObservedAt === null ? "pending" : "verifying";
+  const timeout = entry.env === undefined ? CONFIRMATION_TIMEOUT_MS : REMOTE_CONFIRMATION_TIMEOUT_MS;
+  if (now - entry.sentAt >= timeout) return "stalled";
+  return "pending";
 }
 
 export function sentInputRecords(
@@ -123,47 +120,19 @@ export function sentInputRecords(
   now: number,
 ): Record<string, SentInputRecord> {
   return Object.fromEntries(store.list().map((entry) => {
-    const key = sessionIdentityKey(entry.agent, entry.sid);
+    const key = sessionIdentityKey(entry.agent, entry.sid, entry.env);
     return [key, { ...entry, state: confirmationState(entry, now) }];
   }));
 }
 
-function workingEventAt(entry: SentInput, live: LiveInfo | undefined, now: number): number | null {
-  if (entry.workingObservedAt !== null) return entry.workingObservedAt;
-  if (live?.status !== "working") return null;
-  const updatedAt = typeof live.updatedAt === "number" ? live.updatedAt : null;
-  if (updatedAt !== null && updatedAt < entry.sentAt - CONFIRMATION_INPUT_TOLERANCE_MS) return null;
-  return updatedAt ?? now;
-}
-
-function matchingEvidence(
-  entry: SentInput,
-  inputs: readonly SentUserInputEvidence[],
-): (SentUserInputEvidence & { ts: number }) | null {
-  for (const input of inputs) {
-    if (input.ts === null || input.text !== entry.text) continue;
-    if (Math.abs(input.ts - entry.sentAt) > CONFIRMATION_INPUT_TOLERANCE_MS) continue;
-    return { ...input, ts: input.ts };
-  }
-  return null;
-}
-
 function isPending(entry: SentInput, now: number): boolean {
-  const state = confirmationState(entry, now);
-  return state === "pending" || state === "verifying";
-}
-
-function updateCurrent(store: SentInputStore, previous: SentInput, next: SentInput): SentInput {
-  const current = store.get(previous.agent, previous.sid);
-  if (current?.sentAt !== previous.sentAt) return current ?? previous;
-  store.update(next);
-  return next;
+  return confirmationState(entry, now) === "pending";
 }
 
 function removeCurrent(store: SentInputStore, entry: SentInput): boolean {
-  const current = store.get(entry.agent, entry.sid);
+  const current = store.get(entry.agent, entry.sid, entry.env);
   if (current?.sentAt !== entry.sentAt) return false;
-  store.remove(entry.agent, entry.sid);
+  store.remove(entry.agent, entry.sid, entry.env);
   return true;
 }
 
@@ -177,25 +146,17 @@ export function createSentInputConfirmationQueue(
   const records = () => sentInputRecords(deps.store, now());
   const hasPending = () => deps.store.list().some((entry) => isPending(entry, now()));
 
-  async function run(forceLive: boolean): Promise<Record<string, SentInputRecord>> {
+  async function run(): Promise<Record<string, SentInputRecord>> {
     const checkedAt = now();
-    const queued = deps.store.list().filter((entry) => isPending(entry, checkedAt));
+    const queued = deps.store.list();
     if (queued.length === 0) return sentInputRecords(deps.store, checkedAt);
-    const live = await deps.refreshLive(forceLive);
-    const observed = queued.map((entry) => {
-      const workingObservedAt = workingEventAt(entry, live.get(sessionIdentityKey(entry.agent, entry.sid)), checkedAt);
-      if (workingObservedAt === entry.workingObservedAt) return entry;
-      return updateCurrent(deps.store, entry, { ...entry, workingObservedAt });
-    });
-    const candidates = observed.filter((entry) => entry.workingObservedAt !== null);
-    const inputs = candidates.length === 0 ? new Map<string, readonly SentUserInputEvidence[]>()
-      : deps.getUserInputs(candidates);
-    for (const entry of candidates) {
-      const key = sessionIdentityKey(entry.agent, entry.sid);
-      const evidence = matchingEvidence(entry, inputs.get(key) ?? []);
-      if (evidence === null) continue;
+    const inputs = deps.getLatestUserInputs(queued);
+    for (const entry of queued) {
+      const key = sessionIdentityKey(entry.agent, entry.sid, entry.env);
+      const latest = inputs.get(key)?.[0];
+      if (latest?.text !== entry.text) continue;
       if (!removeCurrent(deps.store, entry)) continue;
-      confirmed.set(key, { ...entry, confirmedAt: checkedAt, confirmedInputAt: evidence.ts });
+      confirmed.set(key, { ...entry, confirmedAt: checkedAt, confirmedInputAt: latest.ts });
     }
     return sentInputRecords(deps.store, checkedAt);
   }
@@ -209,9 +170,9 @@ export function createSentInputConfirmationQueue(
       confirmed.clear();
       return entries;
     },
-    reconcile: (options = {}) => {
+    reconcile: () => {
       if (active !== null) return active;
-      active = run(options.forceLive === true).finally(() => { active = null; });
+      active = run().finally(() => { active = null; });
       return active;
     },
   };
@@ -223,11 +184,14 @@ export async function sendSessionInput(
   text: unknown,
   deps: SessionSendDeps,
   expected: SendExpectation = {},
+  env?: string,
 ): Promise<SentInputRecord> {
   if (!AGENTS.some((candidate) => candidate === agent)) throw new ValidationError("invalid agent");
   if (!isSessionId(sid)) throw new ValidationError("invalid session id");
   const payload = normalizeInputText(text);
-  const live = await deps.findLive(agent, sid);
+  const scope = env !== undefined && env !== LOCAL_ENV ? env : undefined;
+  const envArgs = scope === undefined ? [] : ["--environment", scope];
+  const live = await deps.findLive(agent, sid, scope);
   if (live === null) throw new SendConflictError("offline", "session is no longer live in Orca");
   if (!SENDABLE_STATUSES.has(live.status)) {
     throw new SendConflictError("not-waiting", `session is ${live.status}, not waiting for input`);
@@ -243,13 +207,12 @@ export async function sendSessionInput(
     throw new SendConflictError("handle-changed", "session moved to another Orca terminal");
   }
   const sent = await deps.orcaJson([
-    "terminal", "send", "--terminal", target.handle, "--text", payload, "--enter", "--json",
+    "terminal", "send", "--terminal", target.handle, "--text", payload, "--enter", ...envArgs, "--json",
   ]);
   if (!sent.ok) throw new OrcaError(`orca terminal send failed: ${errorText(sent.error)}`);
   const sentAt = (deps.now ?? Date.now)();
   const entry: SentInput = {
-    agent, sid, text: payload, handle: target.handle, sentAt,
-    workingObservedAt: null,
+    agent, ...(scope === undefined ? {} : { env: scope }), sid, text: payload, handle: target.handle, sentAt,
   };
   deps.store.record(entry);
   deps.onSent?.(entry);

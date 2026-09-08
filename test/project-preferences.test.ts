@@ -116,7 +116,7 @@ describe("ProjectPreferencesStore", () => {
       ],
     )).toEqual({ projects: 1, worktrees: 1 });
     expect(store.getPreference("alpha")).toEqual({ projectKey: "alpha", pinned: false, archived: true });
-    expect(store.getWorktreePreference("/gone/history")).toEqual({
+    expect(store.getWorktreePreference("beta", "/gone/history")).toEqual({
       projectKey: "beta", root: "/gone/history", pinned: false, archived: true,
     });
     expect(store.preferencesVersion).toBe(beforeProjects + 1);
@@ -174,7 +174,7 @@ describe("ProjectPreferencesStore", () => {
 
     const store = new ProjectPreferencesStore(openProjectPreferencesDatabase(path));
     stores.push(store);
-    expect(store.getWorktreePreference("/repo/feature-a")).toEqual({
+    expect(store.getWorktreePreference("alpha", "/repo/feature-a")).toEqual({
       projectKey: "alpha", root: "/repo/feature-a", pinned: false, archived: true,
     });
     expect(store.worktreePreferencesVersion).toBe(4);
