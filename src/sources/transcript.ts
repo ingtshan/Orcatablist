@@ -4,8 +4,9 @@ import { cleanPromptForDisplay } from "../parse";
 import type { SessionFileInfo } from "../session-source";
 import type { ParsedEvent } from "../types";
 import { EXECUTION_METADATA_VERSION } from "../session-execution";
+import { jsonlBriefEvent, type BriefEvent } from "../session-brief-events";
 
-export interface FoldedTranscript { session: StoredSession; fts: FtsRow[]; }
+export interface FoldedTranscript { session: StoredSession; fts: FtsRow[]; briefEvents: BriefEvent[]; }
 
 export function emptySession(file: SessionFileInfo): StoredSession {
   return {
@@ -26,8 +27,13 @@ export function foldTranscript(
 ): FoldedTranscript {
   let session = { ...base };
   const fts: FtsRow[] = [];
+  const briefEvents: BriefEvent[] = [];
+  let offset = base.parsedOffset;
   for (const line of lines) {
     const event = parseLine(line);
+    const briefEvent = jsonlBriefEvent(base.agent, line, event, offset);
+    if (briefEvent !== null) briefEvents.push(briefEvent);
+    offset += Buffer.byteLength(line) + 1;
     if (event.model !== undefined) session = { ...session, model: event.model };
     if (event.reasoningEffort !== undefined) session = { ...session, reasoningEffort: event.reasoningEffort };
     if (session.cwd === null && event.cwd) {
@@ -45,7 +51,7 @@ export function foldTranscript(
         promptCount: session.promptCount + 1,
       };
       fts.push({
-        text: event.text.slice(0, FTS_TEXT_MAX_CHARS), agent: session.agent, sid: session.sid, role: "user", ts: event.ts ?? null,
+        text: event.text, agent: session.agent, sid: session.sid, role: "user", ts: event.ts ?? null,
         ...(session.env === undefined ? {} : { env: session.env }),
       });
     }
@@ -56,5 +62,5 @@ export function foldTranscript(
       });
     }
   }
-  return { session, fts };
+  return { session, fts, briefEvents };
 }

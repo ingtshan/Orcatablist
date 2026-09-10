@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
+import { ensureBriefSchema } from "./session-briefs";
+import { ensureFullInputSchema } from "./session-input-rebuild";
 
 const SCHEMA_VERSION = "8"; // bump whenever parse/derivation rules change so stale caches rebuild
 
@@ -68,6 +70,8 @@ export function openDatabase(path: string): Database {
   }
   database.exec(SCHEMA_SQL);
   migrateExecutionMetadata(database);
+  ensureBriefSchema(database);
+  ensureFullInputSchema(database);
   if (row === null) {
     database.query("INSERT INTO meta(key, value) VALUES ('schema_version', ?)").run(SCHEMA_VERSION);
   }

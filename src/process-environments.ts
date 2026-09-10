@@ -1,6 +1,6 @@
 const HERMES_PROCESS_SCAN_LIMIT = 64;
 
-async function psText(args: string[], tolerateExit = false): Promise<string> {
+export async function psText(args: string[], tolerateExit = false): Promise<string> {
   const child = Bun.spawn(["ps", ...args], { stdout: "pipe", stderr: "pipe" });
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),

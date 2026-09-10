@@ -45,7 +45,7 @@ function emptyRound(): PullResult {
 }
 
 describe("shared JSONL ingest", () => {
-  test("folds prompts and assistant text into counters, cursors and capped searchable rows", () => {
+  test("folds complete prompts and capped assistant text into counters and cursors", () => {
     const long = "长".repeat(FTS_TEXT_MAX_CHARS + 1_000);
     const text = prompt("  第一条 <context>忽略标签</context>  ", "2026-08-30T01:00:00.000Z")
       + JSON.stringify({ type: "user", isMeta: true, message: { content: "注入不计数" }, timestamp: "2026-08-30T01:30:00.000Z" }) + "\n"
@@ -66,7 +66,7 @@ describe("shared JSONL ingest", () => {
     });
     expect(update.fts.map((row) => row.role)).toEqual(["user", "assistant", "user"]);
     expect(update.fts.every((row) => row.env === "feibo2")).toBeTrue();
-    expect(update.fts[2]!.text.length).toBe(FTS_TEXT_MAX_CHARS);
+    expect(update.fts[2]!.text).toBe(long);
   });
 
   test("a window without a complete record makes no progress and no commit", () => {

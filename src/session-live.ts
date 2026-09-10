@@ -7,6 +7,8 @@ import {
   type LiveSnapshot, type LiveSource, type RememberedRead,
 } from "./live-source";
 import { createOrcaTabReader, type RuntimeTab } from "./orca-tabs";
+import { createResumedProcessSource } from "./resumed-process-live";
+import type { ResumedProcess } from "./resumed-processes";
 import { sessionIdentityKey } from "./session-identity";
 import type { Agent, LiveInfo, SessionRow } from "./types";
 
@@ -16,9 +18,10 @@ export interface SessionLiveReaderOptions {
   getClaudeLiveMap?(): Map<string, LiveInfo>;
   callRuntime?(): Promise<unknown>;
   listProcessEnvironments?(): Promise<string>;
+  listResumedProcesses?(): Promise<ResumedProcess[]>;
   readTextFile?(path: string): string;
   onError?(error: Error): void;
-  /** Replaces the three built-in sources outright, so tests can drive the merge policy directly. */
+  /** Replaces the built-in sources outright, so tests can drive the merge policy directly. */
   sources?: readonly LiveSource[];
   /** Re-evaluated on every refresh — the hook for per-environment sources that come and go. */
   dynamicSources?(): LiveSource[];
@@ -45,9 +48,13 @@ function defaultSources(options: SessionLiveReaderOptions): LiveSource[] {
     ...(options.now ? { now: options.now } : {}),
     ...(options.callRuntime ? { callRuntime: options.callRuntime } : {}),
   });
-  // Both Orca-derived sources share one tab snapshot, so a refresh costs one runtime call.
+  // All Orca-derived sources share one tab snapshot, so a refresh costs one runtime call.
   const readTabs = (_startedAt: number, force: boolean): Promise<RuntimeTab[]> => tabReader.refresh(undefined, force);
   return [
+    createResumedProcessSource({
+      readTabs,
+      ...(options.listResumedProcesses ? { listProcesses: options.listResumedProcesses } : {}),
+    }),
     createClaudePidSource(options.getClaudeLiveMap ?? getClaudeLiveMap),
     createOrcaTabSource(readTabs),
     createHermesProcessSource({
@@ -76,7 +83,7 @@ export function createSessionLiveReader(options: SessionLiveReaderOptions = {}):
       const outcomes = await readLiveSources(activeSources, startedAt, force);
       const merged = mergeLiveSources(outcomes, remembered, startedAt, staleBudgetMs);
       remembered = merged.remembered;
-      // The Orca-derived sources share a tab snapshot, so one dead runtime fails both. Group by
+      // The Orca-derived sources share a tab snapshot, so one dead runtime fails them together. Group by
       // cause and report each distinct one once, until it changes or clears.
       const failures = new Map<string, string[]>();
       for (const outcome of outcomes) {

@@ -2,6 +2,7 @@ import type { FtsRow, StoredSession } from "./db";
 import type { RemoteReadAck } from "./remote-read-state";
 import { normalizeEnv } from "./session-identity";
 import type { Agent } from "./types";
+import type { BriefEvent } from "./session-brief-events";
 
 export interface SessionFileInfo { agent: Agent; env?: string; sid: string; path: string; size: number; mtime: number; }
 
@@ -32,6 +33,7 @@ export interface SessionUpdate {
   replaceFts: boolean;
   /** Remote only: the exact read generation and consumed range this commit acknowledges. */
   ack?: RemoteReadAck;
+  briefEvents?: BriefEvent[];
 }
 
 /**

@@ -170,6 +170,7 @@ for f in sorted(files + codex_files, key=lambda entry: entry["path"]):
     prev_mtime = None
     skip = False
     exclude = False
+    rebuild = False
     if isinstance(cur, dict):
         # offset is what the caller durably received; size/mtime describe the file it received from.
         offset = int(cur.get("offset") or 0)
@@ -177,6 +178,7 @@ for f in sorted(files + codex_files, key=lambda entry: entry["path"]):
         prev_mtime = as_int(cur.get("mtime"))
         skip = bool(cur.get("skip"))
         exclude = bool(cur.get("exclude"))
+        rebuild = cur.get("rebuild") is True
     else:
         offset = int(cur or 0)
     if exclude:
@@ -195,7 +197,7 @@ for f in sorted(files + codex_files, key=lambda entry: entry["path"]):
     # Growth is an append; a shrink or a same-size file whose mtime moved is a different file.
     replaced = prev_size is not None and (
         size < prev_size or (size == prev_size and prev_mtime is not None and prev_mtime != mtime))
-    if size < offset or replaced:
+    if rebuild or size < offset or replaced:
         emit({"type": "rebuild", "path": f["path"]})
         offset = 0
         skip = False

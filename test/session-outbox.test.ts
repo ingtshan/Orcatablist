@@ -81,6 +81,29 @@ describe("SessionOutboxStore", () => {
 });
 
 describe("session outbox routes", () => {
+  test("order and automatic mode are explicit persisted same-origin writes", async () => {
+    const outbox = new SessionOutboxStore(openSessionOutboxDatabase(":memory:"));
+    try {
+      const { deps, calls } = routeDeps(outbox);
+      const first = outbox.add({ agent: "claude", sid: SID, text: "first" });
+      const second = outbox.add({ agent: "claude", sid: SID, text: "second" });
+      const sorted = await call("/api/session-outbox/order", "PATCH", {
+        agent: "claude", sid: SID, ids: [second.id, first.id], version: outbox.version,
+      }, deps);
+      expect(sorted.response.status).toBe(200);
+      const mode = await call("/api/session-outbox/settings", "PATCH", { agent: "claude", sid: SID, autoSend: true }, deps);
+      expect(mode.response.status).toBe(200); expect(calls).toEqual([]);
+      const listed = await call("/api/session-outbox", "GET", undefined, deps);
+      expect(listed.body.items.map((item: { text: string }) => item.text)).toEqual(["second", "first"]);
+      expect(listed.body.settings[0].autoSend).toBeTrue();
+      const crossSite = new Request(`${ORIGIN}/api/session-outbox/settings`, { method: "PATCH",
+        headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+        body: JSON.stringify({ agent: "claude", sid: SID, autoSend: false }) });
+      const denied = await handleSessionOutboxRequest(crossSite, new URL(crossSite.url), deps);
+      expect(denied?.status).toBe(400); expect(outbox.setting({ agent: "claude", sid: SID }).autoSend).toBeTrue();
+    } finally { outbox.close(); }
+  });
+
   test("queues without sending, lists with an ETag, and deletes explicitly", async () => {
     const outbox = new SessionOutboxStore(openSessionOutboxDatabase(":memory:"), () => 1_000, () => "queued-1");
     const { deps, calls } = routeDeps(outbox, "working");

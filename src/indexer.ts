@@ -16,6 +16,8 @@ import { createClaudeSource } from "./sources/claude";
 import { createCodexSource } from "./sources/codex";
 import { createHermesSource } from "./sources/hermes";
 import { resolveWorktreeRoot } from "./worktrees";
+import { needsFullInputRebuild } from "./session-input-rebuild";
+import { LOCAL_ENV, normalizeEnv } from "./session-identity";
 
 export type {
   DiscoveryResult, SessionFileInfo, SessionSource, SessionUpdate, SourceIssue, SourceStage,
@@ -95,12 +97,13 @@ export function createIndexer(options: IndexerOptions = {}) {
     const context = { path: file.path, sid: file.sid, ...(file.env === undefined ? {} : { env: file.env }) };
     const unchanged = { changed: false, listChanged: false };
     const stored = db.getStoredSession(file.agent, file.sid, file.env);
+    const inputRebuild = needsFullInputRebuild(db.raw, file);
     // An inventory that failed part way cannot prove the better owner is gone, so committed data
     // stays with the path that already owns it until a clean inventory says otherwise.
     if (degraded && stored !== null && stored.filePath.localeCompare(file.path) > 0) return unchanged;
     let update: SessionUpdate | null;
     try {
-      update = source.index(file, stored);
+      update = source.index(file, inputRebuild && normalizeEnv(file.env) === LOCAL_ENV ? null : stored);
     } catch (error) {
       errors.push(sourceIssue("read", file.agent, errorText(error), context));
       return unchanged;
@@ -122,7 +125,7 @@ export function createIndexer(options: IndexerOptions = {}) {
     if (!applied) return unchanged;
     // Booked in the same synchronous step as the transaction. A shutdown that lands between the
     // commit and this caller's resumption still finds the data marked dirty, so it gets versioned.
-    const listChanged = sessionListChanged(stored, session);
+    const listChanged = inputRebuild || sessionListChanged(stored, session);
     unversionedChanges += 1;
     unversionedListChanges ||= listChanged;
     return { changed: true, listChanged };

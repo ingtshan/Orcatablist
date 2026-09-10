@@ -31,6 +31,8 @@ export interface RemoteReadState {
 export interface RemoteReadCursor {
   /** Read execution settings without rewinding the transcript transfer cursor. */
   executionAgent?: "claude" | "codex";
+  /** Re-read an old truncated input index using the ordinary replacement/ACK protocol. */
+  rebuild?: boolean;
   offset: number; size: number; mtime: number;
   /** An oversized record this caller cannot buffer: skip while the file's stat stands still. */
   skip?: boolean;

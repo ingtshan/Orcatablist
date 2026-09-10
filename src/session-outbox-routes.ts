@@ -1,7 +1,8 @@
 import { OrcaError, ValidationError } from "./focus";
 import { assertJsonRequest, assertSameOriginWrite, conditionalJson, json, jsonObject } from "./http";
 import { isEnvName, LOCAL_ENV, toSessionIdentity, type SessionIdentity } from "./session-identity";
-import { normalizeInputText, SendConflictError, sendSessionInput, type SessionSendDeps } from "./session-send";
+import { normalizeInputText, SendConflictError, type SessionSendDeps } from "./session-send";
+import { sendOutboxInput } from "./session-outbox-runtime";
 import { type SessionOutboxItem, type SessionOutboxStore } from "./session-outbox";
 
 const COLLECTION_ROUTE = "/api/session-outbox";
@@ -56,12 +57,10 @@ async function sendQueuedInput(
   const body = await jsonObject(request);
   const handle = optionalString(body.expectedHandle, "expectedHandle");
   const status = optionalString(body.expectedStatus, "expectedStatus");
-  const record = await sendSessionInput(
-    item.agent, item.sid, item.text, deps,
+  const record = await sendOutboxInput(
+    item.id, deps,
     { ...(handle === undefined ? {} : { handle }), ...(status === undefined ? {} : { status }) },
-    item.env,
   );
-  deps.outbox.remove(item.id);
   return json({ ok: true, version: deps.outbox.version, record });
 }
 
@@ -74,10 +73,26 @@ export async function handleSessionOutboxRequest(
   try {
     if (request.method === "GET" && url.pathname === COLLECTION_ROUTE) {
       return conditionalJson(request, `"outbox-${deps.outbox.version}"`, () => ({
-        version: deps.outbox.version, items: deps.outbox.list(),
+        version: deps.outbox.version, items: deps.outbox.list(), settings: deps.outbox.settings(),
       }));
     }
     if (request.method === "POST" && url.pathname === COLLECTION_ROUTE) return await queueInput(request, deps);
+    if (request.method === "PATCH" && [COLLECTION_ROUTE + "/settings", COLLECTION_ROUTE + "/order"].includes(url.pathname)) {
+      assertSameOriginWrite(request);
+      assertJsonRequest(request);
+      const body = await jsonObject(request);
+      const identity = requestedIdentity(body);
+      if (url.pathname.endsWith("/settings")) {
+        if (typeof body.autoSend !== "boolean") throw new ValidationError("autoSend must be boolean");
+        deps.outbox.updateSetting(identity, { autoSend: body.autoSend, error: null });
+      } else {
+        if (!Array.isArray(body.ids) || body.ids.some((id) => typeof id !== "string") || !Number.isInteger(body.version)) {
+          throw new ValidationError("order requires ids and queue version");
+        }
+        deps.outbox.reorder(identity, body.ids as string[], body.version as number);
+      }
+      return json({ ok: true, version: deps.outbox.version });
+    }
     const sendId = decodedId(url.pathname, SEND_ROUTE);
     if (request.method === "POST" && sendId !== null) {
       const item = deps.outbox.get(sendId);

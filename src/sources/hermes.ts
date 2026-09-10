@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { FTS_TEXT_MAX_CHARS } from "../config";
 import type { FtsRow, StoredSession } from "../db";
 import { cleanPromptForDisplay } from "../parse";
+import { briefHash, type BriefEvent } from "../session-brief-events";
 import { EXECUTION_METADATA_VERSION, hermesExecutionSettings, type SessionExecution } from "../session-execution";
 import {
   errorText, sourceIssue,
@@ -34,6 +35,7 @@ interface HermesSessionRow {
 }
 
 interface HermesMessageRow {
+  id: number;
   role: string;
   content: string;
   timestamp: number | null;
@@ -85,20 +87,23 @@ function deriveFromRows(
   let lastInputAt: number | null = null;
   let promptCount = 0;
   const fts: FtsRow[] = [];
+  const briefEvents: BriefEvent[] = [];
 
   for (const row of rows) {
     const ts = milliseconds(row.timestamp);
     if (row.role === "user") {
       if (isInjectedUserMessage(row.content)) continue;
+      briefEvents.push({ kind: "user", key: briefHash([row.id, row.content]), at: ts, text: row.content });
       const cleaned = cleanPromptForDisplay(row.content);
       promptCount += 1;
       firstPrompt ??= cleaned || null;
       if (cleaned) lastPrompt = cleaned;
       if (ts !== null) lastInputAt = Math.max(lastInputAt ?? ts, ts);
-      fts.push({ text: row.content.slice(0, FTS_TEXT_MAX_CHARS), agent: "hermes", sid: info.sid, role: "user", ts });
+      fts.push({ text: row.content, agent: "hermes", sid: info.sid, role: "user", ts });
       continue;
     }
     if (row.role === "assistant") {
+      briefEvents.push({ kind: "assistant", key: briefHash([row.id, row.content]), at: ts, text: row.content });
       fts.push({ text: row.content.slice(0, FTS_TEXT_MAX_CHARS), agent: "hermes", sid: info.sid, role: "assistant", ts });
     }
   }
@@ -110,7 +115,7 @@ function deriveFromRows(
     fileMtime: info.mtime, parsedOffset: 0,
     model: meta.model ?? null, reasoningEffort: meta.reasoningEffort ?? null, executionMetadataVersion: EXECUTION_METADATA_VERSION,
   };
-  return { session, fts, replaceFts: true };
+  return { session, fts, briefEvents, replaceFts: true };
 }
 
 export function createHermesSource(dbPath: string): SessionSource {
@@ -181,9 +186,9 @@ export function createHermesSource(dbPath: string): SessionSource {
           if (row === null) throw new Error("session metadata not found");
           meta = metaFromRow(row);
         }
-        const rows = db.query(`SELECT role, content, timestamp FROM messages
+        const rows = db.query(`SELECT id, role, content, timestamp FROM messages
           WHERE session_id=? AND active=1 AND content IS NOT NULL AND content!=''
-          ORDER BY timestamp`).all(info.sid) as HermesMessageRow[];
+          ORDER BY timestamp, id`).all(info.sid) as HermesMessageRow[];
         return deriveFromRows(info, meta, rows);
       } catch (error) {
         throw new Error(`failed to derive Hermes session ${info.sid} from ${dbPath}: ${errorText(error)}`);

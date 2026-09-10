@@ -49,7 +49,11 @@ export async function handleSessionInputsRequest(
   const body = await jsonObject(request);
   const limit = pageInteger(body.limit, "limit", DEFAULT_SESSION_INPUT_LIMIT, 1, MAX_SESSION_INPUT_LIMIT);
   const offset = pageInteger(body.offset, "offset", 0, 0, MAX_SESSION_INPUT_OFFSET);
-  const recentInputs = db.getRecentUserInputPages(requestedSessionIdentities(body.sessions), { limit, offset });
+  if (body.fullText !== undefined && typeof body.fullText !== "boolean") throw new ValidationError("fullText must be a boolean");
+  const sessions = requestedSessionIdentities(body.sessions);
+  const fullText = body.fullText === true;
+  if (fullText && sessions.length !== 1) throw new ValidationError("fullText requires exactly one session");
+  const recentInputs = db.getRecentUserInputPages(sessions, { limit, offset, fullText });
   return json({
     listVersion: db.getListVersion(),
     inputs: Object.fromEntries([...recentInputs].map(([key, page]) => [key, page.inputs.map(({ text }) => text)])),

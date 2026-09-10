@@ -186,6 +186,7 @@ describe("HTTP server", () => {
       capabilities: [
         "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
         "session-send", "session-outbox", "focus-board", "session-tasks", "orchestration-runs", "remote-environments",
+        "session-briefs", "manual-refresh",
       ],
     });
   });
@@ -588,7 +589,6 @@ describe("HTTP server", () => {
     expect(html).toContain('function focusPresentation()');
     expect(html).toContain('function allFocusRows()');
     expect(html).toContain('function focusInputRows()');
-    expect(html).toContain('new Map(focusInputRows()');
     expect(html).toContain('make("div", "focus-search-hit")');
     expect(html).toContain('appendHighlighted(hit, row.hits[0].snippet)');
     expect(html).toContain('if (state.focusSearchPending) return "正在搜索…"');
@@ -792,7 +792,7 @@ describe("HTTP server", () => {
     expect(html).toContain('.focus-monitor-messages { display: grid; min-height: 0; flex: 1; align-content: start; gap: 12px; overflow-y: auto; overflow-anchor: none;');
     expect(html).toContain('const FOCUS_HISTORY_LOAD_THRESHOLD_PX = 48');
     expect(html).toContain('const FOCUS_SCROLL_BOTTOM_TOLERANCE_PX = 2');
-    expect(html).toContain('}).filter(({ text }) => text).reverse()');
+    expect(html).toContain('}).filter(({ text }) => text.trim()).reverse()');
     expect(html).toContain('async function loadOlderFocusInputs(row, messages)');
     expect(html).toContain('function maybeLoadOlderFocusInputs(row, messages)');
     expect(html).toContain('messages.scrollTop > FOCUS_HISTORY_LOAD_THRESHOLD_PX');
@@ -800,7 +800,7 @@ describe("HTTP server", () => {
     expect(html).toContain('messages.scrollHeight - options.historyAnchor.scrollHeight');
     expect(html).toContain('messages.setAttribute("aria-label", "用户输入历史，向上滚动加载更早记录")');
     expect(html).not.toContain('focus-monitor-more-button');
-    expect(html).toContain('state.recentInputsHasMoreBySession = body.hasMore || {}');
+    expect(html).toContain('fullText: true');
     expect(html).not.toContain('focus-monitor-copy');
     expect(html).not.toContain('focus-workspace.monitor-visible');
     expect(html).not.toContain('.focus-session-inputs {');

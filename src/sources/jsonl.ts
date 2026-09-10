@@ -79,7 +79,7 @@ export function indexJsonlSession(input: JsonlIndexInput): SessionUpdate | null 
     parsedOffset: (window?.offset ?? base.parsedOffset) + consumed,
   };
   const ack = input.ack?.(consumed);
-  return { session, fts: parsed.fts, replaceFts: rebuild, ...(ack === undefined ? {} : { ack }) };
+  return { session, fts: parsed.fts, briefEvents: parsed.briefEvents, replaceFts: rebuild, ...(ack === undefined ? {} : { ack }) };
 }
 
 export interface LocalJsonlOptions {

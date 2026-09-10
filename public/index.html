@@ -43,6 +43,8 @@
     .mode-switch button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 5px var(--shadow); font-weight: 650; }
     .top-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
     #index-status { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .refresh-action { min-width: 0; padding: 5px 10px; font-size: 12px; }
+    .refresh-action[aria-busy="true"] { color: var(--muted); border-color: var(--line); }
     .layout { display: grid; grid-template-columns: 245px minmax(0, 1fr); width: min(1420px, 100%); margin: 0 auto; }
     .sidebar { position: sticky; top: 68px; align-self: start; height: calc(100vh - 68px); padding: 24px 16px; border-right: 1px solid var(--line); }
     .sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 4px 12px 10px; }
@@ -167,6 +169,18 @@
     .session-outbox-note[data-state="ready"] .session-send-state { background: var(--success-soft); color: var(--idle); }
     .session-outbox-list { display: grid; grid-column: 2 / -1; gap: 3px; margin-top: 4px; }
     .session-outbox-list .session-send-note { grid-column: auto; margin-top: 0; }
+    .session-outbox-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
+    .session-outbox-auto-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; min-height: 28px; padding: 3px 0 3px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+    .session-outbox-auto-toggle:hover { color: var(--text); }
+    .session-outbox-auto-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .session-outbox-auto-toggle:disabled { opacity: .5; cursor: wait; }
+    .session-outbox-switch-track { position: relative; width: 30px; height: 18px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 999px; background: var(--line); transition: background .15s ease, border-color .15s ease; }
+    .session-outbox-switch-track::after { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text); box-shadow: 0 1px 3px #0003; content: ""; transition: transform .15s ease; }
+    .session-outbox-auto-toggle[aria-checked="true"] { color: var(--accent); }
+    .session-outbox-auto-toggle[aria-checked="true"] .session-outbox-switch-track { border-color: var(--accent); background: var(--accent); }
+    .session-outbox-auto-toggle[aria-checked="true"] .session-outbox-switch-track::after { transform: translateX(12px); background: var(--surface); }
+    @media (prefers-reduced-motion: reduce) { .session-outbox-switch-track, .session-outbox-switch-track::after { transition: none; } }
+    .session-outbox-error { color: var(--danger); font-size: 12px; }
     .session-outbox-send { color: var(--accent); }
     .session-outbox-delete { color: var(--muted); }
     .session-outbox-send:hover { background: var(--accent-soft); color: var(--accent); }
@@ -202,7 +216,7 @@
     .floating-menu:not([open]) > .floating-menu-panel { display: none; }
     .floating-menu[open] { z-index: 40; }
     .floating-menu[open] > .floating-menu-toggle { border-color: var(--accent); color: var(--accent); }
-    .floating-menu-panel { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: grid; width: max-content; max-width: calc(100vw - 16px); min-width: 132px; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px #17222A2E; transform: translateX(var(--floating-menu-shift-x, 0)); }
+    .floating-menu-panel { position: absolute; z-index: 40; top: calc(100% + 4px); right: 0; display: grid; width: max-content; max-width: calc(100vw - 16px); min-width: 128px; gap: 1px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 5px 18px var(--shadow); transform: translateX(var(--floating-menu-shift-x, 0)); }
     .floating-menu.open-up > .floating-menu-panel { top: auto; bottom: calc(100% + 6px); }
     .floating-menu-action { width: 100%; min-width: 0; text-align: left; }
     .menu-open { position: relative; z-index: 35; }
@@ -218,6 +232,13 @@
     .drawer-toggle::after { content: "⌄"; font-size: 11px; transition: transform .12s ease; }
     .action-drawer[open] .drawer-toggle::after { transform: rotate(180deg); }
     .drawer-action { min-width: 112px; padding: 6px 8px; border-color: transparent; background: transparent; font-size: 11px; }
+    .floating-menu-panel > .floating-menu-action { min-width: 0; min-height: 28px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text); font-size: 12px; line-height: 18px; font-weight: 400; }
+    .floating-menu-panel > .floating-menu-action:hover:not(:disabled) { background: var(--hover); color: var(--accent); }
+    .floating-menu-panel > .floating-menu-action:disabled { opacity: .45; cursor: default; }
+    .floating-menu-panel > .floating-menu-action:focus-visible { outline-width: 2px; outline-offset: -2px; }
+    .floating-menu > .icon-menu-toggle { display: grid; width: 26px; height: 26px; min-width: 26px; padding: 0; border-color: transparent; border-radius: 5px; background: transparent; color: var(--muted); font: 18px/1 -apple-system, sans-serif; place-items: center; }
+    .floating-menu > .icon-menu-toggle::after { display: none; }
+    .floating-menu > .icon-menu-toggle:hover, .floating-menu[open] > .icon-menu-toggle { border-color: transparent; background: var(--hover); color: var(--accent); }
     .resource-drawer .floating-menu-panel { width: min(420px, calc(100vw - 16px)); min-width: 300px; gap: 8px; padding: 9px; }
     .resource-card { display: grid; gap: 7px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
     .resource-card-head { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -233,12 +254,21 @@
     .manual-message { flex: 1 1 100%; line-height: 1.5; }
     .empty { padding: 70px 20px; border: 1px dashed var(--line); border-radius: 13px; color: var(--muted); text-align: center; }
     .focus-view { width: min(1420px, 100%); margin: 0 auto; padding: 30px clamp(16px, 3vw, 44px) 64px; }
-    .focus-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
-    .focus-title { margin: 0 0 6px; font-size: 25px; letter-spacing: -.02em; }
-    .focus-description { margin: 0; color: var(--muted); font-size: 13px; }
+    .focus-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 16px; margin-bottom: 16px; }
+    .focus-heading { min-width: 0; }
+    .focus-heading-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 4px; }
+    .focus-title { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+    .focus-description { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
     .focus-updated { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
     .focus-updated[data-degraded] { color: var(--waiting); font-weight: 600; }
-    .focus-head-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 14px; }
+    .focus-head-actions { display: flex; grid-column: 1 / -1; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+    .focus-utilities { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; }
+    .focus-utilities .action { display: inline-flex; min-width: 0; max-width: 100%; height: 28px; align-items: center; gap: 5px; padding: 4px 7px; border-color: transparent; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; line-height: 18px; }
+    .focus-utilities .action:hover { background: var(--hover); color: var(--text); }
+    .focus-utilities .action[data-active="true"] { background: var(--accent-soft); color: var(--accent); }
+    .focus-utilities .action:focus-visible { outline-width: 2px; }
+    #focus-environment-open { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+    #focus-environment-open::after, #focus-hidden-open::after { flex: 0 0 auto; width: 5px; height: 5px; margin-left: 2px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; content: ""; transform: translateY(-2px) rotate(45deg); }
     .focus-project-filter-control, .focus-worktree-filter-control, .focus-project-sort-control { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
     .focus-project-filter-control > span, .focus-worktree-filter-control > span, .focus-project-sort-control > span { white-space: nowrap; }
     .focus-project-sort-control select { min-width: 104px; max-width: 190px; padding: 6px 25px 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 11px; }
@@ -327,7 +357,7 @@
     .focus-monitor-message.without-time { grid-template-columns: 1fr; }
     .focus-monitor-time { padding-top: 8px; color: var(--muted); font: 9px ui-monospace, Menlo, monospace; text-align: right; white-space: nowrap; }
     .focus-monitor-message-body { min-width: 0; }
-    .focus-monitor-bubble { min-width: 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 3px 10px 10px 10px; background: var(--surface); cursor: text; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; user-select: text; }
+    .focus-monitor-bubble { min-width: 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 3px 10px 10px 10px; background: var(--surface); cursor: text; font-size: 11px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
     .focus-monitor-empty { padding: 28px 12px; color: var(--muted); font-size: 11px; text-align: center; }
     .focus-monitor-dock-target { position: fixed; z-index: 11; top: var(--topbar-height); bottom: 0; display: grid; width: var(--focus-monitor-dock-target-width); place-items: center; border: 1px dashed var(--accent); background: var(--accent-soft); color: var(--accent); font: 700 10px ui-monospace, Menlo, monospace; letter-spacing: .08em; opacity: 0; pointer-events: none; text-transform: uppercase; transition: opacity .12s ease; writing-mode: vertical-rl; }
     .focus-monitor-dock-target.left { left: 0; border-left: 0; border-radius: 0 12px 12px 0; }
@@ -354,6 +384,8 @@
     .focus-project-group { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
     .focus-project-head { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 10px 11px; border-bottom: 1px solid var(--line); }
     .focus-project-group.collapsed .focus-project-head { border-bottom: 0; }
+    .focus-project-menu { margin-left: auto; }
+    .focus-project-group:has(.focus-project-menu[open]), .focus-lane:has(.focus-project-menu[open]) { overflow: visible; position: relative; z-index: 20; }
     .focus-project-body { min-width: 0; }
     .focus-project-name { min-width: 0; flex: 1; overflow: hidden; font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
     .focus-group-count { flex: 0 0 auto; color: var(--muted); font: 10px ui-monospace, Menlo, monospace; }
@@ -371,6 +403,7 @@
     .focus-session-card:last-child { border-bottom: 0; }
     .focus-session-card:hover, .focus-session-card:focus-within { background: var(--hover); }
     .focus-session-card.monitor-source { background: var(--accent-soft); }
+    .focus-session-card.brief-located { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-soft); }
     .run-cluster > .focus-session-card { border-bottom: 0; }
     .focus-run-worker-list { margin-left: 16px; }
     .focus-run-worker-list > .focus-session-card { border-top: 1px dashed var(--line); border-bottom: 0; }
@@ -506,9 +539,117 @@
     .goal-session-list { overflow: visible; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 6px 24px var(--shadow); }
     dialog { width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 18px 60px #0006; }
     dialog::backdrop { background: #0007; }
+    .focus-environment-controls { display: contents; }
+    #focus-local-only[aria-checked="true"] { color: var(--accent); }
+    .focus-local-track { position: relative; flex: 0 0 24px; width: 24px; height: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--line); }
+    .focus-local-track::after { position: absolute; top: 2px; left: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); content: ""; }
+    #focus-local-only[aria-checked="true"] .focus-local-track { border-color: var(--accent); background: var(--accent); }
+    #focus-local-only[aria-checked="true"] .focus-local-track::after { transform: translateX(10px); background: var(--surface); }
+    #focus-environment-dialog, #focus-hidden-dialog { position: fixed; inset: auto; top: var(--focus-panel-top, 96px); left: var(--focus-panel-left, 12px); margin: 0; width: min(304px, calc(100vw - 16px)); max-width: calc(100vw - 16px); height: auto; max-height: min(460px, calc(100dvh - 16px)); overflow: hidden; border-radius: 8px; box-shadow: 0 5px 22px var(--shadow); }
+    #focus-hidden-dialog { width: min(344px, calc(100vw - 16px)); }
+    #focus-environment-dialog::backdrop, #focus-hidden-dialog::backdrop { background: #0001; }
+    #focus-environment-dialog[open], #focus-hidden-dialog[open] { display: flex; flex-direction: column; }
+    .focus-panel .action { min-width: 0; min-height: 26px; padding: 4px 7px; border-color: transparent; border-radius: 5px; background: transparent; font-size: 11px; line-height: 16px; }
+    .focus-panel .action:hover:not(:disabled) { border-color: transparent; background: var(--hover); }
+    .focus-panel .action:disabled { opacity: .45; cursor: default; }
+    .focus-panel .action[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+    .focus-panel .action:focus-visible { outline-width: 2px; outline-offset: -2px; }
+    .focus-panel .panel-close { display: grid; flex: 0 0 24px; min-height: 24px; width: 24px; height: 24px; margin-left: auto; padding: 0; place-items: center; color: var(--muted); font-size: 18px; line-height: 1; }
+    .focus-hidden-project { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+    .focus-hidden-project:last-child { border-bottom: 0; }
+    .focus-hidden-project > button { flex-shrink: 0; }
+    .focus-hidden-project-copy { display: grid; gap: 3px; min-width: 0; font-size: 12px; }
+    .focus-hidden-project-copy :is(span, small) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-hidden-project-copy small { color: var(--muted); font-size: 10px; }
+    .focus-environment-head { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 6px; }
+    .focus-environment-head h2 { margin: 0; font-size: 13px; font-weight: 650; }
+    .focus-environment-toolbar { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 5px; padding: 0 12px 8px; border-bottom: 1px solid var(--line); }
+    .focus-environment-toolbar .focus-environment-hint { flex: 1 1 100%; }
+    .focus-environment-hint { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 0; }
+    .focus-environment-options { flex: 0 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 5px 8px; }
+    .focus-environment-options > .focus-environment-hint { padding: 14px 4px; }
+    .focus-environment-option { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 7px; border-radius: 5px; cursor: pointer; }
+    .focus-environment-option:hover, .focus-environment-option:focus-within { background: var(--hover); }
+    .focus-environment-option:has(input:checked) { background: var(--accent-soft); color: var(--accent); }
+    .focus-environment-option:has(input:disabled) { cursor: default; }
+    .focus-environment-option input { flex: 0 0 auto; margin: 0; accent-color: var(--accent); }
+    .focus-environment-option span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
     .dialog-form { display: grid; gap: 15px; padding: 22px; }
     .dialog-form h2 { margin: 0; font-size: 19px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; }
+    #focus-brief-dialog { width: min(600px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: min(84dvh, 760px); overflow: hidden; border-radius: 10px; box-shadow: 0 8px 32px var(--shadow); }
+    #focus-brief-dialog::backdrop { background: #0004; }
+    #focus-brief-dialog[open] { display: flex; flex-direction: column; }
+    .brief-head { display: flex; flex-shrink: 0; align-items: flex-start; gap: 8px; padding: 18px 20px 12px; }
+    .brief-head h2 { margin: 0 0 5px; font-size: 16px; }
+    .brief-subtitle { color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .brief-close { margin-left: auto; }
+    .brief-filter-section { flex: 0 0 auto; min-width: 0; margin: 0 20px 12px; }
+    .brief-filter-section > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 28px; padding: 4px 0; color: var(--muted); font-size: 11px; line-height: 18px; cursor: pointer; list-style: none; }
+    .brief-filter-section > summary::-webkit-details-marker { display: none; }
+    .brief-filter-section > summary::before { width: 5px; height: 5px; margin: 0 4px 0 2px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; content: ""; transform: rotate(-45deg); }
+    .brief-filter-section[open] > summary::before { transform: translateY(-2px) rotate(45deg); }
+    .brief-filter-section > summary:hover { color: var(--text); }
+    .brief-filter-selection { margin-left: auto; }
+    .brief-filter-selection[data-active="true"] { color: var(--accent); font-weight: 600; }
+    .brief-filters { display: grid; gap: 8px; max-height: 24dvh; overflow-y: auto; padding: 8px 0 2px; }
+    .brief-filters .focus-project-shortcuts { grid-template-columns: 52px minmax(0, 1fr); gap: 8px; }
+    .brief-filters .focus-project-tags { gap: 4px; }
+    .brief-filters .focus-project-tag { gap: 4px; padding: 3px 6px; border-radius: 5px; font-size: 10px; }
+    .brief-filter-choice { display: inline-flex; align-items: stretch; min-width: 0; max-width: 100%; }
+    .brief-filter-choice > .focus-project-tag { border-radius: 5px 0 0 5px; min-width: 0; }
+    .brief-scope-read { flex: 0 0 auto; padding: 3px 6px; border: 1px solid var(--line); border-left: 0; border-radius: 0 5px 5px 0; background: var(--surface); color: var(--accent); font-size: 10px; white-space: nowrap; cursor: pointer; }
+    .brief-scope-read:hover:not(:disabled) { background: var(--accent-soft); }
+    .brief-scope-read:disabled { color: var(--muted); opacity: .5; cursor: default; }
+    .brief-scope-read:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .brief-toolbar { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 4px; padding: 0 20px 8px; }
+    .brief-toolbar .action { min-height: 28px; font-size: 12px; }
+    .brief-toolbar .action[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
+    #focus-brief-all { margin-left: auto; }
+    .brief-entry-count { display: inline-grid; min-width: 16px; height: 16px; padding: 0 4px; place-items: center; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .brief-list { display: grid; flex: 1; min-height: 0; align-content: start; overflow-y: auto; overscroll-behavior: contain; padding: 0 20px; border-top: 1px solid var(--line); background: var(--surface); }
+    .brief-card { min-width: 0; padding: 22px 0 24px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); }
+    .brief-card:last-child { border-bottom: 0; }
+    .brief-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 16px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+    .brief-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
+    .brief-card[data-read="true"] .brief-dot { background: var(--line); }
+    .brief-context { color: var(--text); font-size: 12px; font-weight: 600; }
+    .brief-time { margin-left: auto; }
+    .brief-label { margin: 12px 0 6px; color: var(--muted); font-size: 11px; font-weight: 500; }
+    .brief-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.7 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif; }
+    .brief-input { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; color: var(--muted); }
+    .brief-card[data-expanded="true"] .brief-input { display: block; }
+    .brief-result-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-top: 20px; color: var(--accent); font-size: 12px; font-weight: 650; }
+    .brief-preview-note { color: var(--muted); font-size: 11px; font-weight: 400; }
+    .brief-reply { border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0; padding: 12px 14px; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.8; }
+    .brief-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; }
+    .brief-actions .action { font-size: 11px; padding: 4px 6px; }
+    .brief-compose { margin-top: 12px; }
+    .brief-group-title { margin: 0; font-size: 15px; }
+    .brief-group-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; color: var(--muted); font-size: 12px; }
+    .brief-group-state { color: var(--accent); font-weight: 600; }
+    .brief-group-state[data-status="attention"] { color: var(--danger); }
+    .brief-members { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+    .brief-member { margin-top: 10px; padding: 10px; border-radius: 8px; background: var(--bg); }
+    .brief-members summary, .brief-member summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+    .brief-read { margin-left: auto; }
+    .brief-footer { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 20px; border-top: 1px solid var(--line); font-size: 11px; }
+    .brief-footer:not(:has(button:not([hidden]), .brief-error:not(:empty))) { display: none; }
+    .brief-error { color: var(--waiting); overflow-wrap: anywhere; }
+    .brief-empty { padding: 24px 10px; color: var(--muted); font-size: 12px; text-align: center; }
+    @media (max-width: 480px) {
+      .focus-utilities { gap: 2px; }
+      .focus-utilities .action { padding-inline: 6px; }
+      .brief-head { padding: 16px 14px 12px; }
+      .brief-toolbar, .brief-list, .brief-footer { padding-left: 14px; padding-right: 14px; }
+      .brief-filter-section { margin-left: 14px; margin-right: 14px; }
+      .brief-card { padding: 20px 0 22px; }
+      .brief-reply { padding: 10px 12px; }
+    }
+    @media (pointer: coarse) {
+      .focus-utilities .action, .focus-panel button, .focus-panel .panel-close, .focus-environment-option, .floating-menu-panel > .floating-menu-action, .floating-menu > .icon-menu-toggle { min-height: 36px; }
+      .brief-filter-section > summary { min-height: 36px; }
+    }
     #toast { position: fixed; right: 24px; bottom: 22px; z-index: 20; padding: 10px 14px; border-radius: 9px; background: var(--text); color: var(--surface); box-shadow: 0 5px 20px var(--shadow); opacity: 0; transform: translateY(8px); transition: .16s ease; pointer-events: none; }
     #toast.visible { opacity: 1; transform: translateY(0); }
     @media (max-width: 899px) {
@@ -545,8 +686,8 @@
     }
     @media (max-width: 1099px) {
       .focus-board, .focus-board.with-history { grid-template-columns: 1fr; }
-      .focus-head { align-items: flex-start; flex-direction: column; gap: 8px; }
-      .focus-head-actions { width: 100%; justify-content: flex-start; }
+      .focus-head { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+      .focus-utilities { justify-content: flex-start; }
     }
     @media (max-width: 560px) {
       .focus-execution-filters { padding-left: 0; }
@@ -586,6 +727,8 @@
     <div class="search-wrap session-search"><input id="search" type="search" autocomplete="off" placeholder="搜索会话内容… 按 / 聚焦" aria-label="搜索会话内容"></div>
     <div class="top-actions">
       <span id="index-status">索引更新时间未知</span>
+      <button id="refresh-now" class="action refresh-action" type="button"
+        title="重新扫描索引、强制读取实时状态，并立即拉取远程环境">刷新</button>
       <div class="mode-switch session-only" aria-label="会话范围">
         <button id="all-mode" type="button" aria-pressed="true">全部</button>
         <button id="live-mode" type="button" aria-pressed="false">在线</button>
@@ -597,7 +740,15 @@
   <div id="focus-monitor-dock-right" class="focus-monitor-dock-target right" aria-hidden="true">吸附右侧</div>
   <div id="focus-view" class="focus-view" hidden>
     <header class="focus-head">
-      <div><h1 class="focus-title">聚焦</h1><p class="focus-description">编排组内仍有会话运行时，整组显示在进行中；各会话保留原始状态。</p></div>
+      <div class="focus-heading"><div class="focus-heading-line"><h1 class="focus-title">聚焦</h1><span id="focus-updated" class="focus-updated">状态尚未读取</span></div><p class="focus-description">编排组内仍有会话运行时，整组显示在进行中；各会话保留原始状态。</p></div>
+      <div class="focus-utilities">
+        <button id="focus-brief-open" class="action" type="button" aria-haspopup="dialog" aria-controls="focus-brief-dialog">完成简报<span id="focus-brief-count" class="brief-entry-count">…</span></button>
+        <div class="focus-environment-controls">
+          <button id="focus-local-only" class="action" type="button" role="switch" aria-checked="false" title="Local only：只显示本机环境"><span class="focus-local-track" aria-hidden="true"></span>仅本机</button>
+          <button id="focus-environment-open" class="action" type="button" aria-haspopup="dialog" aria-controls="focus-environment-dialog">环境：全部</button>
+          <button id="focus-hidden-open" class="action" type="button" aria-haspopup="dialog" aria-controls="focus-hidden-dialog">已隐藏项目 0</button>
+        </div>
+      </div>
       <div class="focus-head-actions">
         <div class="focus-project-filter-control">
           <span>项目</span>
@@ -641,7 +792,6 @@
             <option value="recent">最近活动</option>
           </select>
         </label>
-        <span id="focus-updated" class="focus-updated">状态尚未读取</span>
       </div>
     </header>
     <div class="focus-shortcuts">
@@ -736,6 +886,33 @@
       </div>
     </form>
   </dialog>
+  <dialog id="focus-brief-dialog" class="focus-panel" aria-labelledby="focus-brief-title">
+    <header class="brief-head"><div><h2 id="focus-brief-title">完成简报</h2><div id="focus-brief-subtitle" class="brief-subtitle">当前聚焦范围</div></div><button id="focus-brief-close" class="action panel-close brief-close" type="button" aria-label="关闭完成简报" title="关闭">×</button></header>
+    <div class="brief-toolbar"><button id="focus-brief-unread" class="action" type="button" aria-pressed="true">待检阅</button><button id="focus-brief-groups" class="action" type="button" aria-pressed="false">编排动态</button><button id="focus-brief-read" class="action" type="button" aria-pressed="false">最近已读</button><button id="focus-brief-all" class="action" type="button">全部已读</button></div>
+    <details id="brief-filter-section" class="brief-filter-section">
+      <summary>筛选项目 / worktree<span id="brief-filter-selection" class="brief-filter-selection">全部</span></summary>
+      <div class="brief-filters">
+        <div class="focus-project-shortcuts"><span id="brief-project-label" class="focus-project-shortcuts-label">项目</span><div id="brief-project-tags" class="focus-project-tags" role="group" aria-labelledby="brief-project-label"></div></div>
+        <div class="focus-project-shortcuts"><span id="brief-worktree-label" class="focus-project-shortcuts-label">worktree</span><div id="brief-worktree-tags" class="focus-project-tags" role="group" aria-labelledby="brief-worktree-label"></div></div>
+      </div>
+    </details>
+    <div id="focus-brief-list" class="brief-list"></div>
+    <footer class="brief-footer"><button id="focus-brief-new" class="action" type="button" hidden></button><span id="focus-brief-error" class="brief-error" role="status" aria-live="polite"></span><button id="focus-brief-retry" class="action" type="button" hidden>刷新</button></footer>
+  </dialog>
+  <dialog id="focus-environment-dialog" class="focus-panel" aria-labelledby="focus-environment-title">
+    <header class="focus-environment-head"><h2 id="focus-environment-title">筛选环境</h2><button id="focus-environment-close" class="action panel-close" type="button" aria-label="关闭环境筛选" title="关闭">×</button></header>
+    <div class="focus-environment-toolbar">
+      <p id="focus-environment-hint" class="focus-environment-hint">可多选，未选择时显示全部。</p>
+      <button id="focus-environment-all" class="action" type="button">全部环境</button>
+      <button id="focus-environment-unlock" class="action" type="button" hidden>关闭仅本机</button>
+    </div>
+    <div id="focus-environment-options" class="focus-environment-options" role="group" aria-label="环境多选"></div>
+  </dialog>
+  <dialog id="focus-hidden-dialog" class="focus-panel" aria-labelledby="focus-hidden-title">
+    <header class="focus-environment-head"><h2 id="focus-hidden-title">已隐藏项目</h2><button id="focus-hidden-close" class="action panel-close" type="button" aria-label="关闭已隐藏项目" title="关闭">×</button></header>
+    <div class="focus-environment-toolbar"><p class="focus-environment-hint">仅影响聚焦页，其他页面仍可查看。</p><button id="focus-hidden-restore-all" class="action" type="button">全部恢复</button></div>
+    <div id="focus-hidden-list" class="focus-environment-options"></div>
+  </dialog>
   <div id="toast" role="status"></div>
   <script>
     (() => {
@@ -746,6 +923,9 @@
       const LIVE_POOL_LIMIT = 5000;
       const VISIBLE_SESSION_LIMIT = 500;
       const FOCUS_INPUT_PAGE_SIZE = 5;
+      const FOCUS_INPUT_MAX_PAGE_SIZE = 20;
+      const BRIEF_PAGE_SIZE = 50;
+      const BRIEF_READ_BATCH_SIZE = 5000;
       const FOCUS_HISTORY_LOAD_THRESHOLD_PX = 48;
       const FOCUS_SCROLL_BOTTOM_TOLERANCE_PX = 2;
       const FLOATING_MENU_VIEWPORT_GAP = 8;
@@ -761,6 +941,8 @@
       const FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY = "orcatab.focusCollapsedProjects.v2";
       const FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY = "orcatab.focusCollapsedWorktrees.v2";
       const FOCUS_PROJECT_SORT_STORAGE_KEY = "orcatab.focusProjectSort.v1";
+      const FOCUS_ENVIRONMENT_STORAGE_KEY = "orcatab.focusEnvironments.v1";
+      const FOCUS_HIDDEN_PROJECTS_STORAGE_KEY = "orcatab.focusHiddenProjects.v1";
       const EXPANDED_RUNS_STORAGE_KEY = "orcatab.expandedRuns.v1";
       const FOCUS_MONITOR_PLACEMENT_STORAGE_KEY = "orcatab.focusMonitorPlacement.v1";
       const FOCUS_PROJECT_SORT_MODES = new Set(["az", "za", "recent"]);
@@ -782,6 +964,7 @@
         complete: { state: "confirmed", label: "已处理", icon: "check" },
       };
       const SEND_CONFLICT_MESSAGES = {
+        "send-pending": "上一条消息还在发送或等待确认，请稍后再试",
         offline: "会话已不在线，输入没有发出",
         "not-waiting": "会话已不在等待输入，输入没有发出",
         "status-changed": "会话状态已变化，输入没有发出",
@@ -806,6 +989,8 @@
         focusCollapsedProjects: loadStoredStringSet(FOCUS_COLLAPSED_PROJECTS_STORAGE_KEY, "Focus projects"),
         focusCollapsedWorktrees: loadStoredStringSet(FOCUS_COLLAPSED_WORKTREES_STORAGE_KEY, "Focus worktrees"),
         focusProjectSort: loadFocusProjectSort(),
+        ...loadFocusEnvironmentPreferences(),
+        focusHiddenProjects: loadStoredStringSet(FOCUS_HIDDEN_PROJECTS_STORAGE_KEY, "hidden Focus projects"),
         orchestrationRuns: [], orchestrationSessions: [], orchestrationEtag: "", orchestrationSupported: true,
         focusCollapsedRuns: new Set(),
         expandedRuns: loadStoredStringSet(EXPANDED_RUNS_STORAGE_KEY, "expanded orchestration runs"),
@@ -817,6 +1002,12 @@
         directoryAudit: null, directoryAuditSupported: true,
         orcaAudit: null, orcaAuditEtag: "", orcaAuditSupported: true,
         focusBoard: null, focusBoardEtag: "", focusBoardSupported: true,
+        focusBriefs: [], focusBriefVisible: [], focusBriefTab: "unread", focusBriefLoaded: false,
+        focusBriefError: "", focusBriefBusy: false, focusBriefRequestId: 0, focusBriefLimit: BRIEF_PAGE_SIZE,
+        focusBriefGeneration: 0,
+        focusBriefProjectFilters: new Set(), focusBriefWorktreeFilters: new Set(),
+        focusBriefSending: new Set(), focusBriefSendErrors: {},
+        focusBriefDetails: new Map(), focusBriefExpanded: new Set(), focusBriefScope: "", focusBriefRendered: "",
         focusSearchMatches: new Map(), focusSearchQuery: "", focusSearchPending: false,
         focusProjectFilters: new Set(), focusWorktreeFilters: new Set(),
         focusExecutionFilters: { agent: new Set(), model: new Set(), reasoningEffort: new Set() },
@@ -830,6 +1021,7 @@
         sendRecords: {}, sendDrafts: {}, sendSupported: true, sendRecordsSignature: "",
         localSendRecords: {}, sendConfirmationSeen: {},
         outboxBySession: {}, outboxEtag: "", outboxSupported: true,
+        outboxSettings: {}, outboxVersion: 0, outboxBusy: new Set(),
         sendCompositionKey: "", sendRenderPending: false,
         sessionTasks: {}, sessionTasksEtag: "", tasksSupported: true, boards: null,
         captureKey: "", captureDrafts: {}, capturePickerKey: "", captureTarget: "",
@@ -863,6 +1055,11 @@
       const focusExecutionFilters = document.querySelector("#focus-execution-filters");
       const focusExecutionControls = new Map();
       const focusProjectSort = document.querySelector("#focus-project-sort");
+      const briefDialog = document.querySelector("#focus-brief-dialog");
+      const briefList = document.querySelector("#focus-brief-list");
+      const briefOpen = document.querySelector("#focus-brief-open");
+      const environmentDialog = document.querySelector("#focus-environment-dialog");
+      const hiddenProjectsDialog = document.querySelector("#focus-hidden-dialog");
       focusProjectSort.value = state.focusProjectSort;
       const sessionsView = document.querySelector("#sessions-view");
       const projectsView = document.querySelector("#projects-view");
@@ -899,6 +1096,7 @@
       const allMode = document.querySelector("#all-mode");
       const liveMode = document.querySelector("#live-mode");
       const indexStatus = document.querySelector("#index-status");
+      const refreshNow = document.querySelector("#refresh-now");
       const goalList = document.querySelector("#goal-list");
       const goalDetail = document.querySelector("#goal-detail");
       const newGoalButton = document.querySelector("#new-goal");
@@ -967,10 +1165,6 @@
       }
 
 
-      function focusInputText(value) {
-        return String(value || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-      }
-
       function focusInputTime(timestamp) {
         if (timestamp === null || timestamp === undefined || timestamp === "") return "";
         const numeric = Number(timestamp);
@@ -990,10 +1184,10 @@
           const record = typeof value === "object" && value !== null ? value : { text: value, ts: timestamps[index] };
           const numericTimestamp = record.ts === null || record.ts === undefined ? null : Number(record.ts);
           return {
-            text: focusInputText(record.text),
+            text: String(record.text ?? ""),
             ts: Number.isFinite(numericTimestamp) ? numericTimestamp : null,
           };
-        }).filter(({ text }) => text).reverse();
+        }).filter(({ text }) => text.trim()).reverse();
       }
 
       function projectFor(key) {
@@ -1049,14 +1243,14 @@
 
       function focusSelectableProjects() {
         const projectsByKey = new Map(
-          state.projects.filter((project) => !project.archived).map((project) => [project.key, project]),
+          state.projects.filter((project) => !project.archived && !state.focusHiddenProjects?.has(project.key)).map((project) => [project.key, project]),
         );
         const latestByProject = new Map([...projectsByKey.values()].map((project) => [
           project.key, Number.isFinite(project.lastInputAt) ? project.lastInputAt : 0,
         ]));
         [...allFocusRows(), ...visibleFocusRows(), ...state.focusSearchMatches.values(), ...state.focusFilterHistoryRows].forEach((row) => {
           const project = projectFor(row.projectKey);
-          if (project.archived) return;
+          if (project.archived || state.focusHiddenProjects?.has(project.key)) return;
           projectsByKey.set(project.key, project);
           latestByProject.set(project.key, Math.max(latestByProject.get(project.key) || 0, focusRowActivity(row)));
         });
@@ -1234,7 +1428,7 @@
       function focusSelectableWorktrees() {
         const choices = new Map();
         [...allFocusRows(), ...visibleFocusRows(), ...state.focusSearchMatches.values(), ...state.focusFilterHistoryRows].forEach((row) => {
-          if (!focusRowMatchesProject(row) || !focusSearchRowVisible(row)) return;
+          if (!focusRowMatchesEnvironment(row) || !focusRowMatchesProject(row) || !focusSearchRowVisible(row)) return;
           const project = projectFor(row.projectKey);
           const root = worktreeRootFor(row, project);
           const key = focusWorktreeFilterKey(row);
@@ -1381,7 +1575,135 @@
         return state.projects.filter((project) => project.archived || projectKeys.has(project.key));
       }
 
-      /** Missing, empty and "local" all name this machine — the server normalizes env the same way. */
+      function positionFocusPanel(dialog, trigger) {
+        if (!dialog.open) return;
+        const anchor = trigger.getBoundingClientRect();
+        const panel = dialog.getBoundingClientRect();
+        const gap = FLOATING_MENU_VIEWPORT_GAP;
+        const left = Math.max(gap, Math.min(anchor.right - panel.width, window.innerWidth - panel.width - gap));
+        const top = Math.max(gap, Math.min(anchor.bottom + gap, window.innerHeight - panel.height - gap));
+        dialog.style.setProperty("--focus-panel-left", `${left}px`);
+        dialog.style.setProperty("--focus-panel-top", `${top}px`);
+      }
+
+      function setFocusProjectHidden(projectKey, hidden) {
+        const selected = new Set(state.focusHiddenProjects);
+        if (projectKey === null) selected.clear();
+        else if (hidden) selected.add(projectKey); else selected.delete(projectKey);
+        state.focusHiddenProjects = selected;
+        saveStoredStringSet(FOCUS_HIDDEN_PROJECTS_STORAGE_KEY, "hidden Focus projects", selected);
+        state.focusExecutionScopeChanged = true;
+        renderFocusProjectFilter(); renderFocusWorktreeFilter();
+        resetFocusBriefSnapshot(); renderFocus();
+        if (hidden) document.querySelector("#focus-hidden-open").focus({ preventScroll: true });
+      }
+
+      function renderFocusHiddenProjects() {
+        const open = document.querySelector("#focus-hidden-open");
+        open.textContent = `已隐藏项目 ${state.focusHiddenProjects.size}`;
+        open.dataset.active = String(state.focusHiddenProjects.size > 0);
+        if (!hiddenProjectsDialog.open) return;
+        const list = document.querySelector("#focus-hidden-list");
+        const focused = list.contains(document.activeElement) ? document.activeElement.dataset.hiddenProject : null;
+        list.replaceChildren();
+        document.querySelector("#focus-hidden-restore-all").disabled = !state.focusHiddenProjects.size;
+        if (!state.focusHiddenProjects.size) list.append(make("p", "focus-environment-hint", "当前没有隐藏的项目。"));
+        [...state.focusHiddenProjects].map(projectFor).sort((a, b) => a.name.localeCompare(b.name)).forEach((project) => {
+          const row = make("div", "focus-hidden-project");
+          const copy = make("div", "focus-hidden-project-copy");
+          copy.title = `${project.name}\n${project.root || project.key}`;
+          copy.append(make("span", "", project.name), make("small", "", project.root || project.key));
+          const restore = make("button", "action", "恢复显示"); restore.type = "button";
+          restore.dataset.hiddenProject = project.key;
+          restore.setAttribute("aria-label", `恢复聚焦项目：${project.name}`);
+          restore.addEventListener("click", () => setFocusProjectHidden(project.key, false));
+          row.append(copy, restore); list.append(row);
+        });
+        if (focused) {
+          const target = [...list.querySelectorAll("button")].find((button) => button.dataset.hiddenProject === focused);
+          (target || document.querySelector("#focus-hidden-close")).focus({ preventScroll: true });
+        }
+        positionFocusPanel(hiddenProjectsDialog, open);
+      }
+
+      function loadFocusEnvironmentPreferences() {
+        try {
+          const stored = JSON.parse(localStorage.getItem(FOCUS_ENVIRONMENT_STORAGE_KEY) || "{}");
+          return { focusLocalOnly: stored.localOnly === true,
+            focusEnvironmentFilters: new Set(Array.isArray(stored.environments) ? stored.environments.filter((env) => typeof env === "string" && env) : []) };
+        } catch (error) {
+          console.warn("Unable to load Focus environment filters", error);
+          return { focusLocalOnly: false, focusEnvironmentFilters: new Set() };
+        }
+      }
+
+      function focusRowMatchesEnvironment(row) {
+        if (!state.focusLocalOnly && !state.focusEnvironmentFilters?.size) return true;
+        const env = environmentOf(row.env);
+        return state.focusLocalOnly ? env === LOCAL_ENVIRONMENT : state.focusEnvironmentFilters.has(env);
+      }
+
+      function focusEnvironmentOptions() {
+        const names = new Set([LOCAL_ENVIRONMENT, ...(state.focusEnvironmentFilters || [])]);
+        (state.environments || []).forEach((environment) => names.add(environment.name));
+        const rows = [...allFocusRows(), ...state.orchestrationSessions, ...state.focusFilterHistoryRows,
+          ...state.focusSearchMatches.values(), ...state.sourceSessions,
+          ...state.focusBriefs.flatMap((item) => item.kind === "group"
+            ? [item.session, ...item.members.map((member) => member.session)].filter(Boolean) : [item.session])];
+        rows.forEach((row) => names.add(environmentOf(row.env)));
+        return [...names].sort((left, right) => Number(right === LOCAL_ENVIRONMENT) - Number(left === LOCAL_ENVIRONMENT) || left.localeCompare(right));
+      }
+
+      function renderFocusEnvironmentControls() {
+        document.querySelector("#focus-local-only").setAttribute("aria-checked", String(state.focusLocalOnly));
+        const names = [...state.focusEnvironmentFilters];
+        const label = state.focusLocalOnly ? "仅本机" : names.length ? names.map(environmentLabel).join("、") : "全部";
+        const open = document.querySelector("#focus-environment-open");
+        open.textContent = `环境：${!state.focusLocalOnly && names.length > 1 ? `${names.length} 个` : label}`;
+        open.title = label;
+        open.dataset.active = String(state.focusLocalOnly || names.length > 0);
+        if (!environmentDialog.open) return;
+        const list = document.querySelector("#focus-environment-options");
+        const active = list.contains(document.activeElement) ? document.activeElement.dataset.env : null;
+        document.querySelector("#focus-environment-hint").textContent = state.focusLocalOnly
+          ? "已开启仅本机，关闭后恢复原有多选。" : "可多选，未选择时显示全部。";
+        document.querySelector("#focus-environment-unlock").hidden = !state.focusLocalOnly;
+        document.querySelector("#focus-environment-all").disabled = state.focusLocalOnly;
+        document.querySelector("#focus-environment-all").setAttribute("aria-pressed", String(!names.length && !state.focusLocalOnly));
+        list.replaceChildren();
+        focusEnvironmentOptions().forEach((env) => {
+          const option = make("label", "focus-environment-option");
+          const input = make("input"); input.type = "checkbox"; input.dataset.env = env;
+          input.checked = state.focusLocalOnly ? env === LOCAL_ENVIRONMENT : state.focusEnvironmentFilters.has(env);
+          input.disabled = state.focusLocalOnly;
+          input.addEventListener("change", () => {
+            const selected = new Set(state.focusEnvironmentFilters);
+            if (input.checked) selected.add(env); else selected.delete(env);
+            state.focusEnvironmentFilters = selected;
+            applyFocusEnvironmentScope();
+          });
+          option.append(input, make("span", "", environmentLabel(env))); list.append(option);
+          if (env === active) input.focus({ preventScroll: true });
+        });
+        positionFocusPanel(environmentDialog, open);
+      }
+
+      function applyFocusEnvironmentScope() {
+        try {
+          localStorage.setItem(FOCUS_ENVIRONMENT_STORAGE_KEY, JSON.stringify({ localOnly: state.focusLocalOnly, environments: [...state.focusEnvironmentFilters] }));
+        } catch (error) { console.warn("Unable to save Focus environment filters", error); }
+        state.focusExecutionScopeChanged = true;
+        const rows = [...allFocusRows(), ...state.orchestrationSessions, ...state.focusFilterHistoryRows, ...state.sourceSessions];
+        const knownProjects = new Set(rows.map((row) => row.projectKey));
+        const allowedProjects = new Set(rows.filter(focusRowMatchesEnvironment).map((row) => row.projectKey));
+        state.focusProjectFilters = new Set([...state.focusProjectFilters].filter((key) => !knownProjects.has(key) || allowedProjects.has(key)));
+        renderFocusEnvironmentControls();
+        renderFocusProjectFilter();
+        renderFocusWorktreeFilter();
+        resetFocusBriefSnapshot();
+        renderFocus();
+      }
+
       function environmentOf(value) {
         return value === null || value === undefined || value === "" ? LOCAL_ENVIRONMENT : value;
       }
@@ -1867,7 +2189,8 @@
 
       function floatingMenu(ariaLabel, className, toggleClass, label = "更多") {
         const menu = make("details", `floating-menu ${className}`.trim());
-        const toggle = make("summary", `floating-menu-toggle ${toggleClass}`.trim(), label);
+        const iconClass = label === "更多" ? " icon-menu-toggle" : "";
+        const toggle = make("summary", `floating-menu-toggle ${toggleClass}${iconClass}`.trim(), iconClass ? "⋯" : label);
         const panel = make("div", "floating-menu-panel");
         toggle.setAttribute("aria-label", ariaLabel);
         toggle.title = ariaLabel;
@@ -1952,6 +2275,7 @@
             button.textContent = defaultLabel();
             renderManual(rowElement, result);
           }
+          return result;
         } catch (error) {
           button.textContent = defaultLabel();
           showToast(`跳转失败：${error.message}`);
@@ -2017,7 +2341,8 @@
       }
 
       function sendInputElement(key) {
-        return document.querySelector(`.session-send[data-send-key="${CSS.escape(key)}"] .session-send-input`);
+        const selector = `.session-send[data-send-key="${CSS.escape(key)}"] .session-send-input`;
+        return (briefDialog.open && briefDialog.querySelector(selector)) || document.querySelector(selector);
       }
 
       function focusSessionSendInput(key) {
@@ -2114,6 +2439,8 @@
           grouped[key] = [...(grouped[key] || []), item];
         });
         state.outboxBySession = grouped;
+        state.outboxSettings = Object.fromEntries((result.body.settings || []).map((item) => [sessionKey(item), item]));
+        state.outboxVersion = result.body.version || 0;
         state.outboxEtag = result.etag;
         return true;
       }
@@ -2141,6 +2468,7 @@
           showToast("已发送，已加入自动确认队列");
           renderCurrentView();
           sendInputElement(key)?.focus();
+          return { ok: true };
         } catch (error) {
           const failed = {
             agent: row.agent, sid: row.sid, text,
@@ -2153,6 +2481,7 @@
           renderCurrentView();
           focusSessionSendInput(key);
           showToast(`发送失败：${error.message}`);
+          return { ok: false, error: error.message };
         } finally {
           input.disabled = false;
           button.disabled = false;
@@ -2192,7 +2521,7 @@
         }
       }
 
-      function sessionSendForm(row) {
+      function sessionSendForm(row, submit = submitSessionInput) {
         const mode = canSendInput(row) ? "send" : canQueueInput(row) ? "queue" : "";
         if (!mode) return null;
         const key = sessionKey(row);
@@ -2202,7 +2531,8 @@
         const input = make("input", "session-send-input");
         input.type = "text";
         input.value = state.sendDrafts[key] || "";
-        input.placeholder = mode === "send" ? `发送给 ${row.agent}…` : "记下消息，稍后手动发送…";
+        input.placeholder = mode === "send" ? `发送给 ${row.agent}…`
+          : state.outboxSettings?.[key]?.autoSend ? "记下消息，就绪后按顺序发送…" : "记下消息，稍后手动发送…";
         input.setAttribute("aria-label", mode === "send"
           ? `发送输入到会话：${row.displayTitle}` : `暂存待发送消息：${row.displayTitle}`);
         input.autocomplete = "off";
@@ -2230,8 +2560,8 @@
         button.type = "submit";
         form.addEventListener("submit", (event) => {
           event.preventDefault();
-          if (composing || suppressCompositionSubmit) return;
-          if (mode === "send") submitSessionInput(row, input, button);
+          if (composing || suppressCompositionSubmit || button.disabled) return;
+          if (mode === "send") void submit(row, input, button);
           else queueSessionInput(row, input, button);
         });
         form.append(input, button);
@@ -2377,8 +2707,29 @@
         } finally { button.disabled = false; }
       }
 
-      function sessionOutboxNote(row, item) {
-        const ready = canSendOutboxItem(row);
+      async function updateOutboxQueue(row, action, body, button) {
+        const key = sessionKey(row);
+        if (state.outboxBusy.has(key)) return;
+        state.outboxBusy.add(key);
+        button.disabled = true;
+        try {
+          await api(`/api/session-outbox/${action}`, jsonRequest("PATCH", {
+            agent: row.agent, sid: row.sid, ...(row.env ? { env: row.env } : {}), ...body,
+          }));
+        } catch (error) { showToast(`更新暂存队列失败：${error.message}`); }
+        finally {
+          state.outboxBusy.delete(key);
+          state.outboxEtag = "";
+          try { await loadSessionOutbox(); }
+          catch (error) { showToast(`读取暂存队列失败：${error.message}`); }
+          renderCurrentView();
+        }
+      }
+
+      function sessionOutboxNote(row, item, index, items) {
+        const setting = state.outboxSettings[sessionKey(row)] || {};
+        const version = state.outboxVersion;
+        const ready = canSendOutboxItem(row) && !setting.autoSend;
         const note = make("div", "session-send-note session-outbox-note");
         note.dataset.state = ready ? "ready" : "queued";
         const label = make("span", "session-send-state");
@@ -2386,11 +2737,24 @@
         label.setAttribute("aria-label", ready ? "待发送消息已就绪" : "待发送消息");
         label.title = ready
           ? "会话已就绪，点击右侧发送按钮后才会发送"
-          : `${relativeTime(item.createdAt)}暂存 · 不会自动发送`;
+          : `${relativeTime(item.createdAt)}暂存 · ${setting.autoSend ? "会话就绪后按顺序自动发送" : "手动发送"}`;
         label.append(lineIcon(ready ? "send" : "clock"));
         const text = make("span", "session-send-text", item.text);
         text.title = item.text;
         note.append(label, text);
+        for (const [offset, title, arrow] of [[-1, "上移", "↑"], [1, "下移", "↓"]]) {
+          const move = make("button", "session-send-icon-button", arrow);
+          move.type = "button";
+          move.setAttribute("aria-label", `${title}暂存消息：${item.text}`);
+          move.disabled = index + offset < 0 || index + offset >= items.length
+            || setting.pending?.phase === "sending" || state.outboxBusy.has(sessionKey(row));
+          move.addEventListener("click", () => {
+            const ids = items.map((entry) => entry.id);
+            [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]];
+            void updateOutboxQueue(row, "order", { ids, version }, move);
+          });
+          note.append(move);
+        }
         if (ready) {
           const send = iconButton("session-outbox-send", "发送这条待发送消息", "send");
           send.addEventListener("click", () => sendOutboxItem(row, item, send));
@@ -2404,9 +2768,28 @@
 
       function sessionOutboxList(row) {
         const items = outboxItemsFor(row);
-        if (!items.length) return null;
+        const setting = state.outboxSettings[sessionKey(row)] || {};
+        if (!items.length && !setting.autoSend && !setting.error) return null;
         const list = make("div", "session-outbox-list");
-        items.forEach((item) => list.append(sessionOutboxNote(row, item)));
+        const head = make("div", "session-outbox-head");
+        const toggle = make("button", "session-outbox-auto-toggle");
+        const track = make("span", "session-outbox-switch-track");
+        track.setAttribute("aria-hidden", "true");
+        toggle.append(make("span", "", "自动发送"), track);
+        toggle.title = setting.autoSend ? "已开启：会话就绪后按顺序发送" : "已关闭：手动发送";
+        toggle.type = "button";
+        toggle.setAttribute("role", "switch");
+        toggle.setAttribute("aria-checked", String(Boolean(setting.autoSend)));
+        toggle.setAttribute("aria-label", "自动发送暂存消息");
+        toggle.disabled = state.outboxBusy.has(sessionKey(row));
+        toggle.addEventListener("click", () => void updateOutboxQueue(row, "settings", { autoSend: !setting.autoSend }, toggle));
+        head.append(make("span", "", `暂存消息 · ${items.length}`), toggle);
+        list.append(head);
+        if (setting.error) {
+          const error = make("div", "session-outbox-error", setting.error);
+          error.setAttribute("role", "status"); list.append(error);
+        }
+        items.forEach((item, index) => list.append(sessionOutboxNote(row, item, index, items)));
         return list;
       }
 
@@ -3081,28 +3464,39 @@
         state.recentInputsLoadingBySession = { ...state.recentInputsLoadingBySession, [key]: requestId };
         if (state.focusMonitorSessionKey === key) renderFocusMonitor();
         try {
-          const response = await fetch("/api/session-inputs", jsonRequest("POST", {
-            sessions: [{ agent: row.agent, sid: row.sid, ...(row.env ? { env: row.env } : {}) }],
-            limit: Math.max(FOCUS_INPUT_PAGE_SIZE, (state.recentInputsBySession[key] || []).length),
-          }));
-          if (state.recentInputsLoadingBySession[key] !== requestId) return;
-          if (response.status === 404) {
-            state.recentInputsSupported = false;
-            return;
-          }
-          const body = await response.json();
-          if (state.recentInputsLoadingBySession[key] !== requestId) return;
-          if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-          resetRecentInputsForVersion(Number(body.listVersion));
+          const count = Math.max(FOCUS_INPUT_PAGE_SIZE, (state.recentInputsBySession[key] || []).length);
+          let inputs = [], times = [], listVersion = null, hasMore = false;
+          do {
+            const response = await fetch("/api/session-inputs", jsonRequest("POST", {
+              sessions: [{ agent: row.agent, sid: row.sid, ...(row.env ? { env: row.env } : {}) }],
+              limit: Math.min(FOCUS_INPUT_MAX_PAGE_SIZE, count - inputs.length),
+              offset: inputs.length, fullText: true,
+            }));
+            if (state.recentInputsLoadingBySession[key] !== requestId) return;
+            if (response.status === 404) { state.recentInputsSupported = false; return; }
+            const body = await response.json();
+            if (state.recentInputsLoadingBySession[key] !== requestId) return;
+            if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+            if (listVersion !== null && listVersion !== Number(body.listVersion)) {
+              throw new Error("输入记录已更新，请重新打开 Monitor");
+            }
+            listVersion = Number(body.listVersion);
+            const next = Array.isArray(body.inputs?.[key]) ? body.inputs[key] : [];
+            inputs = [...inputs, ...next];
+            times = [...times, ...(Array.isArray(body.inputTimes?.[key]) ? body.inputTimes[key] : [])];
+            hasMore = Boolean(body.hasMore?.[key]);
+            if (!next.length) break;
+          } while (hasMore && inputs.length < count);
+          resetRecentInputsForVersion(listVersion);
           state.recentInputsBySession = {
-            ...state.recentInputsBySession, [key]: Array.isArray(body.inputs?.[key]) ? body.inputs[key] : [],
+            ...state.recentInputsBySession, [key]: inputs,
           };
           state.recentInputTimesBySession = {
             ...state.recentInputTimesBySession,
-            [key]: Array.isArray(body.inputTimes?.[key]) ? body.inputTimes[key] : [],
+            [key]: times,
           };
           state.recentInputsHasMoreBySession = {
-            ...state.recentInputsHasMoreBySession, [key]: Boolean(body.hasMore?.[key]),
+            ...state.recentInputsHasMoreBySession, [key]: hasMore,
           };
         } catch (error) {
           if (state.recentInputsLoadingBySession[key] === requestId) {
@@ -3129,6 +3523,7 @@
             sessions: [{ agent: row.agent, sid: row.sid, ...(row.env ? { env: row.env } : {}) }],
             limit: FOCUS_INPUT_PAGE_SIZE,
             offset: currentInputs.length,
+            fullText: true,
           }));
           if (state.recentInputsLoadingBySession[key] !== requestId) return;
           const body = await response.json();
@@ -3196,9 +3591,11 @@
         focusMonitor.dataset.sessionKey = key;
         const head = make("header", "focus-monitor-head");
         const heading = make("div", "focus-monitor-heading");
+        const sessionTitle = make("h2", "focus-monitor-session", row.displayTitle);
+        sessionTitle.title = row.title || row.firstPrompt || row.displayTitle;
         heading.append(
           make("div", "focus-monitor-label", "Monitor"),
-          make("h2", "focus-monitor-session", row.displayTitle),
+          sessionTitle,
         );
         const pin = make("button", "focus-monitor-pin");
         pin.type = "button";
@@ -3217,8 +3614,10 @@
         const context = [environmentLabel(row.env), project.name, basename(root)]
           .filter(Boolean).join(" · ");
         const contextLine = make("div", "focus-monitor-context");
+        const contextText = make("span", "focus-monitor-context-text", context);
+        contextText.title = [environmentLabel(row.env), project.name, root].filter(Boolean).join(" · ");
         contextLine.append(make("span", `agent-badge agent-${row.agent}`, row.agent), ...sessionExecutionTags(row),
-          make("span", "focus-monitor-context-text", context));
+          contextText);
         head.title = "拖动到浏览器左右边缘可吸附";
         head.addEventListener("pointerdown", beginFocusMonitorDrag);
         head.append(heading, actions, contextLine);
@@ -3447,7 +3846,7 @@
 
       function focusSearchRowVisible(row) {
         const project = projectFor(row.projectKey);
-        if (project.archived) return false;
+        if (project.archived || state.focusHiddenProjects?.has(row.projectKey)) return false;
         return !worktreePreferenceFor(row, project)?.archived;
       }
 
@@ -3493,7 +3892,7 @@
         const candidates = [...new Map([
           ...state.focusFilterHistoryRows, ...state.focusSearchMatches.values(),
           ...state.orchestrationSessions, ...allFocusRows(),
-        ].map((row) => [sessionKey(row), row])).values()].filter(focusSearchRowVisible).map((row) => (
+        ].map((row) => [sessionKey(row), row])).values()].filter((row) => focusSearchRowVisible(row) && focusRowMatchesEnvironment(row)).map((row) => (
           state.query ? { ...row, hits: state.focusSearchMatches.get(sessionKey(row))?.hits || [] } : row
         ));
         const runs = orchestrationGroups(candidates);
@@ -3706,6 +4105,13 @@
             make("span", "focus-project-name", project.name),
             make("span", "focus-group-count", String(projectRows.length)),
           );
+          const { menu, panel } = floatingMenu(`项目操作：${project.name}`, "focus-project-menu", "action compact-menu-toggle", "更多");
+          const collapse = make("button", "action floating-menu-action", projectCollapsed ? "展开项目" : "折叠项目");
+          collapse.type = "button"; collapse.disabled = Boolean(state.query);
+          collapse.addEventListener("click", () => setFocusProjectCollapsed(projectCollapseKey, !projectCollapsed));
+          const hide = make("button", "action floating-menu-action", "隐藏该项目"); hide.type = "button";
+          hide.addEventListener("click", () => setFocusProjectHidden(projectKey, true));
+          panel.append(collapse, hide); projectHead.append(menu);
           const projectBody = make("div", "focus-project-body");
           projectBody.id = projectBodyId;
           projectBody.hidden = projectCollapsed;
@@ -3780,7 +4186,10 @@
 
       function renderFocus() {
         if (state.sendCompositionKey) { state.sendRenderPending = true; return; }
+        renderFocusEnvironmentControls();
+        renderFocusHiddenProjects();
         renderFocusExecutionFilters();
+        renderFocusBriefs();
         const previousSendFocus = activeSendFocus();
         focusBoard.replaceChildren();
         focusBoard.classList.toggle("with-history", focusHistoryActive());
@@ -4827,6 +5236,7 @@
       // Names a source the board is missing, so an empty lane is never mistaken for a quiet machine.
       const LIVE_SOURCE_LABELS = {
         "claude-pid": "Claude 进程", "orca-tab": "Orca 标签页", "hermes-process": "Hermes 进程",
+        "resume-process": "恢复会话进程",
       };
 
       function clockTime(timestamp) {
@@ -4857,6 +5267,567 @@
         focusUpdated.setAttribute("data-degraded", "true");
       }
 
+      function briefNeedsReview(item) {
+        return item.readAt === null && (item.kind !== "group" || item.requiresReview);
+      }
+
+      function briefMatchesTab(item) {
+        if (state.focusBriefTab === "groups") return item.kind === "group";
+        if (state.focusBriefTab === "unread") return briefNeedsReview(item);
+        return item.readAt !== null;
+      }
+
+      function focusBriefMatchingRows(item, includeDialogFilters = true) {
+        if (item.kind === "group" && item.session && (!focusRowMatchesEnvironment(item.session) || state.focusHiddenProjects?.has(item.session.projectKey))) return [];
+        const query = state.query.trim().toLocaleLowerCase();
+        const rows = item.kind === "group" ? [item.session, ...item.members.map((member) => member.session)].filter(Boolean) : [item.session];
+        return rows.filter((row) => !state.focusHiddenProjects?.has(row.projectKey) && focusRowMatchesEnvironment(row) && focusRowMatchesProject(row) && focusRowMatchesWorktree(row) && focusRowMatchesExecution(row)
+            && (!includeDialogFilters || !state.focusBriefProjectFilters?.size || state.focusBriefProjectFilters.has(row.projectKey))
+            && (!includeDialogFilters || !state.focusBriefWorktreeFilters?.size || state.focusBriefWorktreeFilters.has(focusWorktreeFilterKey(row)))
+            && (!query || state.focusSearchMatches.has(sessionKey(row))
+              || `${item.objective || ""}\n${item.input}\n${item.response}\n${row.displayTitle}`.toLocaleLowerCase().includes(query)));
+      }
+
+      function scopedFocusBriefs(includeDialogFilters = true) {
+        return state.focusBriefs.filter((item) => focusBriefMatchingRows(item, includeDialogFilters).length > 0);
+      }
+
+      function focusBriefFilterOptions() {
+        const projects = new Map();
+        const rows = state.focusBriefs.flatMap((item) => focusBriefMatchingRows(item, false)
+          .map((row) => ({ row, at: item.completedAt || 0 })));
+        for (const { row, at } of rows) {
+          const project = projectFor(row.projectKey);
+          projects.set(row.projectKey, { ...project, latest: Math.max(projects.get(row.projectKey)?.latest || 0, at) });
+        }
+        const selected = new Set([...(state.focusBriefProjectFilters || [])].filter((key) => projects.has(key)));
+        const worktrees = new Map();
+        for (const { row, at } of rows) {
+          if (selected.size && !selected.has(row.projectKey)) continue;
+          const project = projects.get(row.projectKey);
+          const root = worktreeRootFor(row, project);
+          const key = focusWorktreeFilterKey(row);
+          worktrees.set(key, { key, root, name: basename(root) || "未知目录", projectName: project.name,
+            envLabel: environmentLabel(row.env), color: project.color,
+            latest: Math.max(worktrees.get(key)?.latest || 0, at) });
+        }
+        const compare = (left, right) => right.latest - left.latest || left.name.localeCompare(right.name) || left.key.localeCompare(right.key);
+        return { projects: [...projects.values()].sort(compare), worktrees: [...worktrees.values()].sort(compare) };
+      }
+
+      function reconcileFocusBriefFilters() {
+        const options = focusBriefFilterOptions();
+        const projects = new Set(options.projects.map((project) => project.key));
+        const worktrees = new Set(options.worktrees.map((worktree) => worktree.key));
+        state.focusBriefProjectFilters = new Set([...(state.focusBriefProjectFilters || [])].filter((key) => projects.has(key)));
+        state.focusBriefWorktreeFilters = new Set([...(state.focusBriefWorktreeFilters || [])].filter((key) => worktrees.has(key)));
+        return options;
+      }
+
+      function toggleFocusBriefFilter(kind, value) {
+        const field = kind === "project" ? "focusBriefProjectFilters" : "focusBriefWorktreeFilters";
+        const selected = new Set(state[field]);
+        if (!value) selected.clear(); else if (selected.has(value)) selected.delete(value); else selected.add(value);
+        state[field] = selected;
+        reconcileFocusBriefFilters();
+        resetFocusBriefSnapshot();
+        renderFocusBriefs();
+        briefList.scrollTop = 0;
+      }
+
+      function focusBriefScopeReadIds(kind, key) {
+        return state.focusBriefs.filter((item) => briefNeedsReview(item)
+          && focusBriefMatchingRows(item, false).some((row) => kind === "project"
+            ? row.projectKey === key : focusWorktreeFilterKey(row) === key)).map((item) => item.id);
+      }
+
+      function addFocusBriefScopeReadActions(container, choices, kind, dataKey) {
+        for (const choice of choices) {
+          const filter = [...container.querySelectorAll("button")].find((button) => button.dataset[dataKey] === choice.key);
+          if (!filter) continue;
+          const ids = focusBriefScopeReadIds(kind, choice.key);
+          const label = [choice.name, choice.envLabel, choice.projectName].filter(Boolean).join(" · ");
+          const read = make("button", "brief-scope-read", `全部已读 ${ids.length}`);
+          read.type = "button";
+          read.disabled = state.focusBriefBusy || !ids.length;
+          read.dataset.briefAction = `scope-read:${kind}:${choice.key}`;
+          read.dataset.scopeKey = choice.key;
+          read.setAttribute("aria-label", `将${kind === "project" ? "项目" : "worktree"} ${label} 的 ${ids.length} 条待检阅简报全部标为已读`);
+          read.title = read.getAttribute("aria-label");
+          read.addEventListener("click", () => void runFocusBriefAction(() => markFocusBriefs(ids, true)));
+          const wrapper = make("span", "brief-filter-choice");
+          filter.replaceWith(wrapper);
+          wrapper.append(filter, read);
+        }
+      }
+
+      function renderFocusBriefFilters() {
+        const options = reconcileFocusBriefFilters();
+        const selection = document.querySelector("#brief-filter-selection");
+        const selected = [state.focusBriefProjectFilters.size && `${state.focusBriefProjectFilters.size} 个项目`,
+          state.focusBriefWorktreeFilters.size && `${state.focusBriefWorktreeFilters.size} 个 worktree`].filter(Boolean);
+        selection.textContent = selected.join(" · ") || "全部";
+        selection.dataset.active = String(selected.length > 0);
+        const focusedAction = document.activeElement?.dataset.briefAction;
+        const projects = document.querySelector("#brief-project-tags");
+        const worktrees = document.querySelector("#brief-worktree-tags");
+        renderFocusShortcutTags(projects, options.projects, state.focusBriefProjectFilters,
+          "项目", "projectKey", (value) => toggleFocusBriefFilter("project", value), document.querySelector("#focus-brief-unread"));
+        renderFocusShortcutTags(worktrees, options.worktrees, state.focusBriefWorktreeFilters,
+          "worktree", "worktreeKey", (value) => toggleFocusBriefFilter("worktree", value), document.querySelector("#focus-brief-unread"));
+        addFocusBriefScopeReadActions(projects, options.projects, "project", "projectKey");
+        addFocusBriefScopeReadActions(worktrees, options.worktrees, "worktree", "worktreeKey");
+        if (focusedAction?.startsWith("scope-read:")) {
+          const action = [...briefDialog.querySelectorAll(".brief-scope-read")].find((button) => button.dataset.briefAction === focusedAction);
+          if (action && !action.disabled) action.focus({ preventScroll: true });
+        }
+      }
+
+      function focusBriefScopeKey() {
+        return JSON.stringify([state.query, state.focusLocalOnly, [...(state.focusEnvironmentFilters || [])].sort(), [...state.focusProjectFilters].sort(), [...state.focusWorktreeFilters].sort(),
+          [...(state.focusHiddenProjects || [])].sort(),
+          [...state.focusBriefProjectFilters].sort(), [...state.focusBriefWorktreeFilters].sort(),
+          ...FOCUS_EXECUTION_FIELDS.map(({ key }) => [...state.focusExecutionFilters[key]].sort())]);
+      }
+
+      function resetFocusBriefSnapshot() {
+        state.focusBriefVisible = scopedFocusBriefs().filter(briefMatchesTab);
+        state.focusBriefLimit = BRIEF_PAGE_SIZE;
+        state.focusBriefScope = focusBriefScopeKey();
+        state.focusBriefRendered = "";
+      }
+
+      async function loadFocusBriefs() {
+        if (state.focusBriefBusy) return;
+        const requestId = ++state.focusBriefRequestId;
+        try {
+          const body = await api("/api/session-briefs");
+          if (requestId !== state.focusBriefRequestId) return;
+          const firstLoad = !state.focusBriefLoaded;
+          for (const group of body.groups || []) {
+            const previous = state.focusBriefs.find((item) => item.id === group.id);
+            if (previous?.summary?.id !== group.summary?.id) state.focusBriefDetails.delete(group.id);
+          }
+          state.focusBriefs = [...(Array.isArray(body.briefs) ? body.briefs : []), ...(Array.isArray(body.groups) ? body.groups : [])]
+            .sort((left, right) => right.completedAt - left.completedAt);
+          state.focusBriefLoaded = true;
+          state.focusBriefError = "";
+          const latest = new Map(state.focusBriefs.map((item) => [item.id, item]));
+          state.focusBriefVisible = state.focusBriefVisible.flatMap((item) => latest.has(item.id) ? [latest.get(item.id)] : []);
+          if (firstLoad && briefDialog.open) resetFocusBriefSnapshot();
+        } catch (error) {
+          if (requestId !== state.focusBriefRequestId) return;
+          state.focusBriefError = `简报加载失败：${error.message}`;
+        }
+        renderFocusBriefs();
+      }
+
+      async function markFocusBriefs(ids, read) {
+        const groups = state.focusBriefs.filter((item) => ids.includes(item.id) && item.kind === "group");
+        for (const group of groups) {
+          if (!group.notificationKey) continue;
+          const result = await api("/api/session-briefs/group-read", jsonRequest("POST", {
+            id: group.id, notificationKey: group.notificationKey, read,
+          }));
+          const update = (item) => item.id === result.id && item.notificationKey === result.notificationKey
+            ? { ...item, readAt: result.readAt } : item;
+          state.focusBriefs = state.focusBriefs.map(update);
+          state.focusBriefVisible = state.focusBriefVisible.map(update);
+        }
+        const groupIds = new Set(groups.map((group) => group.id));
+        ids = ids.filter((id) => !groupIds.has(id));
+        for (let offset = 0; offset < ids.length; offset += BRIEF_READ_BATCH_SIZE) {
+          const batch = ids.slice(offset, offset + BRIEF_READ_BATCH_SIZE);
+          const result = await api("/api/session-briefs/read", jsonRequest("POST", { ids: batch, read }));
+          const confirmed = new Set(result.ids);
+          const update = (item) => confirmed.has(item.id) ? { ...item, readAt: result.readAt } : item;
+          state.focusBriefs = state.focusBriefs.map(update);
+          state.focusBriefVisible = state.focusBriefVisible.map(update);
+        }
+      }
+
+      async function runFocusBriefAction(action) {
+        if (state.focusBriefBusy) return;
+        state.focusBriefBusy = true;
+        state.focusBriefRequestId += 1;
+        state.focusBriefError = "";
+        const focused = document.activeElement?.dataset.briefAction;
+        renderFocusBriefs();
+        try { await action(); }
+        catch (error) { state.focusBriefError = `操作未完成：${error.message}`; }
+        finally {
+          state.focusBriefBusy = false;
+          renderFocusBriefs();
+          if (focused && briefDialog.open) {
+            const target = [...briefDialog.querySelectorAll("[data-brief-action]")]
+              .find((button) => button.dataset.briefAction === focused);
+            (target?.disabled ? target.closest(".brief-filter-choice")?.querySelector(".focus-project-tag") : target)
+              ?.focus({ preventScroll: true });
+          }
+        }
+      }
+
+      async function acknowledgeFocusBrief(item) {
+        if (item.readAt !== null) return;
+        state.focusBriefRequestId += 1;
+        try { await markFocusBriefs([item.id], true); }
+        catch (error) { state.focusBriefError = `操作已成功，但标记已读失败：${error.message}`; }
+        renderFocusBriefs();
+      }
+
+      async function openFocusBriefSession(item, button, card) {
+        const result = await focusSession(item.session, button, card);
+        if (result?.action === "switched" || result?.action === "resumed") await acknowledgeFocusBrief(item);
+      }
+
+      function revealFocusSessionCard(key) {
+        const selector = `.focus-session-card[data-session-key="${CSS.escape(key)}"]`;
+        const findCard = () => focusBoard.querySelector(selector);
+        for (const [ancestor, toggle] of [
+          [".focus-project-group", ".focus-project-head .focus-group-toggle"],
+          [".focus-worktree-group", ".focus-worktree-head .focus-group-toggle"],
+          [".run-cluster", ".run-chip"],
+        ]) {
+          findCard()?.closest(ancestor)?.querySelector(`${toggle}[aria-expanded="false"]`)?.click();
+        }
+        return findCard();
+      }
+
+      async function locateFocusBriefSession(item, button) {
+        button.disabled = true;
+        try {
+          const key = sessionKey(item.session);
+          briefDialog.close();
+          await setView("focus");
+          if (state.view !== "focus") return;
+          if (!revealFocusSessionCard(key)) {
+            state.requestId += 1;
+            state.query = "";
+            searchInput.value = "";
+            state.focusSearchQuery = "";
+            state.focusSearchPending = false;
+            state.focusSearchMatches = new Map();
+            state.focusProjectFilters = new Set([item.session.projectKey]);
+            state.focusWorktreeFilters = new Set([focusWorktreeFilterKey(item.session)]);
+            state.focusExecutionFilters = Object.fromEntries(FOCUS_EXECUTION_FIELDS.map(({ key }) => [key, new Set()]));
+            state.focusExecutionScopeChanged = true;
+            await loadFocus();
+          }
+          await new Promise(requestAnimationFrame);
+          if (state.view !== "focus") return;
+          const card = revealFocusSessionCard(key);
+          if (!card) throw new Error("当前聚焦范围内找不到该会话，可能已归档或不可用");
+          focusBoard.querySelectorAll(".brief-located").forEach((element) => element.classList.remove("brief-located"));
+          card.classList.add("brief-located");
+          if (item.kind === "group") {
+            const memberKeys = new Set([key, ...item.members.map((member) => sessionKey(member.identity))]);
+            focusBoard.querySelectorAll(".focus-session-card").forEach((element) => {
+              if (memberKeys.has(element.dataset.sessionKey)) element.classList.add("brief-located");
+            });
+          }
+          card.tabIndex = -1;
+          card.focus({ preventScroll: true });
+          card.scrollIntoView({ block: "center", inline: "nearest" });
+          await acknowledgeFocusBrief(item);
+        } catch (error) { showToast(`定位失败：${error.message}`); }
+        finally { button.disabled = false; }
+      }
+
+      async function submitFocusBriefInput(item, input, button) {
+        const key = sessionKey(item.session);
+        const current = state.focusBriefs.find((brief) => brief.id === item.id);
+        if (!input.value.trim() || state.focusBriefSending.has(key)
+          || ["pending", "stalled"].includes(state.sendRecords[key]?.state)) return;
+        if (!current || current.readAt !== null || !canSendInput(current.session)) {
+          state.focusBriefSendErrors[key] = "会话状态已变化，请刷新简报后重试。";
+          renderFocusBriefs();
+          return;
+        }
+        state.focusBriefSending.add(key);
+        delete state.focusBriefSendErrors[key];
+        const result = await submitSessionInput(current.session, input, button);
+        state.focusBriefSending.delete(key);
+        if (result?.ok) await acknowledgeFocusBrief(current);
+        if (result && !result.ok) state.focusBriefSendErrors[key] = `发送失败：${result.error}`;
+        renderFocusBriefs();
+        if (result && !result.ok) focusSessionSendInput(key);
+        void loadFocusBriefs();
+      }
+
+      function focusBriefComposer(item) {
+        if (item.readAt !== null) return null;
+        const row = item.session;
+        const key = sessionKey(row);
+        const record = state.sendRecords[key];
+        const sending = state.focusBriefSending.has(key) || record?.state === "pending";
+        const container = make("div", "brief-compose");
+        const error = state.focusBriefSendErrors[key];
+        if (sending || record || error) {
+          const status = make("div", "brief-subtitle", error || (sending ? "已提交，等待会话确认…"
+            : record?.state === "confirmed" ? "会话已收到回复" : record?.state === "stalled" ? "传达未确认，请先检查会话" : "发送失败，草稿已保留"));
+          status.setAttribute("role", "status");
+          container.append(status);
+        }
+        if (canSendInput(row) && !sending && record?.state !== "stalled") {
+          const form = sessionSendForm(row, (_row, input, button) => submitFocusBriefInput(item, input, button));
+          form.querySelector("input").placeholder = "直接回复这个会话…";
+          container.append(form);
+        }
+        return container.childElementCount ? container : null;
+      }
+
+      function focusGroupBriefCard(item) {
+        const card = make("article", "brief-card brief-group-card");
+        card.dataset.briefId = item.id;
+        card.dataset.runId = item.runId;
+        card.dataset.read = String(!briefNeedsReview(item));
+        card.append(make("h3", "brief-group-title", item.objective));
+        const labels = { working: "整组进行中", attention: "需要处理", completed: "整组已完成", summarizing: "子任务已结束 · 待汇总", unknown: "状态待确认" };
+        const meta = make("div", "brief-group-meta");
+        const status = make("span", "brief-group-state", labels[item.status]);
+        status.dataset.status = item.status;
+        meta.append(status, make("span", "", `协调者：${item.coordinatorStatus === "unknown" ? "状态未知" : item.session?.live ? liveStateText(item.session.live) : item.session ? "离线" : "未找到"}`),
+          make("span", "", relativeTime(item.completedAt)));
+        const counts = item.counts;
+        const progress = `${counts.total} 个子任务 · ${counts.completed} 已完成 · ${counts.working} 运行中`
+          + (counts.attention ? ` · ${counts.attention} 需处理` : "") + (counts.unknown ? ` · ${counts.unknown} 状态未知` : "");
+        card.append(meta, make("div", "brief-subtitle", progress), make("h3", "brief-label", "协调者最新用户输入"),
+          make("pre", "brief-text brief-input", item.input || "暂无可读取的用户输入"),
+          make("div", "brief-subtitle", item.inputAt ? relativeTime(item.inputAt) : "输入时间未知"));
+        const cachedDetail = state.focusBriefDetails.get(item.id);
+        const detail = cachedDetail?.id === item.summary?.id ? cachedDetail : null;
+        card.append(make("h3", "brief-label brief-result-label", item.status === "completed" ? "整体结果 · 协调者汇总" : "协调者最近回复"),
+          make("pre", "brief-text brief-reply", detail?.response || item.response || "尚无协调者汇总，成员进度见上方。"));
+        const actions = make("div", "brief-actions");
+        const locate = make("button", "action", "聚焦整组"); locate.type = "button";
+        locate.disabled = !item.session || state.focusBriefBusy;
+        locate.dataset.briefAction = `${item.id}:focus`;
+        locate.addEventListener("click", () => void locateFocusBriefSession(item, locate));
+        actions.append(locate);
+        if (item.summary) {
+          const full = make("button", "action", detail ? "收起原文" : item.status === "completed" ? "查看完整汇总" : "查看协调者回复"); full.type = "button";
+          full.disabled = state.focusBriefBusy;
+          full.addEventListener("click", () => void runFocusBriefAction(async () => {
+            if (detail) state.focusBriefDetails.delete(item.id);
+            else state.focusBriefDetails.set(item.id, await api(`/api/session-briefs/${item.summary.id}`));
+            await acknowledgeFocusBrief(item);
+          })); actions.append(full);
+        }
+        if (item.requiresReview) {
+          const read = make("button", "action brief-read", item.readAt === null ? "标为已读" : "留为未读"); read.type = "button";
+          read.disabled = state.focusBriefBusy;
+          read.addEventListener("click", () => void runFocusBriefAction(() => markFocusBriefs([item.id], item.readAt === null)));
+          actions.append(read);
+        }
+        card.append(actions);
+        const members = make("details", "brief-members");
+        members.open = state.focusBriefExpanded.has(item.id);
+        members.append(make("summary", "", `成员详情 · ${counts.total} 个子任务`));
+        members.addEventListener("toggle", () => {
+          if (members.open) state.focusBriefExpanded.add(item.id); else state.focusBriefExpanded.delete(item.id);
+          if (members.open && briefNeedsReview(item)) void acknowledgeFocusBrief(item);
+        });
+        item.members.filter((member) => !state.focusHiddenProjects?.has(member.session?.projectKey) && focusRowMatchesEnvironment(member.session || member.identity)).forEach((member) => {
+          const line = make("details", "brief-member");
+          const label = member.status === "done" ? "已完成" : member.status === "working" || member.status === "busy" ? "运行中" : member.status === "waiting" ? "等待操作" : member.status;
+          line.append(make("summary", "", `${member.taskTitle} · ${label}`));
+          const response = make("pre", "brief-text", member.brief?.response || "暂无完成回复");
+          line.append(make("h4", "brief-label", "子会话最新输入"), make("pre", "brief-text", member.brief?.input || member.session?.lastPrompt || "暂无输入"), response);
+          line.addEventListener("toggle", () => {
+            if (!line.open || !member.brief) return;
+            void api(`/api/session-briefs/${member.brief.id}`).then((full) => {
+              if (line.isConnected) response.textContent = full.response;
+            }).catch((error) => { response.textContent = `读取完整回复失败：${error.message}`; });
+          });
+          if (member.session) {
+            const focus = make("button", "action", "聚焦子会话"); focus.type = "button";
+            focus.addEventListener("click", () => void locateFocusBriefSession({ ...item, kind: "member", session: member.session }, focus));
+            line.append(focus);
+          }
+          members.append(line);
+        }); card.append(members);
+        if (item.requiresReview && item.session) { const composer = focusBriefComposer(item); if (composer) card.append(composer); }
+        return card;
+      }
+
+      function focusBriefCard(item) {
+        if (item.kind === "group") return focusGroupBriefCard(item);
+        const row = item.session;
+        const card = make("article", "brief-card");
+        card.dataset.briefId = item.id;
+        card.dataset.read = String(item.readAt !== null);
+        const expanded = state.focusBriefExpanded.has(item.id);
+        card.dataset.expanded = String(expanded);
+        const detail = expanded ? state.focusBriefDetails.get(item.id) : null;
+        const project = state.projects.find((candidate) => candidate.key === row.projectKey);
+        const meta = make("div", "brief-meta");
+        const dot = make("span", "brief-dot");
+        dot.setAttribute("aria-label", item.readAt === null ? "未读" : "已读");
+        const context = `${project?.name || row.projectKey} › ${basename(row.worktreeRoot || row.cwd || "") || "主目录"}`;
+        const contextLabel = make("span", "brief-context", context);
+        contextLabel.title = `${row.displayTitle}\n${row.sid}`;
+        meta.append(dot, contextLabel);
+        if (row.env) meta.append(make("span", "env-badge agent-badge", row.env));
+        meta.append(make("span", `agent-badge agent-${row.agent}`, row.agent), ...sessionExecutionTags(row),
+          make("span", "brief-time", relativeTime(item.completedAt)));
+        const inputLabel = make("h3", "brief-label", "最新用户输入");
+        const input = make("pre", "brief-text brief-input", (detail?.input ?? item.input) || "暂无可读取的用户输入");
+        const replyLabel = make("h3", "brief-label brief-result-label", "最新回复");
+        replyLabel.append(make("span", "brief-preview-note", expanded ? "完整原文" : "末尾 6 行"));
+        const response = make("pre", "brief-text brief-reply", detail?.response ?? item.response);
+        const actions = make("div", "brief-actions");
+        const toggle = make("button", "action", expanded ? "收起原文" : "查看完整回复");
+        toggle.type = "button";
+        toggle.dataset.briefAction = `${item.id}:detail`;
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.addEventListener("click", () => void runFocusBriefAction(async () => {
+          if (state.focusBriefExpanded.has(item.id)) { state.focusBriefExpanded.delete(item.id); return; }
+          const generation = state.focusBriefGeneration;
+          const full = state.focusBriefDetails.get(item.id) || await api(`/api/session-briefs/${item.id}`);
+          state.focusBriefDetails.set(item.id, full);
+          if (generation !== state.focusBriefGeneration || !briefDialog.open
+            || !state.focusBriefVisible.slice(0, state.focusBriefLimit).some((visible) => visible.id === item.id)) return;
+          state.focusBriefExpanded.add(item.id);
+          renderFocusBriefs();
+          await markFocusBriefs([item.id], true);
+        }));
+        const open = make("button", "action", "打开会话 ↗");
+        open.type = "button";
+        open.dataset.briefAction = `${item.id}:session`;
+        open.addEventListener("click", () => void openFocusBriefSession(item, open, card));
+        const locate = make("button", "action", "聚焦");
+        locate.type = "button";
+        locate.dataset.briefAction = `${item.id}:focus`;
+        locate.title = "到聚焦页定位这个会话";
+        locate.addEventListener("click", () => void locateFocusBriefSession(item, locate));
+        const read = make("button", "action brief-read", item.readAt === null ? "标为已读" : "留为未读");
+        read.type = "button";
+        read.dataset.briefAction = `${item.id}:read`;
+        read.addEventListener("click", () => void runFocusBriefAction(() => markFocusBriefs([item.id], item.readAt === null)));
+        for (const button of [toggle, locate, open, read]) button.disabled = state.focusBriefBusy;
+        actions.append(toggle, locate, open, read);
+        card.append(meta, inputLabel, input, replyLabel, response, actions);
+        const composer = focusBriefComposer(item);
+        if (composer) card.append(composer);
+        return card;
+      }
+
+      function renderFocusBriefs() {
+        const totalUnread = scopedFocusBriefs(false).filter(briefNeedsReview).length;
+        document.querySelector("#focus-brief-count").textContent = state.focusBriefLoaded ? String(totalUnread) : state.focusBriefError ? "!" : "…";
+        briefOpen.title = state.focusBriefError || `当前聚焦范围有 ${totalUnread} 条未读简报`;
+        if (!briefDialog.open) return;
+        if (state.sendCompositionKey) { state.sendRenderPending = true; return; }
+        renderFocusBriefFilters();
+        const scoped = scopedFocusBriefs();
+        const unread = scoped.filter(briefNeedsReview).length;
+        if (state.focusBriefScope !== focusBriefScopeKey()) resetFocusBriefSnapshot();
+        document.querySelector("#focus-brief-subtitle").textContent = state.focusBriefLoaded
+          ? `${state.focusBriefProjectFilters.size || state.focusBriefWorktreeFilters.size ? "当前筛选" : "当前聚焦范围"} · ${unread} 条未读` : "正在读取简报…";
+        document.querySelector("#focus-brief-error").textContent = state.focusBriefError;
+        document.querySelector("#focus-brief-retry").hidden = !state.focusBriefError;
+        document.querySelector("#focus-brief-unread").setAttribute("aria-pressed", String(state.focusBriefTab === "unread"));
+        document.querySelector("#focus-brief-read").setAttribute("aria-pressed", String(state.focusBriefTab === "read"));
+        document.querySelector("#focus-brief-groups").setAttribute("aria-pressed", String(state.focusBriefTab === "groups"));
+        document.querySelector("#focus-brief-groups").textContent = `编排动态 ${scoped.filter((item) => item.kind === "group").length}`;
+        const allRead = document.querySelector("#focus-brief-all");
+        allRead.disabled = state.focusBriefBusy || !state.focusBriefVisible.some(briefNeedsReview);
+        const visibleIds = new Set(state.focusBriefVisible.map((item) => item.id));
+        const newCount = scoped.filter((item) => !visibleIds.has(item.id)
+          && briefMatchesTab(item)).length;
+        const newButton = document.querySelector("#focus-brief-new");
+        newButton.hidden = !newCount;
+        newButton.disabled = state.focusBriefBusy;
+        newButton.textContent = `${newCount} 条新简报，点击查看`;
+        const signature = JSON.stringify([state.focusBriefTab, state.focusBriefLoaded, state.focusBriefBusy, state.focusBriefLimit,
+          state.sendSupported, [...state.focusBriefSending], state.focusBriefSendErrors,
+          state.focusBriefVisible.map((item) => [item.id, item.readAt, state.focusBriefExpanded.has(item.id),
+            item.kind === "group" ? [item, state.focusBriefDetails.has(item.id)] : item.session.live,
+            item.session ? state.sendRecords[sessionKey(item.session)] : null])]);
+        if (signature === state.focusBriefRendered) return;
+        state.focusBriefRendered = signature;
+        const scrollTop = briefList.scrollTop;
+        const previousFocus = briefDialog.contains(document.activeElement) ? activeSendFocus() : null;
+        briefList.replaceChildren();
+        const visible = state.focusBriefVisible.slice(0, state.focusBriefLimit);
+        visible.forEach((item) => briefList.append(focusBriefCard(item)));
+        if (!visible.length) briefList.append(make("div", "brief-empty", !state.focusBriefLoaded ? "正在读取简报…"
+          : state.focusBriefTab === "groups" ? "当前范围没有编排动态。" : state.focusBriefTab === "unread" ? "都看过了，新的简报会出现在这里。" : "还没有已读简报。"));
+        if (state.focusBriefVisible.length > state.focusBriefLimit) {
+          const more = make("button", "action", `继续显示 ${Math.min(BRIEF_PAGE_SIZE, state.focusBriefVisible.length - state.focusBriefLimit)} 条`);
+          more.type = "button";
+          more.addEventListener("click", () => { state.focusBriefLimit += BRIEF_PAGE_SIZE; renderFocusBriefs(); });
+          briefList.append(more);
+        }
+        briefList.scrollTop = scrollTop;
+        restoreSendFocus(previousFocus);
+      }
+
+      document.querySelector("#focus-hidden-open").addEventListener("click", () => {
+        closeFloatingMenus(); closeFocusProjectPicker(); closeFocusWorktreePicker(); closeFocusExecutionPickers();
+        hiddenProjectsDialog.showModal(); renderFocusHiddenProjects();
+      });
+      document.querySelector("#focus-hidden-close").addEventListener("click", () => hiddenProjectsDialog.close());
+      document.querySelector("#focus-hidden-restore-all").addEventListener("click", () => setFocusProjectHidden(null, false));
+      hiddenProjectsDialog.addEventListener("click", (event) => {
+        if (event.target !== hiddenProjectsDialog) return;
+        const rect = hiddenProjectsDialog.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX >= rect.right || event.clientY < rect.top || event.clientY >= rect.bottom) hiddenProjectsDialog.close();
+      });
+      hiddenProjectsDialog.addEventListener("close", () => document.querySelector("#focus-hidden-open").focus({ preventScroll: true }));
+
+      document.querySelector("#focus-local-only").addEventListener("click", () => {
+        state.focusLocalOnly = !state.focusLocalOnly;
+        applyFocusEnvironmentScope();
+      });
+      document.querySelector("#focus-environment-open").addEventListener("click", () => {
+        closeFloatingMenus(); closeFocusProjectPicker(); closeFocusWorktreePicker(); closeFocusExecutionPickers();
+        environmentDialog.showModal(); renderFocusEnvironmentControls();
+        void loadEnvironments().then(renderFocusEnvironmentControls).catch((error) => showToast(`读取环境失败：${error.message}`));
+      });
+      document.querySelector("#focus-environment-close").addEventListener("click", () => environmentDialog.close());
+      document.querySelector("#focus-environment-unlock").addEventListener("click", () => {
+        state.focusLocalOnly = false; applyFocusEnvironmentScope();
+      });
+      document.querySelector("#focus-environment-all").addEventListener("click", () => {
+        state.focusEnvironmentFilters = new Set(); applyFocusEnvironmentScope();
+      });
+      environmentDialog.addEventListener("click", (event) => {
+        if (event.target !== environmentDialog) return;
+        const rect = environmentDialog.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX >= rect.right || event.clientY < rect.top || event.clientY >= rect.bottom) environmentDialog.close();
+      });
+      environmentDialog.addEventListener("close", () => document.querySelector("#focus-environment-open").focus({ preventScroll: true }));
+
+      briefOpen.addEventListener("click", () => {
+        state.focusBriefGeneration += 1;
+        resetFocusBriefSnapshot();
+        briefDialog.showModal();
+        renderFocusBriefs();
+        void loadFocusBriefs();
+      });
+      document.querySelector("#focus-brief-close").addEventListener("click", () => briefDialog.close());
+      briefDialog.addEventListener("click", (event) => {
+        if (event.target !== briefDialog) return;
+        const rect = briefDialog.getBoundingClientRect();
+        const outside = event.clientX < rect.left || event.clientX >= rect.right
+          || event.clientY < rect.top || event.clientY >= rect.bottom;
+        if (outside) briefDialog.close();
+      });
+      briefDialog.addEventListener("close", () => {
+        state.focusBriefGeneration += 1;
+        if (!briefDialog.open) briefOpen.focus({ preventScroll: true });
+      });
+      for (const tab of ["unread", "groups", "read"]) document.querySelector(`#focus-brief-${tab}`).addEventListener("click", () => {
+        state.focusBriefTab = tab; resetFocusBriefSnapshot(); renderFocusBriefs();
+      });
+      document.querySelector("#focus-brief-new").addEventListener("click", () => { resetFocusBriefSnapshot(); renderFocusBriefs(); });
+      document.querySelector("#focus-brief-retry").addEventListener("click", () => void loadFocusBriefs());
+      document.querySelector("#focus-brief-all").addEventListener("click", () => {
+        const ids = state.focusBriefVisible.filter(briefNeedsReview).map((item) => item.id);
+        void runFocusBriefAction(() => markFocusBriefs(ids, true));
+      });
+
       async function loadFocus() {
         const worktreesRequest = state.worktreesSupported
           ? optionalConditionalApi("/api/worktrees", state.worktreeEtag, [])
@@ -4872,6 +5843,7 @@
           loadSendRecords(),
           loadSessionOutbox(),
           loadSessionTasks(),
+          loadFocusBriefs(),
         ]);
         if (board.unsupported) { state.focusBoardSupported = false; return; }
         if (!board.unchanged) {
@@ -4904,40 +5876,9 @@
 
       async function loadFocusInputs(listVersion) {
         if (!state.recentInputsSupported) return;
-        const identities = [...new Map(focusInputRows()
-          .filter((row) => row.indexed !== false)
-          .map((row) => [sessionKey(row), { agent: row.agent, sid: row.sid, ...(row.env ? { env: row.env } : {}) }])).entries()]
-          .sort(([left], [right]) => left.localeCompare(right));
-        const signature = identities.map(([key]) => key).join("\u0000");
-        if (state.recentInputsVersion === listVersion && state.recentInputsIdentitySignature === signature) return;
-        if (!identities.length) {
-          state.recentInputsBySession = {};
-          state.recentInputTimesBySession = {};
-          state.recentInputsHasMoreBySession = {};
-          state.recentInputsLoadingBySession = {};
-          state.recentInputsVersion = listVersion;
-          state.recentInputsIdentitySignature = signature;
-          return;
-        }
-        const response = await fetch("/api/session-inputs", jsonRequest("POST", {
-          sessions: identities.map(([, identity]) => identity),
-          limit: FOCUS_INPUT_PAGE_SIZE,
-        }));
-        if (response.status === 404) {
-          state.recentInputsSupported = false;
-          state.recentInputsBySession = {};
-          state.recentInputTimesBySession = {};
-          state.recentInputsHasMoreBySession = {};
-          state.recentInputsLoadingBySession = {};
-          return;
-        }
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-        state.recentInputsBySession = body.inputs || {};
-        state.recentInputTimesBySession = body.inputTimes || {};
-        state.recentInputsHasMoreBySession = body.hasMore || {};
-        state.recentInputsVersion = body.listVersion;
-        state.recentInputsIdentitySignature = signature;
+        resetRecentInputsForVersion(Number(listVersion));
+        const row = focusMonitorRow();
+        if (row) await loadFocusMonitorInputs(row);
       }
 
       async function setView(view, refresh = true) {
@@ -5581,6 +6522,8 @@
       });
       window.addEventListener("resize", () => {
         requestAnimationFrame(() => {
+          positionFocusPanel(environmentDialog, document.querySelector("#focus-environment-open"));
+          positionFocusPanel(hiddenProjectsDialog, document.querySelector("#focus-hidden-open"));
           focusExecutionControls.forEach(positionFocusExecutionPanel);
           if (!focusMonitor.hidden && !focusMonitorDrag) applyFocusMonitorPlacement();
           document.querySelectorAll(".floating-menu[open]").forEach((menu) => {
@@ -5609,26 +6552,65 @@
         if (event.key.toLowerCase() === "c") row.querySelector(".copy-action")?.click();
       });
 
-      loadList().catch((error) => showToast(`加载失败：${error.message}`));
-      setInterval(() => {
-        if (state.view === "focus") {
-          loadFocus().catch((error) => showToast(error.message));
-          return;
-        }
-        if (state.view === "projects") {
-          loadProjectManagement().catch((error) => showToast(error.message));
-          return;
-        }
-        if (state.view === "gateway") {
-          loadGateway().catch((error) => showToast(error.message));
-          return;
-        }
-        if (state.view !== "sessions") return;
-        const refresh = state.query ? refreshLive() : loadList();
-        refresh.then(() => {
+      /**
+       * Reloads the data behind the open view. The poll ticks it and the 刷新 button calls it once
+       * the server has rebuilt what it reads. 目标与环境两个视图由各自的加载器维护，刷新按钮清空
+       * ETag 后切回去即是新数据，所以这里不碰它们——否则轮询会踩到正在编辑的环境表单。
+       */
+      function reloadCurrentView() {
+        if (state.view === "focus") return loadFocus();
+        if (state.view === "projects") return loadProjectManagement();
+        if (state.view === "gateway") return loadGateway();
+        if (state.view !== "sessions") return Promise.resolve();
+        return (state.query ? refreshLive() : loadList()).then(() => {
           const monitorRow = focusMonitorRow();
           if (monitorRow) void loadFocusMonitorInputs(monitorRow, true);
-        }).catch((error) => showToast(error.message));
+        });
+      }
+
+      function refreshSummary(result) {
+        const parts = [`索引 ${result.indexed.files} 个会话`];
+        if (result.indexed.changed) parts.push(`${result.indexed.changed} 个更新`);
+        if (result.environments.length) parts.push(`已拉取 ${result.environments.length} 个远程环境`);
+        if (result.indexed.errors?.length) parts.push(`${result.indexed.errors.length} 个来源报错`);
+        const down = (result.sources || []).filter((source) => !source.ok);
+        if (!down.length) return `已刷新：${parts.join("，")}`;
+        const names = down.map((source) => LIVE_SOURCE_LABELS[source.name] || source.name).join("、");
+        return `已刷新：${parts.join("，")}；⚠ ${names}仍不可用`;
+      }
+
+      /**
+       * Both caches at once: the server re-indexes and forces every live source past its TTL, and
+       * the page drops its ETags so the reload that follows cannot be answered 304 from a body the
+       * refresh just invalidated.
+       */
+      async function runManualRefresh() {
+        if (refreshNow.disabled) return;
+        refreshNow.disabled = true;
+        refreshNow.setAttribute("aria-busy", "true");
+        refreshNow.textContent = "刷新中…";
+        try {
+          const result = await api("/api/refresh", { method: "POST" });
+          for (const key of Object.keys(state)) {
+            if (key.endsWith("Etag")) state[key] = "";
+          }
+          indexStatus.textContent = `索引更新于 ${relativeTime(result.indexedAt)}`;
+          await reloadCurrentView();
+          showToast(refreshSummary(result));
+        } catch (error) {
+          showToast(`刷新失败：${error.message}`);
+        } finally {
+          refreshNow.disabled = false;
+          refreshNow.removeAttribute("aria-busy");
+          refreshNow.textContent = "刷新";
+        }
+      }
+
+      refreshNow.addEventListener("click", () => { void runManualRefresh(); });
+
+      loadList().catch((error) => showToast(`加载失败：${error.message}`));
+      setInterval(() => {
+        reloadCurrentView().catch((error) => showToast(error.message));
       }, POLL_MS);
     })();
   </script>

@@ -57,6 +57,7 @@ describe("multi-agent open-session reader", () => {
       now: () => 0,
       getClaudeLiveMap: () => new Map([[CLAUDE_SID, claudeFallback]]),
       callRuntime: async () => runtimeSnapshot(),
+      listResumedProcesses: async () => [],
       listProcessEnvironments: async () => [
         `123 hermes HERMES_TUI_ACTIVE_SESSION_FILE=${ACTIVE_FILE}`,
         "ORCA_TERMINAL_HANDLE=term_hermes ORCA_TAB_ID=tab_hermes ORCA_PANE_KEY=tab_hermes:leaf_hermes",
@@ -92,6 +93,7 @@ describe("multi-agent open-session reader", () => {
       now: () => now,
       getClaudeLiveMap: () => new Map(),
       callRuntime: async () => { calls += 1; return runtimeSnapshot(handle, "term_hermes", title, updatedAt); },
+      listResumedProcesses: async () => [],
       listProcessEnvironments: async () => "",
     });
     await reader.refresh();
@@ -128,6 +130,7 @@ describe("multi-agent open-session reader", () => {
       now: () => now,
       getClaudeLiveMap: () => new Map(),
       callRuntime: async () => runtimeSnapshot("term_codex", hermesHandle),
+      listResumedProcesses: async () => [],
       listProcessEnvironments: async () => {
         scans += 1;
         return `HERMES_TUI_ACTIVE_SESSION_FILE=${ACTIVE_FILE} ORCA_TERMINAL_HANDLE=${hermesHandle}`;
@@ -163,14 +166,14 @@ describe("multi-agent open-session reader", () => {
     });
     const snapshot = await reader.refreshSnapshot();
     expect(snapshot.live.get(`claude/${CLAUDE_SID}`)?.pid).toBe(7);
-    // Both Orca-derived sources share one tab snapshot, so one dead runtime is reported once.
+    // The Orca-derived sources share one tab snapshot, so one dead runtime is reported once.
     expect(errors).toHaveLength(1);
     expect(errors[0]!.message).toContain("socket missing");
     expect(errors[0]!.message).toContain("orca-tab, hermes-process");
     // The failure is legible in the snapshot, not just the log.
     expect(snapshot.sources.find((source) => source.name === "claude-pid")).toMatchObject({ ok: true });
     expect(snapshot.sources.filter((source) => !source.ok).map((source) => source.name))
-      .toEqual(["orca-tab", "hermes-process"]);
+      .toEqual(["resume-process", "orca-tab", "hermes-process"]);
   });
 
   test("ignores malformed providers and untrusted Hermes active-file paths", async () => {

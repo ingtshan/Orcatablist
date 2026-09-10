@@ -34,6 +34,11 @@ interface RuntimeClientModule {
   ) => RuntimeClientLike;
 }
 
+interface SocketEmitter { listenerCount(event: string): number; }
+export interface SocketConstructor {
+  prototype?: { emit?: (this: SocketEmitter, event: string, ...args: unknown[]) => boolean };
+}
+
 export interface OrcaTabReaderOptions {
   orcaBin?: string;
   /** Saved Orca environment name; the runtime client then talks to that machine's runtime. */
@@ -68,11 +73,48 @@ export function resolveRuntimeClientPath(orcaBin = ORCATAB_ORCA_BIN): string | n
   } catch { return null; }
 }
 
-async function callRuntime(orcaBin: string, environment: string | null): Promise<unknown> {
+/**
+ * Bun resolves the runtime client's `require("ws")` to its built-in shim, so every remote request
+ * socket lives in this process. Orca's client re-attaches a swallowing `error` listener once a
+ * request settles, but only `if (socket.readyState !== CLOSED)` — a refused connect is already
+ * CLOSED, so that socket keeps no `error` listener at all and its next emit takes the whole server
+ * down with ERR_UNHANDLED_ERROR. Restoring the intended swallow keeps one unreachable environment
+ * from being fatal; the request still rejects, so the live source reports the failure as before.
+ */
+export function guardSettledSocketErrors(constructor: SocketConstructor): boolean {
+  const prototype = constructor?.prototype;
+  if (prototype === undefined) return false;
+  const emit = prototype.emit;
+  if (typeof emit !== "function") return false;
+  prototype.emit = function (this: SocketEmitter, event: string, ...args: unknown[]): boolean {
+    // An in-flight request always has `onError` attached, so nobody listening means it settled.
+    if (event === "error" && this.listenerCount("error") === 0) return false;
+    return emit.call(this, event, ...args);
+  };
+  return true;
+}
+
+/** The guard rewrites a shared prototype, so installing it twice would nest the wrappers. */
+let socketGuarded = false;
+
+function loadRuntimeClientModule(orcaBin: string): RuntimeClientModule {
   const path = resolveRuntimeClientPath(orcaBin);
   if (path === null) throw new Error(`Orca runtime client not found for ${orcaBin}`);
   const module = runtimeRequire(path) as RuntimeClientModule;
   if (typeof module.RuntimeClient !== "function") throw new Error(`invalid Orca runtime client module ${path}`);
+  if (!socketGuarded) {
+    socketGuarded = true;
+    try {
+      // Resolve `ws` from the client's own path so the guard lands on the instance it will use.
+      const socketModule = createRequire(path)("ws") as SocketConstructor & { default?: SocketConstructor };
+      guardSettledSocketErrors(socketModule.default ?? socketModule);
+    } catch { /* nothing to guard: this client build does not reach the runtime over `ws` */ }
+  }
+  return module;
+}
+
+async function callRuntime(orcaBin: string, environment: string | null): Promise<unknown> {
+  const module = loadRuntimeClientModule(orcaBin);
   // Explicit nulls: `undefined` would re-activate the client's ORCA_ENVIRONMENT env-var fallback
   // and silently retarget the local reader at whatever machine that variable names.
   return new module.RuntimeClient(undefined, ORCA_RUNTIME_TIMEOUT_MS, null, environment)
@@ -134,10 +176,7 @@ export async function activateRuntimeTab(
   tabId: string,
   orcaBin = ORCATAB_ORCA_BIN,
 ): Promise<void> {
-  const path = resolveRuntimeClientPath(orcaBin);
-  if (path === null) throw new Error(`Orca runtime client not found for ${orcaBin}`);
-  const module = runtimeRequire(path) as RuntimeClientModule;
-  if (typeof module.RuntimeClient !== "function") throw new Error(`invalid Orca runtime client module ${path}`);
+  const module = loadRuntimeClientModule(orcaBin);
   const client = new module.RuntimeClient(undefined, ORCA_RUNTIME_TIMEOUT_MS, null, environment);
   await activateRuntimeWorkspaceTab((method, params) => client.call(method, params), worktree, tabId);
 }

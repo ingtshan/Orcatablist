@@ -29,13 +29,17 @@ import { createOrcaWorktreeAuditReader, type OrcaWorktreeAuditReader } from "./o
 import { openProjectPreferencesDatabase, ProjectPreferencesStore } from "./project-preferences";
 import { handleProjectRequest, NotFoundError } from "./project-routes";
 import { refreshProjectMetadata, startProjectMetadataTimer } from "./projects";
+import { handleRefreshRequest } from "./refresh-routes";
 import { EnvironmentStore, openEnvironmentsDatabase } from "./remote-environments";
 import { createRemoteTabLiveSources } from "./remote-live";
 import { createRemoteIndexing, type RemoteIndexing } from "./remote-poller";
 import { handleEnvironmentRequest } from "./remote-routes";
 import { handleSessionInputsRequest } from "./session-input-routes";
+import { handleSessionBriefRequest } from "./session-brief-routes";
 import { handleSessionOutboxRequest } from "./session-outbox-routes";
 import { openSessionOutboxDatabase, SessionOutboxStore } from "./session-outbox";
+import { createSessionOutboxRuntime } from "./session-outbox-runtime";
+import { sentInputEvidenceCount } from "./session-send-evidence";
 import { createRefreshGate, handleSessionTaskRequest } from "./session-task-routes";
 import { handleSessionSendRequest, logSentInput } from "./session-send-routes";
 import { createSessionSendRuntime, type SentInputStore } from "./session-send-runtime";
@@ -128,6 +132,13 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
     logSentInput(entry);
     if (entry.env !== undefined) remoteIndexing.kick(entry.env);
   };
+  const outboxRuntime = createSessionOutboxRuntime({ outbox: sessionOutboxStore,
+    store: sentInputRuntime.store, confirmationQueue: sentInputRuntime.confirmationQueue,
+    findLive: sessionLiveReader.findLive, psEnv: focusDeps.psEnv, orcaJson: focusDeps.orcaJson, onSent,
+    startPolling: options.startTimers !== false,
+    getInputCount: (agent, sid, env) => sentInputEvidenceCount(db, agent, sid, env),
+    liveFresh: () => sessionLiveReader.getSnapshot().sources.every((source) => source.ok && !source.stale),
+  });
   const timers: Array<ReturnType<typeof setInterval>> = [];
   let watcher: WatchHandle = { mode: "timer", close: () => {} };
   let rescanTimer: ReturnType<typeof setInterval> | null = null;
@@ -199,9 +210,24 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
           capabilities: [
             "worktree-pin", "worktree-resources", "nginx-gateway", "directory-governance", "orca-worktree-audit",
             "session-send", "session-outbox", "focus-board", "session-tasks", "orchestration-runs", "remote-environments",
+            "session-briefs", "manual-refresh",
           ],
         });
       }
+      const refreshResponse = await handleRefreshRequest(request, url, {
+        indexAll: () => indexer.indexAll(),
+        liveReader: sessionLiveReader,
+        kickEnvironments: () => {
+          const names = environmentStore.listEnabled().map((config) => config.name);
+          for (const name of names) remoteIndexing.kick(name);
+          return names;
+        },
+        indexedAt: () => {
+          const raw = db.getMeta("indexed_at");
+          return raw === null ? null : Number(raw);
+        },
+      });
+      if (refreshResponse !== null) return refreshResponse;
       if (request.method === "GET" && url.pathname === "/api/orchestration") {
         const live = await sessionLiveReader.refresh();
         const snapshot = orchestrationReader.refresh();
@@ -225,6 +251,10 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       if (focusBoardResponse !== null) return focusBoardResponse;
       const sessionInputsResponse = await handleSessionInputsRequest(request, url, db);
       if (sessionInputsResponse !== null) return sessionInputsResponse;
+      const sessionBriefResponse = await handleSessionBriefRequest(request, url, {
+        db, liveReader: sessionLiveReader, preferences: projectPreferences, orchestrationReader,
+      });
+      if (sessionBriefResponse !== null) return sessionBriefResponse;
       const sessionTaskResponse = await handleSessionTaskRequest(request, url, {
         db, boards, store: sessionTaskStore, bindings: projectBoardStore, refreshGate,
         ...(options.quiet ? { onError: () => {} } : {}),
@@ -233,6 +263,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       const sessionOutboxResponse = await handleSessionOutboxRequest(request, url, {
         findLive: sessionLiveReader.findLive, psEnv: focusDeps.psEnv, orcaJson: focusDeps.orcaJson,
         store: sentInputRuntime.store, outbox: sessionOutboxStore, onSent,
+        getInputCount: (agent, sid, env) => sentInputEvidenceCount(db, agent, sid, env),
       });
       if (sessionOutboxResponse !== null) return sessionOutboxResponse;
       const sessionSendResponse = await handleSessionSendRequest(request, url, {
@@ -343,6 +374,7 @@ export async function createServer(options: ServerOptions = {}): Promise<OrcaTab
       indexer.close();
       for (const timer of timers) clearInterval(timer);
       remoteIndexing.close();
+      outboxRuntime.close();
       sentInputRuntime.close();
       server.stop(true);
       if (options.environmentStore === undefined) environmentStore.close();

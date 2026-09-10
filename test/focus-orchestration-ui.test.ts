@@ -16,7 +16,7 @@ const FUNCTIONS = [
   "focusRowMatchesProject", "focusRowMatchesWorktree", "focusSearchRowVisible",
   "focusHistoryActive", "allFocusRows", "allFocusHistoryRows", "focusHistoryRows",
   "focusLaneRows", "visibleFocusRows", "orchestrationGroups", "focusLaneEmptyText",
-  "focusScopeEntries", "focusPresentation", "focusExecutionValue", "focusRowMatchesExecution",
+  "focusRowMatchesEnvironment", "focusScopeEntries", "focusPresentation", "focusExecutionValue", "focusRowMatchesExecution",
   "focusExecutionFacets", "renderFocus", "focusRunCluster",
 ];
 
@@ -60,6 +60,7 @@ function harness(options: { query?: string; worktree?: string; parent?: SessionR
   const state = {
     query: options.query ?? "", projects: [{ key: "project", root: "/repo", name: "project" }],
     focusProjectFilters: new Set<string>(),
+    focusLocalOnly: false, focusEnvironmentFilters: new Set<string>(), focusHiddenProjects: new Set<string>(),
     focusExecutionFilters: { agent: new Set<string>(), model: new Set<string>(), reasoningEffort: new Set<string>() },
     focusWorktreeFilters: new Set(options.worktree
       ? [JSON.stringify(["local", "project", options.worktree])] : []),
@@ -82,7 +83,7 @@ function harness(options: { query?: string; worktree?: string; parent?: SessionR
     const FOCUS_EXECUTION_FIELDS = ["agent", "model", "reasoningEffort"].map(key => ({ key }));
     const focusBoard = make("div");
     const activeSendFocus = () => null, restoreSendFocus = () => {}, renderFocusMonitor = () => {};
-    const renderFocusExecutionFilters = () => {};
+    const renderFocusExecutionFilters = () => {}, renderFocusBriefs = () => {}, renderFocusEnvironmentControls = () => {}, renderFocusHiddenProjects = () => {};
     const setRunExpanded = () => {};
     const focusSessionCard = row => make("article", "session", row.sid);
     const renderFocusGroups = (_parent, key, rows, runs) => lanes.push({ key, rows, groups: runs.groups });
@@ -98,6 +99,45 @@ function harness(options: { query?: string; worktree?: string; parent?: SessionR
 }
 
 describe("focus orchestration presentation", () => {
+  test("hiding a project excludes its cards from every focus lane without archiving it", () => {
+    const page = harness(); page.state.focusHiddenProjects.add("project");
+    page.renderFocus();
+    expect(page.lanes.flatMap((lane) => lane.rows)).toEqual([]);
+    expect(page.state.projects[0]).not.toHaveProperty("archived");
+    page.lanes.length = 0; page.state.focusHiddenProjects.clear(); page.renderFocus();
+    expect(page.lanes.flatMap((lane) => lane.rows)).not.toHaveLength(0);
+  });
+  test("a hidden coordinator cannot leak back through a matching child search result", () => {
+    const page = harness({ query: "needle", parent: { ...parent, projectKey: "hidden-parent" } });
+    page.state.focusHiddenProjects.add("hidden-parent"); page.renderFocus();
+    expect(page.lanes.flatMap((lane) => lane.rows).map((row) => row.sid)).toEqual(["child"]);
+    expect(page.lanes.some((lane) => lane.groups.size)).toBeFalse();
+  });
+
+  test("local-only removes a remote coordinator but retains its local worker as a card", () => {
+    const page = harness({ parent: { ...parent, env: "n1" } });
+    page.state.focusLocalOnly = true;
+    page.renderFocus();
+    expect(page.lanes.flatMap((lane) => lane.rows).map((row) => row.sid)).toEqual(["child"]);
+    page.lanes.length = 0;
+    page.state.focusLocalOnly = false;
+    page.state.focusEnvironmentFilters = new Set(["n1"]);
+    page.renderFocus();
+    expect(page.lanes.flatMap((lane) => lane.rows).map((row) => row.sid)).toEqual(["parent"]);
+    expect(page.lanes.some((lane) => lane.groups.size > 0)).toBeFalse();
+  });
+
+  test("environment and search must match the same visible member", () => {
+    const page = harness({ query: "needle", parent: { ...parent, env: "n1" } });
+    page.state.focusEnvironmentFilters = new Set(["n1"]);
+    page.renderFocus();
+    expect(page.lanes.flatMap((lane) => lane.rows)).toEqual([]);
+    page.lanes.length = 0;
+    page.state.focusLocalOnly = true;
+    page.renderFocus();
+    expect(page.lanes.flatMap((lane) => lane.rows).map((row) => row.sid)).toEqual(["child"]);
+  });
+
   test("a running child keeps the completed parent and the whole group in the working lane", () => {
     const page = harness();
     page.renderFocus();

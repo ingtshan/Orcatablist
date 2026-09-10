@@ -13,6 +13,9 @@ import {
 } from "./remote-read-state";
 import type { Agent, ProjectRow, SearchHit, SearchResult, SessionRow } from "./types";
 import type { SessionExecution } from "./session-execution";
+import { applyBriefEvents } from "./session-briefs";
+import type { BriefEvent } from "./session-brief-events";
+import { finishFullInputRebuild } from "./session-input-rebuild";
 
 export type { SessionMention } from "./db-mentions";
 
@@ -38,10 +41,11 @@ export interface SessionCommit {
   replaceFts: boolean;
   project: ProjectRecord;
   ack?: RemoteReadAck;
+  briefEvents?: BriefEvent[];
 }
 export interface RecentUserInput { text: string; ts: number | null; }
 export interface RecentUserInputPage { inputs: RecentUserInput[]; hasMore: boolean; }
-export interface RecentUserInputPageOptions { limit?: number; offset?: number; }
+export interface RecentUserInputPageOptions { limit?: number; offset?: number; fullText?: boolean; }
 export interface ProjectRecord { key: string; name: string; root: string; color: string | null; }
 
 class StaleRemoteRead extends Error {
@@ -131,6 +135,8 @@ export class OrcaDatabase {
     this.transaction(() => {
       this.raw.query("DELETE FROM sessions WHERE env = ?").run(env);
       this.raw.query("DELETE FROM msg_fts WHERE env = ?").run(env);
+      this.raw.query("DELETE FROM session_briefs WHERE env = ?").run(env);
+      this.raw.query("DELETE FROM brief_sessions WHERE env = ?").run(env);
       this.raw.query("DELETE FROM projects WHERE key LIKE ? ESCAPE '\\'").run(`${escapeLike(env)}:%`);
       deleteRemoteReadState(this.raw, env);
     });
@@ -147,10 +153,12 @@ export class OrcaDatabase {
         if (commit.ack !== undefined && !acknowledgeRemoteRead(this.raw, commit.ack)) {
           throw new StaleRemoteRead(commit.ack.path);
         }
+        applyBriefEvents(this.raw, commit.session, commit.briefEvents ?? []);
         if (commit.replaceFts) this.deleteSessionFts(commit.session.agent, commit.session.sid, commit.session.env);
         this.upsertProject(commit.project);
         this.appendSessionFts(commit.fts);
         this.upsertSession(commit.session);
+        if (commit.replaceFts) finishFullInputRebuild(this.raw, commit.session);
       });
     } catch (error) {
       if (error instanceof StaleRemoteRead) return false;
@@ -251,7 +259,7 @@ export class OrcaDatabase {
       SELECT COALESCE(json_extract(value, '$.env'), '${LOCAL_ENV}'), json_extract(value, '$.agent'), json_extract(value, '$.sid') FROM json_each(?)
     ), ranked AS (
       SELECT msg_fts.env, msg_fts.agent, msg_fts.sid,
-        CASE WHEN length(msg_fts.text) > ? THEN substr(msg_fts.text, 1, ?) || '…' ELSE msg_fts.text END AS text,
+        CASE WHEN ? = 0 AND length(msg_fts.text) > ? THEN substr(msg_fts.text, 1, ?) || '…' ELSE msg_fts.text END AS text,
         msg_fts.ts,
         ROW_NUMBER() OVER (PARTITION BY msg_fts.env, msg_fts.agent, msg_fts.sid ORDER BY msg_fts.rowid DESC) AS input_rank
       FROM msg_fts JOIN requested
@@ -260,7 +268,7 @@ export class OrcaDatabase {
     )
     SELECT env, agent, sid, text, ts FROM ranked
       WHERE input_rank > ? AND input_rank <= ? ORDER BY agent, sid, input_rank`)
-      .all(JSON.stringify(unique), RECENT_USER_INPUT_MAX_CHARS, RECENT_USER_INPUT_MAX_CHARS - 1,
+      .all(JSON.stringify(unique), Number(options.fullText === true), RECENT_USER_INPUT_MAX_CHARS, RECENT_USER_INPUT_MAX_CHARS - 1,
         offset, offset + limit + 1) as Array<{ env: string; agent: string; sid: string; text: string; ts: number | null }>;
     for (const row of rows) {
       const timestamp = row.ts === null ? null : Number(row.ts);

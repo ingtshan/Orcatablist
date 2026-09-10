@@ -20,7 +20,7 @@ const MAX_TRACKED_SENDS = 200;
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
 export type SendConflictCode =
-  | "offline" | "not-waiting" | "status-changed" | "handle-changed" | "running-outside-orca";
+  | "offline" | "not-waiting" | "status-changed" | "handle-changed" | "running-outside-orca" | "send-pending";
 export type ConfirmationState = "pending" | "stalled";
 
 export class SendConflictError extends Error {
@@ -36,6 +36,7 @@ export interface SentInput {
   text: string;
   handle: string;
   sentAt: number;
+  previousInputCount?: number;
 }
 
 export interface SentInputRecord extends SentInput { state: ConfirmationState; }
@@ -43,7 +44,7 @@ export interface ConfirmedSentInput extends SentInput {
   confirmedAt: number;
   confirmedInputAt: number | null;
 }
-export interface SentUserInputEvidence { text: string; ts: number | null; }
+export interface SentUserInputEvidence { text: string; ts: number | null; inputCount?: number; }
 
 export interface SentInputStore {
   record(entry: SentInput): void;
@@ -72,6 +73,8 @@ export interface SessionSendDeps {
   store: SentInputStore;
   now?(): number;
   onSent?(entry: SentInput): void;
+  beforeSend?(): void;
+  getInputCount?(agent: Agent, sid: string, env?: string): number;
 }
 
 export interface SendExpectation { handle?: string; status?: string }
@@ -155,6 +158,7 @@ export function createSentInputConfirmationQueue(
       const key = sessionIdentityKey(entry.agent, entry.sid, entry.env);
       const latest = inputs.get(key)?.[0];
       if (latest?.text !== entry.text) continue;
+      if (entry.previousInputCount !== undefined && (latest.inputCount ?? 0) <= entry.previousInputCount) continue;
       if (!removeCurrent(deps.store, entry)) continue;
       confirmed.set(key, { ...entry, confirmedAt: checkedAt, confirmedInputAt: latest.ts });
     }
@@ -178,7 +182,23 @@ export function createSentInputConfirmationQueue(
   };
 }
 
+const ACTIVE_SENDS = new WeakMap<SentInputStore, Set<string>>();
+
 export async function sendSessionInput(
+  agent: Agent, sid: string, text: unknown, deps: SessionSendDeps, expected: SendExpectation = {}, env?: string,
+): Promise<SentInputRecord> {
+  const active = ACTIVE_SENDS.get(deps.store) ?? new Set<string>();
+  ACTIVE_SENDS.set(deps.store, active);
+  const key = sessionIdentityKey(agent, sid, env);
+  if (active.has(key) || deps.store.get(agent, sid, env)) {
+    throw new SendConflictError("send-pending", "previous input is still being sent or awaiting confirmation");
+  }
+  active.add(key);
+  try { return await sendSessionInputOnce(agent, sid, text, deps, expected, env); }
+  finally { active.delete(key); }
+}
+
+async function sendSessionInputOnce(
   agent: Agent,
   sid: string,
   text: unknown,
@@ -193,7 +213,7 @@ export async function sendSessionInput(
   const envArgs = scope === undefined ? [] : ["--environment", scope];
   const live = await deps.findLive(agent, sid, scope);
   if (live === null) throw new SendConflictError("offline", "session is no longer live in Orca");
-  if (!SENDABLE_STATUSES.has(live.status)) {
+  if (!SENDABLE_STATUSES.has(live.status) || live.waitingFor) {
     throw new SendConflictError("not-waiting", `session is ${live.status}, not waiting for input`);
   }
   if (expected.status !== undefined && expected.status !== live.status) {
@@ -206,6 +226,8 @@ export async function sendSessionInput(
   if (expected.handle !== undefined && expected.handle !== target.handle) {
     throw new SendConflictError("handle-changed", "session moved to another Orca terminal");
   }
+  deps.beforeSend?.();
+  const previousInputCount = deps.getInputCount?.(agent, sid, scope);
   const sent = await deps.orcaJson([
     "terminal", "send", "--terminal", target.handle, "--text", payload, "--enter", ...envArgs, "--json",
   ]);
@@ -213,6 +235,7 @@ export async function sendSessionInput(
   const sentAt = (deps.now ?? Date.now)();
   const entry: SentInput = {
     agent, ...(scope === undefined ? {} : { env: scope }), sid, text: payload, handle: target.handle, sentAt,
+    ...(previousInputCount === undefined ? {} : { previousInputCount }),
   };
   deps.store.record(entry);
   deps.onSent?.(entry);

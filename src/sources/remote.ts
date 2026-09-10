@@ -14,6 +14,7 @@ import {
 } from "../session-source";
 import type { ParsedEvent } from "../types";
 import { EXECUTION_METADATA_VERSION } from "../session-execution";
+import { fullInputRebuildPaths } from "../session-input-rebuild";
 import { completeLines, indexJsonlSession, type JsonlWindow } from "./jsonl";
 import { parseCodexTitles, parseCodexLine, ROLLOUT_FILE_PATTERN } from "./codex";
 
@@ -125,9 +126,13 @@ export function createRemoteEnvironmentSources(options: RemoteEnvironmentSources
   const buildCursors = (known: Map<string, RemoteReadState>): Record<string, RemoteReadCursor> => {
     const cursors: Record<string, RemoteReadCursor> = {};
     for (const [path, state] of known) cursors[path] = remoteReadCursor(state);
+    for (const path of fullInputRebuildPaths(options.db.raw, options.env)) {
+      const state = known.get(path);
+      if (state && !state.replacePending) cursors[path] = { ...remoteReadCursor(state), rebuild: true, skip: false };
+    }
     for (const session of options.db.sessionCursors(options.env)) {
       const state = known.get(session.path);
-      if (session.executionMetadataVersion === 0 && state && !state.replacePending && !state.blocked
+      if (session.executionMetadataVersion === 0 && state && !state.replacePending && !state.blocked && !cursors[session.path]?.rebuild
         && state.receivedFrom >= state.observedSize && (session.agent === "claude" || session.agent === "codex")) {
         cursors[session.path] = { ...remoteReadCursor(state), executionAgent: session.agent };
       }
