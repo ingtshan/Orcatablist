@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OrcaDatabase } from "../src/db";
 import { createIndexer } from "../src/indexer";
 import { parseLine } from "../src/parse";
-import type { PullResult } from "../src/remote-pull";
+import { assemblePullOutput, COLLECTOR_SCRIPT, spawnExec, type PullResult } from "../src/remote-pull";
 import { ensureFullInputSchema, needsFullInputRebuild } from "../src/session-input-rebuild";
 import { indexJsonlSession, indexLocalJsonlSession } from "../src/sources/jsonl";
 import { createRemoteEnvironmentSources } from "../src/sources/remote";
@@ -75,4 +75,26 @@ test("remote backfill survives incomplete records and replaces history once afte
     expect((await indexer.indexAll()).changed).toBe(0);
     expect(db.countSessionFts("claude", SID, "remote")).toBe(1);
   } finally { source.close(); indexer.close(); db.close(); }
+});
+
+test("the real collector honors explicit rebuild even when an unchanged file was fully received", async () => {
+  const root = mkdtempSync(join(import.meta.dir, "../scratch/monitor-collector-"));
+  const dir = join(root, "projects");
+  const project = join(dir, "fixture");
+  mkdirSync(project, { recursive: true });
+  const path = join(project, `${SID}.jsonl`);
+  writeFileSync(path, BYTES);
+  const stat = statSync(path);
+  try {
+    const result = await spawnExec(["python3", "-c", COLLECTOR_SCRIPT],
+      JSON.stringify({ claude: { dir }, cursors: { [path]: {
+        offset: stat.size, size: stat.size, mtime: Math.trunc(stat.mtimeMs), rebuild: true,
+      } }, maxBytes: BYTES.length }), 10_000, BYTES.length * 2);
+    expect(result.exitCode).toBe(0);
+    const pull = assemblePullOutput(result.stdout);
+    expect(pull.errors).toEqual([]);
+    expect(pull.rebuilds.has(path)).toBe(true);
+    expect(pull.chunks.get(path)?.offset).toBe(0);
+    expect(Buffer.from(pull.chunks.get(path)!.bytes).equals(BYTES)).toBe(true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
